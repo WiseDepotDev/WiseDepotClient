@@ -302,6 +302,32 @@
   margin-bottom: var(--w-space-group-gap);
 }
 
+/*
+ * 底部固定动作条：**钉在视口底部**，不随内容滚动。
+ * 规范里的硬规则 —— 表单屏不允许"滚到底才看得到提交按钮"。
+ * 它不进内容流，所以内容区必须自己留出等高的下边距（用 .w-page--withbottombar）。
+ */
+.w-bottombar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  padding: var(--w-space-inline-gap) var(--w-space-screen-horizontal);
+  padding-bottom: calc(var(--w-space-inline-gap) + env(safe-area-inset-bottom, 0));
+  min-height: var(--w-dp-56);
+  background: var(--w-color-surface);
+  border-top: 1px solid var(--w-color-outline);
+  z-index: 5;
+}
+
+.w-bottombar > .w-btn--block { flex: 1; }
+
+/* 有底部动作条时，内容区留出等高空间，避免最后一行被挡住 */
+.w-page--withbottombar { padding-bottom: calc(var(--w-dp-80) + env(safe-area-inset-bottom, 0)); }
+
 /* 危险操作的二次确认：遮罩 + 居中面板（用 elevation-overlay 表达层级，不用阴影堆叠） */
 .w-overlay {
   position: fixed;

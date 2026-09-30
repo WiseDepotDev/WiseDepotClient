@@ -171,6 +171,19 @@ export function ActionBar({ children }: { children: ReactNode }): React.ReactEle
 }
 
 /**
+ * 底部固定动作条（ui-spec §2 硬规则：**表单屏必须用它**）。
+ *
+ * 与 [ActionBar] 的区别：ActionBar 是内容流里的一条，BottomActionBar **钉在视口底部**、
+ * 不随内容滚动 —— 这正是"滚到底找提交按钮"的解法（旧版建单屏 477 行、
+ * 巡检手动补录 278 行都是这个问题）。
+ *
+ * 它只负责"钉住"，按钮怎么排由调用方决定：主操作建议 `block`（占满宽度）。
+ */
+export function BottomActionBar({ children }: { children: ReactNode }): React.ReactElement {
+  return <div className="w-bottombar">{children}</div>;
+}
+
+/**
  * 危险操作的二次确认（ui-spec §3.1："不允许点一下就删"）。
  *
  * 用受控组件而不是 `window.confirm`：后者会**阻塞渲染线程**、样式不可控、
