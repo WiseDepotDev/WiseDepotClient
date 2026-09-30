@@ -13,6 +13,7 @@ React 19 Web UI ── WS(Netty) ──► Kotlin 桥（唯一实现）── HT
 ```
 
 - 架构与决策：[docs/architecture.md](./docs/architecture.md)
+- **UI 布局与视觉规范**：[docs/ui-spec.md](./docs/ui-spec.md)
 - 桥协议 v3：[docs/protocol.md](./docs/protocol.md)
 - 设计令牌（导出与纪律）：[docs/tokens.md](./docs/tokens.md)
 - **W2 传输 Spike 与验收记录**：[docs/w2-spike.md](./docs/w2-spike.md)

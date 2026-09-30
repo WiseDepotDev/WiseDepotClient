@@ -1,5 +1,20 @@
 import { useEffect, useState } from 'react';
 import type { Bridge } from '@wise/bridge-client';
+import { BridgeError } from '@wise/bridge-client';
+import {
+  Card,
+  Chip,
+  DataList,
+  DataRow,
+  Dot,
+  Grid,
+  KeyValue,
+  KpiCard,
+  ListStateHost,
+  Mono,
+  Section,
+  Stack,
+} from '@wise/patterns';
 import type { NavLeaf } from './navigation.js';
 import { useBridgeCall } from './useBridgeCall.js';
 
@@ -8,107 +23,148 @@ interface DashboardSummary {
   readonly todayAlertCount: number;
   readonly inspectionProgress: number;
   readonly deviceOnlineCount: number;
+  readonly unprocessedAlerts?: readonly {
+    readonly eventId: number;
+    readonly title: string;
+    readonly level: number;
+    readonly createTime?: string;
+  }[];
   readonly currentTask?: { readonly taskCode?: string; readonly progress?: number } | undefined;
 }
 
 /**
  * 页面内容。
  *
- * W1 阶段只在"看板"这一页做**真实取数**，其余页给占位骨架 ——
- * 目的是让 W1 的验收物是"一条打通的链路"，而不是一堆好看的空壳：
- * 引导 → 桥 → 方法白名单 → 后端数据 → 令牌化的界面。
+ * W1/W3 阶段只有"看板"做**真实取数**，其余页给四态占位 —— 目的是让每一步的验收物都是
+ * "一条打通的链路"，而不是一堆好看的空壳。所有取数容器走 `ListStateHost`，
+ * 因此"加载 / 空 / 错 / 内容"四种状态是**结构上必然存在**的，不靠作者记得写。
  */
 export function PageBody({ bridge, leaf }: { bridge: Bridge; leaf: NavLeaf }): React.ReactElement {
   if (leaf.primaryMethod === 'dashboard.summary') {
     return <Dashboard bridge={bridge} />;
   }
   return (
-    <div className="w-card">
-      <div className="w-mono w-muted">{leaf.primaryMethod}</div>
-      <p>该页在 W5–W7 逐域迁入。当前占位，用于验证外壳、导航与令牌。</p>
-      <div className="w-skeleton" />
-    </div>
+    <Section title="待迁入">
+      <Card>
+        <Stack tight>
+          <Mono>{leaf.primaryMethod}</Mono>
+          <span className="w-muted">该页在 W5–W7 逐域迁入；当前占位用于验证外壳、导航与令牌。</span>
+        </Stack>
+      </Card>
+    </Section>
   );
 }
 
 function Dashboard({ bridge }: { bridge: Bridge }): React.ReactElement {
   const { loading, data, error, reload } = useBridgeCall<DashboardSummary>(bridge, 'dashboard.summary');
 
-  if (error) {
-    return (
-      <div className="w-card w-error">
-        <div>{error.code}</div>
-        <div className="w-muted">{error.messageKey ?? '取数失败'}</div>
-        <button type="button" className="w-btn" onClick={reload}>
-          重试
-        </button>
-      </div>
-    );
-  }
-
-  if (loading || !data) {
-    return (
-      <div className="w-grid">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="w-card">
-            <div className="w-skeleton" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  const kpis = [
-    { label: '库存总量', value: data.inventoryTotal },
-    { label: '今日告警', value: data.todayAlertCount },
-    { label: '巡检进度', value: `${data.inspectionProgress}%` },
-    { label: '设备在线', value: data.deviceOnlineCount },
-  ];
+  const alerts = data?.unprocessedAlerts ?? [];
 
   return (
-    <>
-      <div className="w-grid">
-        {kpis.map((k) => (
-          <div key={k.label} className="w-card">
-            <div className="w-kpi__value">{k.value}</div>
-            <div className="w-kpi__label">{k.label}</div>
-          </div>
-        ))}
-      </div>
-      {data.currentTask?.taskCode ? (
-        <div className="w-card" style={{ marginTop: 'var(--w-space-group-gap)' }}>
-          <div className="w-kpi__label">当前任务</div>
-          <div className="w-mono">{data.currentTask.taskCode}</div>
-        </div>
+    <Stack>
+      <ListStateHost
+        loading={loading}
+        error={error ? { code: error.code, text: humanize(error) } : undefined}
+        items={data ? [data] : []}
+        emptyText="暂无看板数据"
+        onRetry={reload}
+      >
+        {() => (
+          <Grid>
+            <KpiCard value={data?.inventoryTotal ?? 0} label="库存总量" />
+            <KpiCard value={data?.todayAlertCount ?? 0} label="今日告警" />
+            <KpiCard value={`${data?.inspectionProgress ?? 0}%`} label="巡检进度" />
+            <KpiCard value={data?.deviceOnlineCount ?? 0} label="设备在线" />
+          </Grid>
+        )}
+      </ListStateHost>
+
+      {data?.currentTask?.taskCode ? (
+        <Section title="当前任务">
+          <Card>
+            <KeyValue k="任务号" v={<Mono>{data.currentTask.taskCode}</Mono>} />
+            <KeyValue k="进度" v={`${data.currentTask.progress ?? 0}%`} />
+          </Card>
+        </Section>
       ) : null}
+
+      <Section title="未处理告警">
+        <Card flush>
+          <ListStateHost
+            loading={loading}
+            error={error ? { code: error.code, text: humanize(error) } : undefined}
+            items={alerts}
+            emptyText="没有未处理的告警"
+            onRetry={reload}
+          >
+            {(items) => (
+              <DataList>
+                {items.map((a) => (
+                  <DataRow
+                    key={a.eventId}
+                    id={`#${a.eventId}`}
+                    main={a.title}
+                    sub={a.createTime}
+                    trailing={
+                      <Chip tone={a.level >= 2 ? 'warn' : 'info'}>
+                        <Dot tone={a.level >= 2 ? 'bad' : 'warn'} />
+                        {a.level >= 2 ? '高' : '中'}
+                      </Chip>
+                    }
+                  />
+                ))}
+              </DataList>
+            )}
+          </ListStateHost>
+        </Card>
+      </Section>
+
       <ScanFeed bridge={bridge} />
-    </>
+    </Stack>
   );
 }
 
-/** 扫码事件流：验证 `evt` 通道（订阅、解绑、重连后重订阅）。 */
+/** 文案映射在 Web 侧（桥只给码，延续"谁展示谁拥有"）。 */
+function humanize(error: BridgeError): string {
+  if (error.messageKey === 'bridge.backendUnreachable') {
+    return '后端不可达，请检查网络或服务状态';
+  }
+  if (error.messageKey === 'error_session_expired') {
+    return '登录已过期，请重新登录';
+  }
+  return '取数失败';
+}
+
+/** 扫码事件流：验证 `evt` 通道（订阅 / 解绑 / 重连后重订阅）。 */
 function ScanFeed({ bridge }: { bridge: Bridge }): React.ReactElement {
   const [codes, setCodes] = useState<readonly string[]>([]);
 
-  useEffect(() => bridge.subscribe('scan.code', (data) => {
-    const code = (data as { code?: string } | undefined)?.code;
-    if (code) {
-      setCodes((prev) => [code, ...prev].slice(0, 5));
-    }
-  }), [bridge]);
+  useEffect(
+    () =>
+      bridge.subscribe('scan.code', (payload) => {
+        const code = (payload as { code?: string } | undefined)?.code;
+        if (code) {
+          setCodes((prev) => [code, ...prev].slice(0, 5));
+        }
+      }),
+    [bridge],
+  );
 
   return (
-    <div className="w-card" style={{ marginTop: 'var(--w-space-group-gap)' }}>
-      <div className="w-kpi__label">最近扫码（事件通道）</div>
-      {codes.length === 0 ? (
-        <div className="w-muted">等待事件…（mock 每 20 秒推一条）</div>
-      ) : (
-        codes.map((c) => (
-          <div key={c} className="w-mono">
-            {c}
+    <Section title="最近扫码（事件通道）">
+      <Card flush>
+        {codes.length === 0 ? (
+          <div className="w-state">
+            <span>等待事件…</span>
           </div>
-        ))
-      )}
-    </div>
+        ) : (
+          <DataList>
+            {codes.map((c) => (
+              <DataRow key={c} id={c} main="扫码" />
+            ))}
+          </DataList>
+        )}
+      </Card>
+    </Section>
   );
 }

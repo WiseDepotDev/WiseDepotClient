@@ -37,18 +37,24 @@ interface Case {
 const cases: readonly Case[] = [
   {
     name: 'MobileShell（紧凑档外壳）',
-    render: () => renderToStaticMarkup(<MobileShell bridge={fakeBridge(['scan.camera', 'nfc.read'])} origin="test" />),
-    expect: ['w-mobile', 'w-tabbar', '概览', '库存', '现场', '我的', '扫码', 'w-mono'],
+    render: () =>
+      renderToStaticMarkup(
+        <MobileShell bridge={fakeBridge(['scan.camera', 'nfc.read'])} origin="test" size="compact" />,
+      ),
+    expect: ['w-root--stack', 'w-appbar', 'w-tabbar', 'w-pageheader', '概览', '库存', '现场', '我的', '扫码', 'w-mono'],
   },
   {
     name: 'MobileShell 无扫码能力（能力表驱动，不是平台字符串）',
-    render: () => renderToStaticMarkup(<MobileShell bridge={fakeBridge(['nfc.read'])} origin="test" />),
-    expect: ['w-mobile'],
+    render: () => renderToStaticMarkup(<MobileShell bridge={fakeBridge(['nfc.read'])} origin="test" size="compact" />),
+    expect: ['w-root--stack'],
   },
   {
-    name: 'DesktopShell（扩展档外壳）',
-    render: () => renderToStaticMarkup(<DesktopShell bridge={fakeBridge(['window.control', 'print.system'])} origin="test" />),
-    expect: ['w-desktop', 'w-sidebar', 'w-navitem', 'w-split', 'w-listrow', '列表栏', '2 项能力'],
+    name: 'DesktopShell（扩展档外壳，主从双栏）',
+    render: () =>
+      renderToStaticMarkup(
+        <DesktopShell bridge={fakeBridge(['window.control', 'print.system'])} origin="test" size="expanded" />,
+      ),
+    expect: ['w-sidebar', 'w-navitem', 'w-master-detail', 'w-content--expanded', 'w-datarow', '2 项能力'],
   },
 ];
 
@@ -71,9 +77,11 @@ for (const c of cases) {
   console.log(`  ✓ ${c.name}（${html.length} 字节）`);
 }
 
-// 反向断言：无扫码能力时不应画出扫码按钮
+// 反向断言：无扫码能力时不应画出扫码入口。
+// 注意断言的是 **aria-label** 而不是"扫码"这个词——页内的事件流标题里也有"扫码"，
+// 用裸词匹配会得到假阳性（旧仓 B0 的度量脚本就踩过同款坑，见《APP-UI优化计划》§一 口径更正）。
 const noScan = cases[1]!.render();
-if (noScan.includes('扫码')) {
+if (noScan.includes('aria-label="扫码"')) {
   console.error('✗ 无 scan.camera 能力时仍然渲染了扫码入口');
   failures += 1;
 }

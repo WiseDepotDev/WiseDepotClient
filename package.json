@@ -32,6 +32,7 @@
     "@wise/shells": "workspace:*",
     "esbuild": "^0.25.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "@wise/patterns": "workspace:*"
   }
 }

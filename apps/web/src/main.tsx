@@ -4,7 +4,7 @@ import { createBridge, type Bridge } from '@wise/bridge-client';
 import { AppFrame } from '@wise/shells';
 
 import '@wise/tokens/tokens.css';
-import '@wise/shells/shell.css';
+import '@wise/patterns/patterns.css';
 
 interface Ready {
   readonly bridge: Bridge;
