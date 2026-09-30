@@ -2,6 +2,7 @@ import type { Bridge } from '@wise/bridge-client';
 import { Card, Mono, Section, Stack } from '@wise/patterns';
 import { DashboardScreen } from './overview/DashboardScreen.js';
 import { AlertListScreen } from './overview/AlertListScreen.js';
+import { InventoryListScreen } from './inventory/InventoryListScreen.js';
 
 /**
  * 屏注册表：**桥方法 id → 屏组件**。
@@ -17,6 +18,10 @@ export type ScreenComponent = (props: { bridge: Bridge }) => React.ReactElement;
 const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'dashboard.summary': DashboardScreen,
   'alert.list': AlertListScreen,
+  // W5 库存域：列表屏先迁 —— 它是操作员每天打开最多的那一屏
+  'inventory.list': InventoryListScreen,
+  // 搜索是同一个屏的另一种取数方式（服务端筛选），先复用列表屏
+  'inventory.search': InventoryListScreen,
 };
 
 export function screenFor(primaryMethod: string): ScreenComponent | undefined {

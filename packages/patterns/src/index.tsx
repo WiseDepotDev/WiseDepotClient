@@ -252,15 +252,20 @@ export function Field({
 export function Input({
   value,
   onChange,
+  onEnter,
   placeholder,
   type = 'text',
   mono,
+  ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
+  /** 回车提交。扫码枪与实体键盘都靠它 —— 现场作业里"按一下回车"比"点一下按钮"快得多。 */
+  onEnter?: (() => void) | undefined;
   placeholder?: string;
   type?: 'text' | 'password';
   mono?: boolean;
+  ariaLabel?: string | undefined;
 }): React.ReactElement {
   return (
     <input
@@ -268,8 +273,41 @@ export function Input({
       type={type}
       value={value}
       placeholder={placeholder}
+      aria-label={ariaLabel}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && onEnter) {
+          onEnter();
+        }
+      }}
     />
+  );
+}
+
+/**
+ * 搜索框 + 搜索按钮（ui-spec 组件库第 7 件）。
+ *
+ * 抽出来的理由与其它组件一样：不抽就会在每个列表屏出现"宽度各异的输入框 +
+ * 位置不同的按钮 + 有的支持回车有的不支持"。回车支持在这里统一。
+ */
+export function SearchField({
+  value,
+  onChange,
+  onSearch,
+  placeholder = '搜索',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSearch: () => void;
+  placeholder?: string;
+}): React.ReactElement {
+  return (
+    <div className="w-search">
+      <Input value={value} onChange={onChange} onEnter={onSearch} placeholder={placeholder} ariaLabel={placeholder} />
+      <Button ariaLabel="搜索" onClick={onSearch}>
+        搜索
+      </Button>
+    </div>
   );
 }
 
@@ -351,7 +389,8 @@ export function DataRow({
   active,
   onSelect,
 }: {
-  id?: string;
+  /** 显式带 `| undefined`：行数据里这个字段常常是可选的（`exactOptionalPropertyTypes`）。 */
+  id?: string | undefined;
   main: ReactNode;
   sub?: ReactNode;
   trailing?: ReactNode;

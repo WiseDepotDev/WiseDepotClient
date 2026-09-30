@@ -415,6 +415,17 @@
 
 .w-field { display: flex; flex-direction: column; gap: var(--w-dp-4); }
 
+/* 搜索框 + 按钮：输入框是弹性项，按钮不被压缩（与验证码行同一个坑） */
+.w-search {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  width: 100%;
+}
+
+.w-search > .w-input { flex: 1; min-width: 0; }
+.w-search > .w-btn { flex: none; white-space: nowrap; }
+
 .w-field__label {
   color: var(--w-color-on-surface-variant);
   font-size: var(--w-type-label-medium-size);

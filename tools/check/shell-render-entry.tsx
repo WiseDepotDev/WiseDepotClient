@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DesktopShell, MobileShell } from '@wise/shells';
-import { AlertListScreen, DashboardScreen, LoginScreen } from '@wise/features';
+import { AlertListScreen, DashboardScreen, InventoryListScreen, LoginScreen } from '@wise/features';
 import type { Bridge } from '@wise/bridge-client';
 
 /**
@@ -73,6 +73,11 @@ const cases: readonly Case[] = [
     name: 'AlertListScreen（告警中心，W5）',
     render: () => renderToStaticMarkup(<AlertListScreen bridge={fakeBridge([])} />),
     expect: ['告警中心', 'w-pageheader', 'w-skeleton', '只看未处理', '告警列表'],
+  },
+  {
+    name: 'InventoryListScreen（库存查询，W5-inventory）',
+    render: () => renderToStaticMarkup(<InventoryListScreen bridge={fakeBridge([])} />),
+    expect: ['库存查询', 'w-pageheader', 'w-search', 'w-tabstrip', 'w-skeleton', '刷新', '库存列表'],
   },
 ];
 
