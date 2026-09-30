@@ -101,19 +101,54 @@ privileges:{ standard:true, secure:true, supportFetchAPI:true, corsEnabled:true,
 于是"桥明明在跑、日志一片空白"。修法：加 `BridgeLog` 端口，手机宿主接管为 `android.util.Log`
 （进 logcat），桌面保持 stderr。**没有它，上面那条链路日志根本看不到。**
 
-### 仍未定位的一项
+### 仍未通过的一项：**Netty 在 Android 上"绑定成功但监听不存在"**
 
-**WS 未连接**：引导拿到 200、页面已加载、无 CSP/混合内容报错、无 `握手被拒`、无 JS 报错。
-两个候选（按可能性排序）：
+用 CDP 进页面内部取证（`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` +
+`node tools/bench/_debug-cdp.mjs`），拿到的**事实**：
 
-1. **`https://appassets…` 页面加载 `ws://127.0.0.1` 属混合内容**：Chromium 对 loopback 有豁免，
-   但 WebView 118 的行为需要实测确认。**建议的根治办法**：让桥的 loopback HTTP 端口同时托管 Web 静态资源，
-   使页面 origin 变成 `http://127.0.0.1:PORT` —— 这样引导与 WS 同源、彻底没有混合内容问题，
-   而且两端可以共用一条路径（桌面也不用再维护 `app://` 的资产解析）。
-2. WebView 的 CSP 对 `ws:` 的具体匹配行为。
+```
+bodyText : 慧仓智控 · WiseDepot 账号 密码 验证码 换一张 验证码加载失败（BRIDGE_BACKEND_UNREACHABLE） 登录 …
+origin   : https://appassets.androidplatform.net
+bootStatus: 200      port: 39169      protocol: 3
+wsResult : onerror
+浏览器日志: WebSocket connection to 'ws://127.0.0.1:39169/bridge?token=…' failed:
+            Error in connection establishment: net::ERR_CONNECTION_REFUSED
+```
 
-> 这条不影响 Windows，也不影响桥本身（桥侧一切正常）；它只影响"Android 页面能否连上本地桥"，
-> 是下一批要解决的第一件事。
+三条由证据得出的结论：
+
+1. **登录屏其实已经渲染出来了**（`账号 密码 验证码 换一张 登录`）——白屏是引导 503 那个 bug 造成的，
+   已修。**之前的"Android 白屏"与"连不上"是两件事。**
+2. **`ERR_CONNECTION_REFUSED` 证伪了"混合内容/CSP 拦截"的假设。**
+   loopback 本来就是 Chromium 的混合内容豁免，我先前那个判断是错的——**幸亏没有按它去重构**。
+3. **端口上确实没有监听**：从容器 shell 直连同一端口同样被拒
+   （`toybox nc 127.0.0.1 <port>` → `Connection refused`），而此刻：
+
+   | 观测 | 值 |
+   | --- | --- |
+   | 桥的启动日志 | `桥已启动：127.0.0.1:38819` |
+   | 应用进程 | 存活（pid 未变） |
+   | 崩溃 / OOM / ANR | 无 |
+   | 该端口的监听 | **不存在** |
+
+即：`bootstrap.bind(...).sync()` 返回成功、`localAddress().port` 也拿到了，
+**但事件循环随后消失，channel 被关闭**。
+
+这与 `docs/architecture.md` §4 预先写下的风险**完全对上**：
+> Netty 在 Android 上是"非官方支持"，必须实测而不是假设。
+
+W2 的五项 Spike 门禁里，**dex 构建**与**体积**过了，但**功能性的那一项（真机可连）没过** ——
+而它恰恰是最重要的。因此现在触发预案，且预案**只换手机侧传输**：
+
+> 不变式 3 的兑现：`TransportPort` 把传输隔开了，改手机侧传输**不动**协议层、
+> 不动 backend、不动桌面宿主、更不动 Web。候选按顺序：
+> 1. **自写 RFC6455 over `ServerSocket`**（约 200 行，零新依赖，与仓库"不轻易加依赖"的惯例一致）；
+> 2. **Ktor CIO WebSockets**（Kotlin 原生、协程、Android 友好，代价是一个新依赖）。
+
+### 这一项**不影响**的部分
+
+桌面桥（W2-a 全部用例）、真后端全链路（`real-smoke.mjs`）、Windows 端到端（上面 §2）全绿——
+因为它们都不经过 Android 的 Netty 事件循环。
 
 ## 4. 真机（实体 Android 设备）
 
