@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BridgeError, type Bridge } from '@wise/bridge-client';
+import { BridgeError, shouldRefetchOnOpen, type Bridge } from '@wise/bridge-client';
 
 export interface CallState<T> {
   readonly loading: boolean;
@@ -89,18 +89,20 @@ export function useBridgeCall<T>(
    *
    * 为什么需要：应用刚起来时第一个请求可能赶上建连还没完成（TCP 连接慢、首次握手、
    * 现场网络抖），表现为"一直转加载 / 转完是错误，切走再切回来才好"。
-   * 传输层现在有超时兜底（不会再永远转），但**用户不该为此手动切页面**：
-   * 连接一旦恢复，这一屏自己把数据取回来。
+   * 用户不该为此手动切页面：连接一旦恢复，这一屏自己把数据取回来。
    *
-   * 只在**当前正处在错误态**时重取：否则每次重连都会让所有屏一起重新请求，
-   * 那是在用网络换"看起来会自愈"。
+   * **"还在等"也要重取**——只救已经失败的屏是不够的：连接断掉时正在飞的请求
+   * 已经注定失败，却要等满 15s 才 reject；连接 1 秒就恢复了，屏幕还得空转十几秒，
+   * 用户看到的仍然是"卡加载"。判据与理由见 `shouldRefetchOnOpen`。
    */
   const failedRef = useRef(false);
   failedRef.current = error !== undefined;
+  const pendingRef = useRef(false);
+  pendingRef.current = enabled && loading;
   useEffect(
     () =>
       bridge.onStateChange((s) => {
-        if (s === 'open' && failedRef.current) {
+        if (shouldRefetchOnOpen(s, { failed: failedRef.current, pending: pendingRef.current })) {
           setNonce((n) => n + 1);
         }
       }),

@@ -11,6 +11,32 @@ import {
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
+/**
+ * 连接重新打开时，这一屏要不要重取一次。
+ *
+ * ## 为什么"还在等"也必须重取（这是"打开一直转"没修干净的那一半）
+ *
+ * 上一轮只处理了**错误态**：连接恢复时把已经失败的屏救回来。但真正让用户看到
+ * "卡在骨架屏"的是**尚未结算**的那一类 —— 连接断掉时正在飞的那个请求已经注定失败
+ * （对端没了），而它要等满 `callTimeoutMs`（15s）才会 reject。
+ * 于是连接明明在 1 秒时就恢复了，屏幕却还要空转十几秒：
+ * 用户看到的仍然"卡加载"，只是这次有个上限。
+ *
+ * 所以判据是**"这次调用还没落地"**，不是"它已经失败了"：
+ *   · `failed` —— 已经失败的屏，连上就重来；
+ *   · `pending` —— 还在飞的调用属于一条已经不在的连接，重来一次比等它超时快得多。
+ *
+ * ## 为什么不会变成"每次重连所有屏一起重取"
+ *
+ * `pending` 只在**正在取数、还没有数据可看**时为真。已经在展示数据的屏
+ * （最常见的情况）两样都不满足，重连时一次请求都不会发。
+ *
+ * 这条规则被 `tools/check/check-reconnect-refetch.mjs` 钉住 —— 它是本 bug 的回归。
+ */
+export function shouldRefetchOnOpen(state: ConnectionState, has: { failed: boolean; pending: boolean }): boolean {
+  return state === 'open' && (has.failed || has.pending);
+}
+
 /** 传输抽象。WS 是唯一生产实现；mock 只服务开发态（见 mock.ts 顶部说明）。 */
 export interface BridgeTransport {
   readonly kind: 'ws' | 'mock';
