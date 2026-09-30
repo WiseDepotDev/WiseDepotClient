@@ -12,8 +12,18 @@ object BridgeProtocol {
     /** 协议版本。任何不兼容改动都要 +1，并在 docs/protocol.md 里记变更。 */
     const val VERSION: Int = 3
 
-    /** WebSocket 握手路径（宿主绑定在 127.0.0.1 的临时端口上）。 */
+    /** WebSocket 握手路径（宿主绑定在 loopback 的临时端口上）。 */
     const val HANDSHAKE_PATH: String = "/bridge"
+
+    /**
+     * 绑定与连接的**固定** loopback 地址。
+     *
+     * 为什么不直接用 `InetAddress.getLoopbackAddress()`：它在双栈机器上可能返回 `::1`，
+     * 而引导文件与 Web 侧固定连 `127.0.0.1` —— 两者不一致的表现是"端口明明绑上了，
+     * 客户端却 ECONNREFUSED"，且只在部分机器上复现。（W2 实测踩到过一次，见
+     * `tools/bench/bridge-roundtrip.mjs` 的握手用例。）
+     */
+    const val LOOPBACK_HOST: String = "127.0.0.1"
 
     /** 引导文件路径：由宿主在**应用自身 origin** 上动态生成，Web 产物第一步读它。 */
     const val BOOTSTRAP_PATH: String = "/__bridge.json"

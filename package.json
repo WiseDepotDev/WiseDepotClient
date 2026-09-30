@@ -17,7 +17,9 @@
     "check:tokens": "node tools/gen/gen-tokens.js --check",
     "check:css": "node tools/check/check-css-vars.js",
     "check:render": "node tools/check/check-shell-render.mjs",
-    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css && pnpm check:render",
+    "bench": "node tools/bench/bridge-roundtrip.mjs",
+    "bench:backend": "node tools/bench/bridge-roundtrip.mjs --backend-url http://127.0.0.1:18080",
+    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css && pnpm check:render && pnpm bench",
     "dev": "pnpm --filter @wise/web dev",
     "build": "pnpm --filter @wise/web build",
     "typecheck": "pnpm --filter @wise/web typecheck"

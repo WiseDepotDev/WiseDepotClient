@@ -11,7 +11,9 @@ plugins {
 
 dependencies {
     api(project(":bridge:protocol"))
-    implementation(libs.okhttp)
+    // api 而不是 implementation：OkHttpBackend 的默认参数暴露了 OkHttpClient 类型，
+    // 用 implementation 会让下游模块在**默认参数**上编译失败（类型不可见）。
+    api(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit.jupiter)

@@ -15,6 +15,7 @@ React 19 Web UI ── WS(Netty) ──► Kotlin 桥（唯一实现）── HT
 - 架构与决策：[docs/architecture.md](./docs/architecture.md)
 - 桥协议 v3：[docs/protocol.md](./docs/protocol.md)
 - 设计令牌（导出与纪律）：[docs/tokens.md](./docs/tokens.md)
+- **W2 传输 Spike 与验收记录**：[docs/w2-spike.md](./docs/w2-spike.md)
 - 功能对照清单（生成物）：[docs/feature-parity.md](./docs/feature-parity.md)
 
 ## 目录
@@ -67,7 +68,8 @@ pnpm dev                        # 开发态：无宿主时自动回退到 mock �
 | --- | --- |
 | **W0** 归档旧版 + 建仓 + 契约生成器 + 功能对照清单 | ✅ 已完成 |
 | **W1** 令牌导出 + React 工程 + 两套 UI 外壳 + 引导链路 | ✅ 已完成 |
-| W2 双端 Netty 桥（Electron 子进程 / Android 进程内）+ 传输 Spike 门禁 | ⏳ |
+| **W2-a** 单份 Netty 桥（协议/后端/传输/分发）+ 桌面宿主 + 传输门禁 | ✅ 已完成 |
+| **W2-b** Electron 宿主 + Android 壳 + 移动端五项 Spike | ⏳ 下一增量 |
 | W3 最小闭环（登录 → 看板） | ⏳ |
 | W4 primitives + patterns | ⏳ |
 | W5–W7 逐域替换 overview → inventory → field → me | ⏳ |
@@ -98,3 +100,15 @@ pnpm dev                        # 开发态：无宿主时自动回退到 mock �
 
 尚未验证（属 W2，已定阈值）：宿主进程（Electron / Android）与 `__bridge.json` 的真实供给、
 Android 壳编译、Netty 在 Android 上的 dex/启动/内存/APK 增量门禁、真机渲染走查。
+
+### W2-a 验收证据（真 spawn JVM，不 mock）
+
+| 证据 | 命令 | 结果 |
+| --- | --- | --- |
+| 桥功能性 | `pnpm bench` | 10 项全过：stdout 握手 / token 鉴权 / 内建方法 / **未登记方法被白名单拒** / 缺路径参数 / 后端不可达 / 限流 / shutdown 退出 |
+| **真后端端到端** | `pnpm bench:backend` | `captcha.generate` 经桥拿到真验证码数据；无 Bearer → 后端签名过滤器 400；带无效令牌 → 业务码 `AUTH-0002` 原样透传 |
+| 握手门禁 | 同上 | **445–470ms**（门禁 ≤700ms） |
+| 往返 p50 | 同上（1000 样本） | **0.26–0.36ms**（门禁 ≤5ms，余量 14×） |
+| 往返 p95 | 同上 | **0.53–0.64ms**（门禁 ≤20ms，余量 31×） |
+
+细节与"踩坑记录"见 [docs/w2-spike.md](./docs/w2-spike.md)。
