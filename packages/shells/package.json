@@ -13,7 +13,8 @@
     "@wise/bridge-client": "workspace:*",
     "@wise/contract": "workspace:*",
     "@wise/patterns": "workspace:*",
-    "@wise/tokens": "workspace:*"
+    "@wise/tokens": "workspace:*",
+    "@wise/features": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",

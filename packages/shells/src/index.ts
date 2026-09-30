@@ -4,7 +4,6 @@ export { DesktopShell } from './DesktopShell.js';
 export { BridgeStatusChip } from './BridgeStatusChip.js';
 export { PageBody } from './PageBody.js';
 export { useViewport, type Viewport } from './useViewport.js';
-export { useBridgeCall, type CallState } from './useBridgeCall.js';
 export {
   DOMAINS,
   LOGIN_ROUTE,

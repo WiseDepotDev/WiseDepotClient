@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DesktopShell, MobileShell } from '@wise/shells';
-import { LoginScreen } from '@wise/features';
+import { AlertListScreen, DashboardScreen, LoginScreen } from '@wise/features';
 import type { Bridge } from '@wise/bridge-client';
 
 /**
@@ -61,6 +61,18 @@ const cases: readonly Case[] = [
     name: 'LoginScreen（登录屏，W3-b）',
     render: () => renderToStaticMarkup(<LoginScreen bridge={fakeBridge([])} onSignedIn={() => undefined} />),
     expect: ['w-auth', 'w-auth__card', '账号', '密码', '验证码', 'w-captcha', '换一张', '登录'],
+  },
+  // W5：overview 域的两个屏。SSR 阶段数据未回来，因此断言的是**结构**
+  // （页头 + 四态宿主的加载态）而不是数据 —— 数据由真后端冒烟覆盖。
+  {
+    name: 'DashboardScreen（看板，W5）',
+    render: () => renderToStaticMarkup(<DashboardScreen bridge={fakeBridge([])} />),
+    expect: ['看板', 'w-pageheader', 'w-skeleton', '当前任务', '未处理告警'],
+  },
+  {
+    name: 'AlertListScreen（告警中心，W5）',
+    render: () => renderToStaticMarkup(<AlertListScreen bridge={fakeBridge([])} />),
+    expect: ['告警中心', 'w-pageheader', 'w-skeleton', '只看未处理', '告警列表'],
   },
 ];
 

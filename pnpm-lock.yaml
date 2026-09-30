@@ -130,6 +130,9 @@ importers:
       '@wise/contract':
         specifier: workspace:*
         version: link:../contract
+      '@wise/features':
+        specifier: workspace:*
+        version: link:../features
       '@wise/patterns':
         specifier: workspace:*
         version: link:../patterns
