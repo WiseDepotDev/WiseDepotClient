@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文流量策略（W2 实测口径）：
+
+  - 默认**禁止**明文（base-config false）；
+  - 只对两类主机开口：
+      1. 127.0.0.1 —— 桥的 WebSocket（`ws://127.0.0.1:临时端口`）走本地回环，
+         这是进程内通信，不出设备；
+      2. 业务机 —— 当前后端还是 HTTP，桥的 OkHttp 也要受这份策略约束，
+         所以后端主机必须显式登记，否则表现为"请求发不出去"且没有明显报错。
+
+  后端上 TLS 之后，把第二个 domain 删掉即可（这是这份文件存在的意义：
+  让"哪天能关掉明文"变成一处改动，而不是全仓 grep）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- 业务机（10.0.0.7 / 10.0.0.4）：仅在后端仍为 HTTP 期间保留 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.0.7</domain>
+        <domain includeSubdomains="false">10.0.0.4</domain>
+    </domain-config>
+</network-security-config>

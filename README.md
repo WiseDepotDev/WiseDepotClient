@@ -69,7 +69,7 @@ pnpm dev                        # 开发态：无宿主时自动回退到 mock �
 | **W0** 归档旧版 + 建仓 + 契约生成器 + 功能对照清单 | ✅ 已完成 |
 | **W1** 令牌导出 + React 工程 + 两套 UI 外壳 + 引导链路 | ✅ 已完成 |
 | **W2-a** 单份 Netty 桥（协议/后端/传输/分发）+ 桌面宿主 + 传输门禁 | ✅ 已完成 |
-| **W2-b** Electron 宿主 + Android 壳 + 移动端五项 Spike | ⏳ 下一增量 |
+| **W2-b** Electron 宿主逻辑 + Android 壳（APK 门禁）+ 移动端 Spike | ✅ 已完成（GUI 与设备项除外） |
 | W3 最小闭环（登录 → 看板） | ⏳ |
 | W4 primitives + patterns | ⏳ |
 | W5–W7 逐域替换 overview → inventory → field → me | ⏳ |
@@ -112,3 +112,14 @@ Android 壳编译、Netty 在 Android 上的 dex/启动/内存/APK 增量门禁�
 | 往返 p95 | 同上 | **0.53–0.64ms**（门禁 ≤20ms，余量 31×） |
 
 细节与"踩坑记录"见 [docs/w2-spike.md](./docs/w2-spike.md)。
+
+### W2-b 验收证据
+
+| 证据 | 命令 | 结果 |
+| --- | --- | --- |
+| Android 壳编译 + Netty dex | `gradlew :apps:mobile:shell:assembleDebug` | APK 5.05MB 含 `classes.dex`；**Netty 最小集 dex 增量 1.23MB**（门禁 ≤1.5MB） |
+| 桌面宿主逻辑（真 JVM） | `pnpm bench:desktop` | 17 项全过：握手、`__bridge.json` 200/503、**6 种路径穿越全部被拒**、**杀进程后自动重启并换新端口**、优雅停止后不自复活 |
+| 移动端 Spike | `pnpm bench:mobile` | dex 与 APK 增量 ✅；**冷启动/内存无设备，明确标记未测量** |
+
+**仍未验证**：Electron 二进制本身（窗口 / `protocol.handle` / 打包）——本批未安装 Electron 运行时，
+因此"GUI 能起来"这条不算通过；真机渲染与冷启动/内存门禁同样待设备。

@@ -21,6 +21,13 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0.0"
+        // 后端地址与旧 APP 同套路：写在经 gitignore 的 local.properties 里（键 BASE_URL），
+        // 换环境不用改代码、也不用重新评审源码。
+        buildConfigField("String", "WISE_BACKEND_URL", "\"${backendUrl()}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
@@ -45,6 +52,32 @@ android {
         }
     }
 }
+
+/** 读 local.properties 的 BASE_URL；缺省指向文档里登记的业务机。 */
+fun backendUrl(): String {
+    val props = rootProject.file("local.properties")
+    if (props.exists()) {
+        val line = props.readLines().firstOrNull { it.trim().startsWith("BASE_URL") }
+        val value = line?.substringAfter('=')?.trim()
+        if (!value.isNullOrBlank()) {
+            return value.trimEnd('/') + "/"
+        }
+    }
+    return "http://10.0.0.7:8080/"
+}
+
+// 把 Web 产物塞进 assets：壳只装"已构建好的那份产物"，不在这里跑 vite。
+// 落点是 assets 根的 `web/`，于是 URL 是 `/assets/web/index.html`
+// （WebViewAssetLoader 的 AssetsPathHandler 会剥掉前缀 `/assets/`）。
+val syncWebAssets =
+    tasks.register<Sync>("syncWebAssets") {
+        from(layout.projectDirectory.dir("../../../apps/web/dist"))
+        into(layout.buildDirectory.dir("webAssets/web"))
+    }
+
+android.sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("webAssets"))
+
+tasks.named("preBuild") { dependsOn(syncWebAssets) }
 
 // Android 模块不走根脚本的 subprojects 约定（那个只作用于 kotlin.jvm），
 // 因此这里显式声明字节码目标，与桥模块的 Java 17 对齐。

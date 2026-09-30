@@ -19,7 +19,10 @@
     "check:render": "node tools/check/check-shell-render.mjs",
     "bench": "node tools/bench/bridge-roundtrip.mjs",
     "bench:backend": "node tools/bench/bridge-roundtrip.mjs --backend-url http://127.0.0.1:18080",
-    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css && pnpm check:render && pnpm bench",
+    "bench:desktop": "node tools/bench/desktop-host.mjs",
+    "bench:mobile": "node tools/bench/mobile-spike.mjs",
+    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css && pnpm check:render",
+    "check:full": "pnpm check && pnpm bench && pnpm bench:desktop && pnpm bench:mobile"
     "dev": "pnpm --filter @wise/web dev",
     "build": "pnpm --filter @wise/web build",
     "typecheck": "pnpm --filter @wise/web typecheck"

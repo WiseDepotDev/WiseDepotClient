@@ -103,12 +103,59 @@
 | `tools/bench/_debug-handshake.mjs` | 裸 HTTP 升级诊断：直接看服务端返回 101 / 4xx / 无响应 |
 | `tools/bench/_debug-backend.mjs` | 直接打后端，对比 GET/POST 与有无信封体的差异 |
 
-## 5. W2-b 待办（下一增量）
+## 5. W2-b 结果（Electron 宿主逻辑 + Android 壳 + 移动端 Spike）
 
-1. **Electron 宿主**：`app://` 协议处理器（供 Web 产物 + 动态 `__bridge.json`）、spawn jlink JVM、
-   stdout 握手、退出清理、子进程崩溃退避重启；
-2. **Android 壳**：`:apps:mobile:shell` 首次编译、`WebViewAssetLoader` 供 `__bridge.json`、
-   进程内启动 `BridgeServer`；
-3. **移动端五项 Spike 门禁**：dex 构建 / APK 增量 ≤1.5MB / 冷启动增量 ≤80ms /
-   常驻内存增量 ≤8MB（APK 与内存两项需真机或模拟器）；
-4. `:bridge:protocol` 与 `:bridge:backend` 的纯 JVM 单测补齐（`PathTemplate`、`Envelope`、`BridgeDispatcher`）。
+### 5.1 Android 壳：首次编译通过
+
+```powershell
+pnpm build                                                  # 先出 Web 产物（壳只装已构建好的那份）
+.\gradlew.bat :apps:mobile:shell:assembleDebug
+```
+
+| 门禁 | 实测 | 阈值 | 结论 |
+| --- | --- | --- | --- |
+| **dex 构建**（Netty 能否被 D8 处理） | 成功，APK 内含 `classes.dex` | 成功 | ✅ |
+| **Netty 最小集 dex 增量** | **1.23 MB**（3 个 jar 合 1.69 MB → 1 个 dex） | ≤1.5 MB | ✅ 余量 18% |
+| APK 全量（debug，含 Web 产物 + androidx） | 5.05 MB | — | — |
+| 冷启动增量 | **未测量** | ≤80 ms | ⚠ 无设备 |
+| 常驻内存增量 | **未测量** | ≤8 MB | ⚠ 无设备 |
+
+> 后两项**必须有真机或模拟器**（`adb devices` 当前为空）。脚本在无设备时明确输出"未测量"，
+> 而不是给一个看起来通过的默认值——假通过比没测更糟。接上设备后重跑 `pnpm bench:mobile`。
+
+顺带修的两处编译问题：
+- `androidx.core 1.15 / activity 1.9.3 / webkit 1.12` 要求调用方 `compileSdk ≥ 35`；
+  本机只有 android-34 与 android-36.1，因此把这三个库降到与 34 匹配的版本（1.13.1 / 1.9.0 / 1.11.0）。
+- `Sync` 的落点必须是 assets 根的 `web/` 而不是 `assets/web/`，否则 URL 会变成
+  `/assets/assets/web/…`（WebViewAssetLoader 的前缀会被多剥一层）。
+
+### 5.2 Electron 宿主：逻辑层面已验收（不需要拉起 GUI）
+
+`apps/desktop` 的主进程只做四件事：spawn 桥、供 Web 产物、供 `__bridge.json`、管生命周期。
+其中**最容易错的部分被抽成了不依赖 Electron 的纯 Node 模块**（`bridgeProcess.ts` / `webAssets.ts`），
+于是可以用 `pnpm bench:desktop` 对着真 JVM 跑：
+
+| 用例 | 结果 |
+| --- | --- |
+| 启动并完成 stdout 握手 | ✓ 402ms |
+| 状态机 `starting → running` | ✓ |
+| 桥就绪时 `__bridge.json` 回 200 且字段齐全 | ✓ `protocol:3` |
+| 桥未就绪时回 **503**（不是 404、也不是空 200） | ✓ |
+| Web 产物解析与 content-type | ✓ |
+| **路径穿越防线**（`../`、`..%2f`、`/../`、`assets/../../../`、含 `\0`） | ✓ 6/6 全部被拒 |
+| 目录不被当作资源 | ✓ |
+| **子进程被杀后自动重启** | ✓ 52300 → 52312（**新端口 + 新 token**） |
+| 重启期间状态机 `restarting` | ✓ |
+| `stdin shutdown` 后正常退出 | ✓ exit=0 |
+| **停止后不自复活**（主动停止不算崩溃） | ✓ |
+
+**未验证**：Electron 二进制本身（窗口、`protocol.handle`、菜单、`electron-builder` 打包）。
+本批没有安装 Electron 运行时（~100MB 下载），因此"GUI 能起来"这条**不算通过**，
+留给接上桌面环境后的 E2E。
+
+### 5.3 命令分层
+
+```powershell
+pnpm check         # 静态门禁：契约 / 旧仓交叉校验 / 功能清单 / 令牌 / 样式 / 外壳渲染（不需要 Gradle）
+pnpm check:full    # 静态 + 桥验收 + 桌面宿主验收 + 移动端 Spike（需要 Gradle 产物）
+```

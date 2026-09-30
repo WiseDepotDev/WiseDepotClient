@@ -1,0 +1,18 @@
+{
+  "name": "@wise/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "桌面宿主：Electron 主进程 —— 承载 Web 产物、spawn jlink JVM 桥、供给 __bridge.json",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main.cjs",
+    "start": "electron ."
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.0"
+  }
+}
