@@ -55,6 +55,60 @@ object ShellBridge {
 
     val handshakeJson: String? get() = bootstrapJson
 
+    /** 已经定下来的引导内容（端口/令牌/地址/版本），能力表可在此基础上变动。 */
+    private var bootBase: BootBase? = null
+
+    /** 当前**如实**声明着的能力。 */
+    @Volatile private var declared: Set<String> = emptySet()
+
+    private data class BootBase(
+        val port: Int,
+        val token: String,
+        val host: String,
+        val platform: String,
+        val version: String,
+    )
+
+    /**
+     * 撤回一项已经声明过的能力，并**就地重写引导**。
+     *
+     * 用途是"声明时以为能做到、用起来才发现做不到"：唯一已知的例子是相机
+     * （见 [CameraSafety]）。不撤回的话，页面重载后仍然会画出扫码入口，
+     * 用户点一次崩一次。
+     *
+     * 重写而不是"下次启动再说"：引导是页面每次加载都重新拉的（`__bridge.json`），
+     * 所以撤回立刻对**这一次重建的 WebView** 生效。
+     */
+    @Synchronized
+    fun revokeCapability(
+        capability: String,
+        reason: String,
+    ) {
+        val base = bootBase ?: return
+        if (capability !in declared) {
+            return
+        }
+        declared = declared - capability
+        bootstrapJson = encode(base, declared)
+        android.util.Log.w("WiseShell", "已撤回能力 $capability：$reason")
+    }
+
+    private fun encode(
+        base: BootBase,
+        capabilities: Set<String>,
+    ): String =
+        BridgeCodec.json.encodeToString(
+            BridgeBootstrap.serializer(),
+            BridgeBootstrap(
+                port = base.port,
+                token = base.token,
+                host = base.host,
+                platform = base.platform,
+                ver = base.version,
+                capabilities = capabilities.sorted(),
+            ),
+        )
+
     /** 幂等：重复调用不会起第二个桥（Activity 重建、多入口都靠这个）。 */
     @Synchronized
     fun startIfNeeded(
@@ -91,7 +145,12 @@ object ShellBridge {
                 BridgeServerConfig(
                     port = 0,
                     token = token,
-                    backend = OkHttpBackend(BuildConfig.WISE_BACKEND_URL, tokens),
+                    backend =
+                        OkHttpBackend(
+                            BuildConfig.WISE_BACKEND_URL,
+                            tokens,
+                            log = { android.util.Log.w("WiseShell", it) },
+                        ),
                     platform = AndroidPlatform(version, capabilities),
                     tokens = tokens,
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
@@ -108,18 +167,17 @@ object ShellBridge {
         // 这一行是现场排障的锚点：地址/端口不对或没打印 = 桥根本没起来。
         // 地址必须打印**实际绑定的那个**（WSA 上不是 127.0.0.1），否则日志会把人带偏。
         android.util.Log.i("WiseShell", "桥已启动：$host:$boundPort，后端 ${BuildConfig.WISE_BACKEND_URL}")
-        bootstrapJson =
-            BridgeCodec.json.encodeToString(
-                BridgeBootstrap.serializer(),
-                BridgeBootstrap(
-                    port = boundPort,
-                    token = token,
-                    host = host,
-                    platform = AndroidPlatform(version).platform,
-                    ver = version,
-                    capabilities = capabilities.sorted(),
-                ),
+        val base =
+            BootBase(
+                port = boundPort,
+                token = token,
+                host = host,
+                platform = AndroidPlatform(version).platform,
+                version = version,
             )
+        bootBase = base
+        declared = capabilities
+        bootstrapJson = encode(base, capabilities)
     }
 
     /**
@@ -144,6 +202,8 @@ object ShellBridge {
         server?.stop()
         server = null
         bootstrapJson = null
+        bootBase = null
+        declared = emptySet()
     }
 
     private fun newToken(): String {

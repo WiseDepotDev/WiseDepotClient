@@ -29,6 +29,15 @@ class OkHttpBackend(
     private val tokens: TokenStore,
     private val client: OkHttpClient = defaultClient(),
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * 失败时的日志出口。
+     *
+     * 为什么必须有：`BRIDGE_BACKEND_UNREACHABLE` 到了界面上只有一句"后端不可达"，
+     * 而**原因**（连接被拒？读超时？DNS？）全在下面那个 catch 里。
+     * 实测踩过：WSA 上登录失败只显示一个码，桥的日志里一片空白，只能靠猜。
+     * `bridge:backend` 不依赖 `bridge:server`，所以用函数参数注入而不是直接引用 BridgeLog。
+     */
+    private val log: (String) -> Unit = {},
 ) : BackendPort {
     private val base: String = baseUrl.trimEnd('/')
 
@@ -111,6 +120,12 @@ class OkHttpBackend(
                     }
                 }
             } catch (e: IOException) {
+                // 把**原因**打出来：只回一个 BACKEND_UNREACHABLE 到界面，等于让排障从零开始
+                log(
+                    "后端请求失败 method=${call.httpMethod} path=${call.pathTemplate} " +
+                        "url=$url：${e.javaClass.simpleName}: ${e.message}" +
+                        (e.cause?.let { " ← ${it.javaClass.simpleName}: ${it.message}" } ?: ""),
+                )
                 BackendResult.Failed(BackendErrorCodes.UNREACHABLE, "bridge.backendUnreachable", retryable = true)
             }
         }

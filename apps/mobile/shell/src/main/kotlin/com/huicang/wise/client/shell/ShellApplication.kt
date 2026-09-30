@@ -19,7 +19,18 @@ class ShellApplication : Application() {
                 ?: Build.VERSION.RELEASE
         // 有没有摄像头决定要不要声明 `scan.camera`：没摄像头的设备（部分工业 PDA）
         // 照样要能装能跑，只是界面上不出现扫码入口。
-        val hasCamera = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+        // 「有摄像头」还不够 —— [CameraSafety] 会记住"上次把相机交给 WebView 时进程没了"，
+        // 那种机器上不能一遍遍地去崩，撤销入口才是诚实且可用的做法。
+        val hasSystemCamera = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+        val hasCamera = hasSystemCamera && CameraSafety.cameraUsable(this)
+        if (hasSystemCamera && !hasCamera) {
+            android.util.Log.w(
+                TAG,
+                "本机上次在打开相机时崩溃过（WebView ${CameraSafety.webViewId(this)}），" +
+                    "本次不声明 ${com.huicang.wise.bridge.protocol.BridgeCapabilities.SCAN_CAMERA}；" +
+                    "WebView 升级后会自动重新尝试",
+            )
+        }
         // 绑端口是阻塞调用，放后台线程；WebView 在此期间加载静态资源，
         // 引导接口在桥就绪前回 503，Web 侧拿到的是明确的"尚未就绪"而不是超时。
         thread(name = "shell-bridge-start") {

@@ -662,6 +662,68 @@ button.w-datarow[aria-current="true"] {
 
 .w-muted { color: var(--w-color-on-surface-variant); }
 
+/*
+ * 相机取景：上面是画面，下面是提示与取消。
+ *
+ * 用 `position: fixed` 整屏覆盖，而不是塞进某个容器：取景必须占满手机屏，
+ * 否则用户得先把条码对准一个很小的窗口 —— 那正是"扫半天扫不上"的常见原因。
+ */
+.w-scan {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--w-color-surface);
+}
+
+.w-scan__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* 取流到出画面之间会露出一瞬底色：用反色底（深底），避免整屏闪一下白 */
+  background: var(--w-color-inverse-surface);
+}
+
+.w-scan__video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* cover 而不是 contain：宁可裁掉边缘，也不要让画面里出现两条黑边 */
+  object-fit: cover;
+}
+
+/*
+ * 取景框只是"把码放这儿"的视觉引导，**不参与解码**（解码看整帧）。
+ * 颜色取反色对（inverse-surface 上的内容用 inverse-on-surface），
+ * 和取景底同属一组角色，不额外引入颜色令牌。
+ */
+.w-scan__frame {
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  top: 32%;
+  bottom: 32%;
+  border: 2px solid var(--w-color-inverse-on-surface);
+  border-radius: var(--w-radius-medium);
+}
+
+.w-scan__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+  padding: var(--w-space-card-padding);
+  padding-bottom: calc(var(--w-space-card-padding) + env(safe-area-inset-bottom, 0));
+}
+
+.w-scan__hint {
+  margin: 0;
+  text-align: center;
+  color: var(--w-color-on-surface-variant);
+  font-size: var(--w-type-body-medium-size);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .w-skeleton { animation: none; }
   .w-btn { transition: none; }

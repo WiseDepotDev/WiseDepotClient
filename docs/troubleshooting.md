@@ -140,3 +140,55 @@ runCatching { dispatch(...) }.getOrElse { Failed(INTERNAL, "bridge.internal") }
 | `tools/bench/_debug-layout.mjs` | 布局事实：视口、档位、控件盒模型（"被挤扁"这类只能量尺寸确认） |
 | `tools/bench/_debug-backend.mjs` | 直连后端，对照 GET/POST 与有无信封的差异 |
 | **`tools/check/check-transport-timeout.mjs`** | 建连悬停 / 连上不回 / 端口拒绝 —— **"打开一直转"的第一选择**（注入假 WebSocket，无需网络） |
+
+---
+
+## 六、相机扫码：这台机器上 WebView 一开相机就把应用带走
+
+现象：在 WSA 上点「扫码」，取景层正常出现、画面**真的出帧**，然后整个应用消失。
+
+### 1. 先分清"谁崩了"—— 进程归属决定能不能自救
+
+```
+F chromium: [FATAL:jni_android.cc(289)] Please include Java exception stack in crash report
+F libc    : Fatal signal 5 (SIGTRAP) … in tid 13779 (Chrome_InProcGp), pid 13700 (ang.wise.client)
+I ActivityManager: Process com.huicang.wise.client (pid 13700) has died: prcp TOP
+```
+
+关键在 `Chrome_InProcGp` 与 `pid …(ang.wise.client)`：崩的是**我们进程内**的 GPU 线程。
+所以 `WebViewClient.onRenderProcessGone` **一次都不会被调用** —— 那个回调是给
+"渲染进程（独立沙箱进程）挂了"用的。**没有回调，就没有事后自救的余地。**
+
+> 规则：区分"渲染进程崩"与"本进程崩"，是决定修复方案的唯一前提。
+> 前者可以重建 WebView；后者只能**事先留痕**。
+
+### 2. 修复：面包屑 + 如实撤回能力
+
+1. 页面在调用 `getUserMedia` **之前**先请求 `__camera-begin`（同源拦截，不出进程），
+   宿主据此同步落盘一个标记（`SharedPreferences.commit()`，不能是 `apply()` —— 下一行进程可能就没了）；
+2. 取景收起时页面请求 `__camera-done`，宿主清掉标记；
+3. 启动时若标记仍在 = 上次"开相机"没有收尾 → **不声明 `scan.camera`**，
+   界面上不出现扫码入口（见 `CameraSafety` / `ShellApplication`）。
+
+标记与 **WebView 版本**绑定：崩的是那个版本，不是这台机器的永久属性，升级后自动重新尝试。
+
+### 3. 踩过的坑：别拿"进行中"的信号当判据
+
+第一版把"取流成功"当成了"这条路通了"，于是标记在崩溃前就被清掉，**白修一轮**。
+第二版改用"画面出帧"，仍然错 —— 实测取流成功、`play()` 成功、`waitForFrames` 也返回了，
+崩溃发生在**出帧之后**（日志里 `相机取景正常，已清除…` 与 `[FATAL:jni_android.cc(289)]`
+在**同一毫秒**）。
+
+> 规则：只有"从开到关全程没出事"（用户收起取景）才能证明这条路是通的。
+> 任何"进行中"的观测都只是**尚未崩溃**，不是**不会崩溃**。
+
+### 4. 顺带修掉的两个死控件
+
+这一轮同时清掉两个"点了没反应"的按钮 —— 它们比缺少功能更糟，因为它们消耗信任：
+
+- `MobileShell` 的 AppBar 里有个扫码按钮，**只有外观没有 `onClick`**（能力声明了、界面画了、没人接）；
+- 登录屏在 `ActionBar` 里**又**摆了一个「登录」，而真正的提交按钮在屏内 ——
+  重复且是死的。
+
+> 规则：**能力声明即承诺**。声明了 `scan.camera` 就必须有一条真的能走通的路径；
+> 走不通时应撤回声明（本节的机制），而不是留一个静默的按钮。

@@ -3,7 +3,6 @@ import type { Bridge } from '@wise/bridge-client';
 import { Capability } from '@wise/bridge-client';
 import { useScanGun } from '@wise/scan';
 import {
-  ActionBar,
   AppBar,
   Button,
   Content,
@@ -15,6 +14,7 @@ import {
   type WindowSize,
 } from '@wise/patterns';
 import { BridgeStatusChip } from './BridgeStatusChip.js';
+import { CameraScanOverlay } from './CameraScanOverlay.js';
 import { PageBody } from './PageBody.js';
 import { DOMAINS, SCAN_TARGET_METHOD, destinationOf, findLeafByMethod, screenKey, type DomainId, type NavLeaf } from './navigation.js';
 import type { ScreenParams } from '@wise/features';
@@ -58,6 +58,9 @@ export function MobileShell({
   const [stack, setStack] = useState<readonly Crumb[]>([]);
   const top = stack.length > 0 ? stack[stack.length - 1]! : undefined;
   const shown = top ?? { leaf, params: undefined as ScreenParams | undefined };
+
+  /** 相机取景是否打开。关闭即释放摄像头（hook 的清理函数会停掉所有轨道）。 */
+  const [scanning, setScanning] = useState(false);
 
   const switchDomain = (id: DomainId): void => {
     const next = DOMAINS.find((d) => d.id === id);
@@ -135,7 +138,11 @@ export function MobileShell({
               返回
             </Button>
           ) : bridge.supports(Capability.SCAN_CAMERA) ? (
-            <Button variant="primary" ariaLabel="扫码">
+            /*
+             * 相机扫码入口。**只在宿主声明了 SCAN_CAMERA 时出现** ——
+             * 没有相机的设备不该看到一个点了没反应的按钮。
+             */
+            <Button variant="primary" ariaLabel="扫码" onClick={() => setScanning(true)}>
               扫码
             </Button>
           ) : null
@@ -176,19 +183,28 @@ export function MobileShell({
         </Content>
       </div>
 
-      {top === undefined && leaf.primaryMethod === 'auth.login' ? (
-        <ActionBar>
-          <Button variant="primary" block>
-            登录
-          </Button>
-        </ActionBar>
-      ) : null}
+      {/*
+        这里原先还有一条"登录"动作条，那是**重复的死控件**：登录屏自己有提交按钮
+        （它才知道验证码填了没、能不能提交），壳再摆一个点了没反应的按钮只会误导用户。
+        壳只负责"哪一屏"，屏内动作归屏。
+      */}
 
       <TabBar>
         {DOMAINS.map((d) => (
           <TabBarItem key={d.id} label={d.short} icon={d.id} active={d.id === domain} onClick={() => switchDomain(d.id)} />
         ))}
       </TabBar>
+
+      {scanning ? (
+        <CameraScanOverlay
+          onClose={() => setScanning(false)}
+          onDetected={(code) => {
+            // 先关取景再导航：相机多开一秒都是白耗电，而且用户马上要看的不是画面
+            setScanning(false);
+            onScan(code);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

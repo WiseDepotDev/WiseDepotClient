@@ -2,14 +2,19 @@ package com.huicang.wise.client.shell
 
 import android.annotation.SuppressLint
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import com.huicang.wise.bridge.protocol.BridgeCapabilities
 import com.huicang.wise.bridge.protocol.BridgeProtocol
 import java.io.ByteArrayInputStream
 
@@ -31,69 +36,102 @@ import java.io.ByteArrayInputStream
  */
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
+
+    /** WebView 的容器。渲染进程死掉时要把旧 WebView 换成新的，容器让这一步不用重建界面。 */
+    private lateinit var root: FrameLayout
+
     private lateinit var assetLoader: WebViewAssetLoader
 
     /** 只在首次供给引导时打一行日志，避免每帧刷屏。 */
     @Volatile private var bootstrapServed = false
+
+    /**
+     * 上一次把相机交给页面是在什么时候（`elapsedRealtime`，0 = 从来没给过）。
+     *
+     * 用来判断"渲染进程这次崩，是不是相机干的"：只有崩在刚授权之后的**很短时间内**，
+     * 才把账算到相机头上。把两者无限期关联起来会让之后任何一次无关崩溃都顺手废掉扫码。
+     */
+    @Volatile private var cameraGrantedAt = 0L
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         assetLoader = buildAssetLoader()
-
-        webView =
-            WebView(this).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.setSupportMultipleWindows(false)
-                settings.cacheMode = WebSettings.LOAD_DEFAULT
-                settings.mediaPlaybackRequiresUserGesture = true
-                /*
-                 * 页面走 **https**（见 SHELL_ORIGIN），而桥是 `ws://` ——
-                 * 从 https 页面连 ws:// 会被判为混合内容并拦掉。
-                 *
-                 * 这里是**有意识**地放行：桥只监听 loopback / 点对点地址，不出本机；
-                 * 换来的是页面处于**安全上下文**——`getUserMedia`（相机扫码）只在安全上下文里可用，
-                 * 之前为了绕开混合内容把页面退成 http，等于把相机这条路堵死了。
-                 */
-                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                webViewClient = ShellWebViewClient(assetLoader)
-                /*
-                 * 相机扫码要过**两道**授权：网页的 `getUserMedia`（经 onPermissionRequest）
-                 * 与系统的运行时权限（CAMERA）。这里把两者串起来 ——
-                 * 缺系统权限时先弹系统弹窗，**把它挂起**，授予后再批准网页那一侧。
-                 * 不这么做的话用户点一次扫码要按两次，第二次还很容易被当成"点了没反应"。
-                 */
-                webChromeClient =
-                    object : android.webkit.WebChromeClient() {
-                        override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
-                            val wantsCamera =
-                                request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)
-                            if (!wantsCamera) {
-                                // 只要不是相机（麦克风等），一律拒绝：这个壳不需要那些能力
-                                request.deny()
-                                return
-                            }
-                            if (hasCameraPermission()) {
-                                request.grant(request.resources)
-                            } else {
-                                pendingCameraRequest = request
-                                requestCameraPermission()
-                            }
-                        }
-                    }
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            }
+        root = FrameLayout(this)
+        setContentView(root)
+        attachWebView()
 
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
+    }
 
-        setContentView(webView)
+    /** 造一个 WebView 并挂上去。渲染进程死掉后重建走的就是这一条。 */
+    private fun attachWebView() {
+        webView = createWebView()
+        root.removeAllViews()
+        root.addView(webView)
         webView.loadUrl(SHELL_INDEX_URL)
+    }
+
+    private fun createWebView(): WebView =
+        WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.setSupportMultipleWindows(false)
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.mediaPlaybackRequiresUserGesture = true
+            /*
+             * 页面走 **https**（见 SHELL_ORIGIN），而桥是 `ws://` ——
+             * 从 https 页面连 ws:// 会被判为混合内容并拦掉。
+             *
+             * 这里是**有意识**地放行：桥只监听 loopback / 点对点地址，不出本机；
+             * 换来的是页面处于**安全上下文**——`getUserMedia`（相机扫码）只在安全上下文里可用。
+             */
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            webViewClient = ShellWebViewClient(assetLoader) { view, crashed -> onRendererGone(view, crashed) }
+            /*
+             * 相机扫码要过**两道**授权：网页的 `getUserMedia`（经 onPermissionRequest）
+             * 与系统的运行时权限（CAMERA）。这里把两者串起来 ——
+             * 缺系统权限时先弹系统弹窗，**把它挂起**，授予后再批准网页那一侧。
+             * 不这么做的话用户点一次扫码要按两次，第二次还很容易被当成"点了没反应"。
+             */
+            webChromeClient =
+                object : android.webkit.WebChromeClient() {
+                    override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                        val wantsCamera =
+                            request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                        if (!wantsCamera) {
+                            // 只要不是相机（麦克风等），一律拒绝：这个壳不需要那些能力
+                            request.deny()
+                            return
+                        }
+                        if (hasCameraPermission()) {
+                            grantCamera(request)
+                        } else {
+                            pendingCameraRequest = request
+                            requestCameraPermission()
+                        }
+                    }
+                }
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
+
+    /**
+     * 批准网页的相机请求 —— 但**先留下面包屑**。
+     *
+     * 有些 WebView（实测 WSA 的 122）一开相机就在**本进程**的 GPU 线程里中止，
+     * 整个应用进程随之消失，`onRenderProcessGone` 根本没机会被调用。
+     * 于是"这次尝试有没有收尾"只能靠事先写下的标记来判断：没被清掉 = 上次是被它带走的。
+     * 详见 [CameraSafety]。
+     */
+    private fun grantCamera(request: android.webkit.PermissionRequest) {
+        CameraSafety.beginAttempt(this)
+        cameraGrantedAt = SystemClock.elapsedRealtime()
+        request.grant(request.resources)
     }
 
     override fun onDestroy() {
@@ -133,10 +171,39 @@ class MainActivity : ComponentActivity() {
         // 用户拒了就如实拒绝网页那一侧 —— 网页的 getUserMedia 会拿到 NotAllowedError，
         // 界面显示"没拿到相机权限"，而不是永远转圈。
         if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            request.grant(request.resources)
+            grantCamera(request)
         } else {
             request.deny()
         }
+    }
+
+    /**
+     * 渲染进程没了 —— 由 [ShellWebViewClient] 转上来，这里是真正的恢复动作。
+     *
+     * 恢复是**重建一个 WebView 并重新加载**，而不是继续用原来那个：
+     * 活下来的 WebView 实例仍然绑在死掉的渲染进程上，之后任何操作都是无响应 ——
+     * 用户看到的是"白屏，而且怎么点都没用"，比直接崩掉更难排查。
+     *
+     * 真机上渲染进程是独立沙箱进程，这条路覆盖的是常态崩溃；
+     * 而 WSA 上那次相机崩溃是**进程内** GPU 线程中止，连这个回调都到不了 ——
+     * 所以两条路都要有，那条走 [CameraSafety] 的面包屑。
+     */
+    private fun onRendererGone(
+        view: WebView,
+        crashed: Boolean,
+    ) {
+        // 刚把相机交出去就崩 → 这笔账算在相机上，并立刻撤回能力声明：
+        // 重建出来的页面不会再画出扫码入口，否则用户点一次崩一次，进死循环。
+        val byCamera =
+            cameraGrantedAt > 0 && SystemClock.elapsedRealtime() - cameraGrantedAt < CAMERA_BLAME_WINDOW_MS
+        if (crashed && byCamera) {
+            CameraSafety.markUnusable(this, "授权相机后 ${SystemClock.elapsedRealtime() - cameraGrantedAt}ms 内渲染进程崩溃")
+            ShellBridge.revokeCapability(BridgeCapabilities.SCAN_CAMERA, "本机 WebView 打开相机会崩溃")
+        }
+        android.util.Log.e(TAG, "渲染进程已终止（didCrash=$crashed，疑似相机=$byCamera），正在重建 WebView")
+        root.removeView(view)
+        view.destroy()
+        attachWebView()
     }
 
     /**
@@ -157,35 +224,81 @@ class MainActivity : ComponentActivity() {
         val assetsHandler = WebViewAssetLoader.AssetsPathHandler(this)
         return WebViewAssetLoader.Builder()
             .setDomain(SHELL_DOMAIN)
-            // **放行 http**，并且页面就走 http 加载（见 SHELL_ORIGIN）。
-            //
-            // 为什么不能让它走 https：页面是 https，而桥是明文 `ws://`，
-            // Chromium 会按"混合内容"拦掉 —— 它的豁免名单只覆盖 `127.0.0.1` / `localhost`，
-            // 而 WSA 上桥必须在 `169.254.73.153`（loopback0 的点对点地址）上，不在名单里。
-            //
-            // 三条路里选了这条：
-            //   · MIXED_CONTENT_ALWAYS_ALLOW —— 一行搞定，但它对**所有**不安全子资源永久放行，
-            //     等于给未来任何一次注入留门；
-            //   · 桥上 TLS（wss）—— 自签证书 + 忽略证书错误，把"本地回环"复杂化成"半个 PKI"；
-            //   · 本地产物走 http —— 页面与桥**同为明文**，压根不存在混合内容。
-            //
-            // 代价：`http://appassets.androidplatform.net` 不是安全上下文。
-            // 本项目不用任何需要安全上下文的 API（无 crypto.subtle / service worker），
-            // 一旦将来要用，这条要重新评估。
+            /*
+             * 放行 http 是 `WebViewAssetLoader` 的开关，而页面**实际走 https**（见 SHELL_ORIGIN）。
+             *
+             * 两侧的取舍都实测过：
+             *  · 页面走 https 而桥是明文 `ws://` → 被判为混合内容拦掉，页面连不上桥；
+             *  · 退成 http → 页面**不再是安全上下文**，`getUserMedia` 直接不可用，
+             *    而这是**静默**的：没有任何报错，只是"相机用不了"；
+             *  · 于是回到 https，并**有意识地**放行混合内容（settings.mixedContentMode）。
+             *    桥只监听 loopback / 点对点地址，不出本机，这个交换是划算的。
+             *
+             * 实测（WSA）：`isSecureContext === true`、`navigator.mediaDevices` 可用、
+             * `enumerateDevices()` 能列出 videoinput、`BarcodeDetector` 存在。
+             */
             .setHttpAllowed(true)
             .addPathHandler(
                 "/",
                 object : WebViewAssetLoader.PathHandler {
-                    override fun handle(path: String): WebResourceResponse? =
-                        when {
-                            path == BridgeProtocol.BOOTSTRAP_PATH.removePrefix("/") -> bootstrapResponse()
-                            path.startsWith(ASSET_PREFIX) -> assetsHandler.handle(path.removePrefix(ASSET_PREFIX))
-                            else -> null
+                    override fun handle(path: String): WebResourceResponse? {
+                        // 查询串（防缓存用的 `?_=`）不属于路径，先剥掉再判等
+                        val p = path.substringBefore('?')
+                        return when (p) {
+                            BridgeProtocol.BOOTSTRAP_PATH.removePrefix("/") -> bootstrapResponse()
+                            CAMERA_BEGIN_PATH -> cameraBeginResponse()
+                            CAMERA_DONE_PATH -> cameraDoneResponse()
+                            else ->
+                                if (p.startsWith(ASSET_PREFIX)) {
+                                    assetsHandler.handle(p.removePrefix(ASSET_PREFIX))
+                                } else {
+                                    null
+                                }
                         }
+                    }
                 },
             )
             .build()
     }
+
+    /**
+     * 页面即将打开相机：[CameraSafety] 记下面包屑。
+     *
+     * **必须在相机真正打开之前落盘**。反过来的话进程可能已经没了，标记根本没写下去 ——
+     * 而这个标记的全部作用就是给"下一次启动"看。
+     */
+    private fun cameraBeginResponse(): WebResourceResponse {
+        CameraSafety.beginAttempt(this)
+        return noContent()
+    }
+
+    /**
+     * 页面收起了取景（扫到了 / 用户取消）：这次从开到关没出事，清掉面包屑。
+     *
+     * **只有这一条路径会清**。刻意不为"画面出来了"清：实测那台机器上取流成功、
+     * 画面也真的出帧，崩在出帧之后 —— 任何进行中的信号都不足以证明这条路是通的。
+     * 崩溃时页面发不出这条请求，面包屑就留下了，下次启动据此撤掉扫码入口。
+     */
+    private fun cameraDoneResponse(): WebResourceResponse {
+        CameraSafety.confirmAlive(this)
+        return noContent()
+    }
+
+    /**
+     * 200 + 空体 + 禁缓存。
+     *
+     * 用 200 而不是 204：204 按语义**不能带实体**，而这里无论如何都要给 `WebResourceResponse`
+     * 一个流。回 200 空体是两边都不会误会的写法。
+     */
+    private fun noContent(): WebResourceResponse =
+        WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            200,
+            "OK",
+            mapOf("Cache-Control" to "no-store"),
+            ByteArrayInputStream(ByteArray(0)),
+        )
 
     private fun bootstrapResponse(): WebResourceResponse {
         val json = ShellBridge.handshakeJson
@@ -207,11 +320,31 @@ class MainActivity : ComponentActivity() {
 
     private class ShellWebViewClient(
         private val loader: WebViewAssetLoader,
+        /** 渲染进程终止时的恢复动作；返回值即 `onRenderProcessGone` 的返回值。 */
+        private val onGone: (WebView, Boolean) -> Unit,
     ) : WebViewClientCompat() {
         override fun shouldInterceptRequest(
             view: WebView,
             request: WebResourceRequest,
         ): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+
+        /**
+         * **返回 true = "我已经处理，别把应用一起杀掉"**；返回默认的 false 会连应用一起终止。
+         *
+         * `onRenderProcessGone` 是 API 26 加入的，minSdk 25 上系统根本不会调用它 ——
+         * 那种机器上行为与本回调存在之前一致（渲染进程崩溃 → 应用退出），
+         * 属于已知且可接受的降级，不额外处理。
+         */
+        override fun onRenderProcessGone(
+            view: WebView,
+            detail: RenderProcessGoneDetail?,
+        ): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                return true
+            }
+            onGone(view, detail?.didCrash() == true)
+            return true
+        }
 
         /**
          * 页面加载完成 = "装进设备后真的跑起来了"。
@@ -251,6 +384,18 @@ class MainActivity : ComponentActivity() {
         const val TAG = "WiseShell"
         const val SHELL_DOMAIN = "appassets.androidplatform.net"
         const val CAMERA_PERMISSION_REQUEST = 1001
+
+        /**
+         * 授权相机之后多久内崩，才把账算在相机头上。
+         *
+         * 实测那次：授权到 `SIGTRAP` 约 200ms 量级。给到 10 秒是留出低端机取流更慢的余量；
+         * 再放宽就会把"用户扫完码、过一会儿因为别的原因崩了"也算进来。
+         */
+        const val CAMERA_BLAME_WINDOW_MS = 10_000L
+
+        /** 页面侧的两条存活信号路径（`@wise/scan` 的 useCameraScan 发起）。 */
+        const val CAMERA_BEGIN_PATH = "__camera-begin"
+        const val CAMERA_DONE_PATH = "__camera-done"
 
         /**
          * 页面 origin 用 **https**（安全上下文）。
