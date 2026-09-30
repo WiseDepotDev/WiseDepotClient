@@ -170,6 +170,51 @@ export function ActionBar({ children }: { children: ReactNode }): React.ReactEle
   return <div className="w-actionbar">{children}</div>;
 }
 
+/**
+ * 危险操作的二次确认（ui-spec §3.1："不允许点一下就删"）。
+ *
+ * 用受控组件而不是 `window.confirm`：后者会**阻塞渲染线程**、样式不可控、
+ * 在 WebView 里还会打断与桥的连接（弹窗期间事件循环被占住）。
+ * 删除这类操作必须在应用自己的界面里确认，而不是交给宿主环境。
+ */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = '确认',
+  danger = true,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.ReactElement | null {
+  if (!open) {
+    return null;
+  }
+  return (
+    <div className="w-overlay" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="w-overlay__panel">
+        <div className="w-pageheader__title">{title}</div>
+        <div className="w-state">{message}</div>
+        <div className="w-actionbar">
+          <Button ariaLabel="取消" onClick={onCancel}>
+            取消
+          </Button>
+          <Button variant={danger ? 'danger' : 'primary'} ariaLabel={confirmLabel} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Toolbar({ children }: { children: ReactNode }): React.ReactElement {
   return <div className="w-toolbar">{children}</div>;
 }

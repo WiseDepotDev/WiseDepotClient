@@ -302,6 +302,27 @@
   margin-bottom: var(--w-space-group-gap);
 }
 
+/* 危险操作的二次确认：遮罩 + 居中面板（用 elevation-overlay 表达层级，不用阴影堆叠） */
+.w-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--w-space-screen-horizontal);
+  background: var(--w-color-inverse-surface);
+  opacity: 0.98;
+  z-index: 10;
+}
+
+.w-overlay__panel {
+  width: 100%;
+  max-width: var(--w-dp-480);
+  background: var(--w-color-surface);
+  border-radius: var(--w-radius-large);
+  padding: var(--w-space-card-padding);
+}
+
 /* 登录/引导类居中页：卡片最大宽度 480（ui-spec §3.2 表单卡片化） */
 .w-auth {
   flex: 1;

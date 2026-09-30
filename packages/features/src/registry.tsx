@@ -3,6 +3,7 @@ import { Card, Mono, Section, Stack } from '@wise/patterns';
 import { DashboardScreen } from './overview/DashboardScreen.js';
 import { AlertListScreen } from './overview/AlertListScreen.js';
 import { InventoryListScreen } from './inventory/InventoryListScreen.js';
+import { ProductListScreen } from './inventory/ProductListScreen.js';
 
 /**
  * 屏注册表：**桥方法 id → 屏组件**。
@@ -22,6 +23,8 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'inventory.list': InventoryListScreen,
   // 搜索是同一个屏的另一种取数方式（服务端筛选），先复用列表屏
   'inventory.search': InventoryListScreen,
+  // 商品主数据（标准 CRUD 屏的样板）
+  'product.list': ProductListScreen,
 };
 
 export function screenFor(primaryMethod: string): ScreenComponent | undefined {
