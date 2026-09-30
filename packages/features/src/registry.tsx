@@ -6,6 +6,7 @@ import { InventoryListScreen } from './inventory/InventoryListScreen.js';
 import { ProductListScreen } from './inventory/ProductListScreen.js';
 import { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 import { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
+import { TagListScreen } from './inventory/TagListScreen.js';
 
 /**
  * 屏注册表：**桥方法 id → 屏组件**。
@@ -31,6 +32,8 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'warehouse.list': WarehouseListScreen,
   // 出入库单：建单入口走 BottomActionBar（表单屏不允许"滚到底找按钮"）
   'stockOrder.list': StockOrderListScreen,
+  // 标签：本域唯一带批量操作与验证码的屏
+  'tag.list': TagListScreen,
 };
 
 export function screenFor(primaryMethod: string): ScreenComponent | undefined {

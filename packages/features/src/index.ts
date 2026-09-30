@@ -4,6 +4,8 @@ export { InventoryListScreen } from './inventory/InventoryListScreen.js';
 export { ProductListScreen } from './inventory/ProductListScreen.js';
 export { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 export { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
+export { TagListScreen } from './inventory/TagListScreen.js';
+export { CaptchaRow, useCaptcha, type CaptchaState } from './shared/CaptchaField.js';
 
 export {
   screenFor,

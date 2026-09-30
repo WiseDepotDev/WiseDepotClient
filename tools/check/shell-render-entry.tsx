@@ -7,6 +7,7 @@ import {
   LoginScreen,
   ProductListScreen,
   StockOrderListScreen,
+  TagListScreen,
   WarehouseListScreen,
 } from '@wise/features';
 import type { Bridge } from '@wise/bridge-client';
@@ -101,6 +102,11 @@ const cases: readonly Case[] = [
     name: 'StockOrderListScreen（出入库单，W5-inventory）',
     render: () => renderToStaticMarkup(<StockOrderListScreen bridge={fakeBridge([])} />),
     expect: ['出入库单', 'w-pageheader', 'w-skeleton', 'w-bottombar', '新建单据', '单据列表'],
+  },
+  {
+    name: 'TagListScreen（标签管理，W5-inventory）',
+    render: () => renderToStaticMarkup(<TagListScreen bridge={fakeBridge([])} />),
+    expect: ['标签管理', 'w-pageheader', 'w-search', 'w-skeleton', 'w-bottombar', '批量绑定', '批量解绑', '标签列表'],
   },
 ];
 
