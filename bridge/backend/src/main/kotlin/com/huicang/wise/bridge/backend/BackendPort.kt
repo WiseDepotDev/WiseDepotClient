@@ -72,13 +72,25 @@ sealed interface BackendResult {
 
 /** 会话令牌的存取。令牌**只活在桥进程内**，永不下发到 JS。 */
 interface TokenStore {
+    /**
+     * 凭据是否**跨进程重启**得以保留。
+     *
+     * 用途只有一个：宿主据此决定要不要声明 `storage.secure` 能力。
+     * 内存实现返回 false —— "重启就得重新登录"不满足"安全存储"对用户的承诺，
+     * 而声明了做不到的能力比不声明更糟（UI 会据此画出永远不工作的入口）。
+     */
+    val persistent: Boolean get() = false
+
     fun accessToken(): String?
+
     fun refreshToken(): String?
+
     fun update(access: String?, refresh: String?)
+
     fun clear()
 }
 
-/** 内存实现：W2 用它跑通链路；W3 换成加密落盘（桌面 DPAPI/KeyStore、手机 EncryptedSharedPreferences）。 */
+/** 内存实现：测试与"拿不到平台密钥体系"时的兜底（重启后需要重新登录）。 */
 class InMemoryTokenStore : TokenStore {
     @Volatile private var access: String? = null
     @Volatile private var refresh: String? = null

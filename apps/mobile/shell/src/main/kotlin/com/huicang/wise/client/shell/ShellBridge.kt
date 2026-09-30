@@ -19,16 +19,24 @@ import java.util.Base64
  */
 class AndroidPlatform(
     override val version: String,
-    override val capabilities: Set<String> =
-        setOf(
-            BridgeCapabilities.SECURE_STORE,
-            // 键盘式扫码枪：它就是一只 USB HID 键盘，字符直接进 WebView 的 keydown 流，
-            // 因此这一项**不需要任何原生代码**（识别逻辑在 @wise/scan，两端共用）。
-            BridgeCapabilities.SCAN_GUN_KEYBOARD,
-        ),
+    override val capabilities: Set<String> = ANDROID_CAPABILITIES,
 ) : PlatformPort {
     override val platform: String = BridgeCapabilities.PLATFORM_MOBILE
 }
+
+/**
+ * Android 宿主声明自己具备的能力。
+ *
+ * 抽成常量是因为 [ShellBridge] 需要**按实际能不能做到**去过滤它
+ * （拿不到 Keystore 时要把 `storage.secure` 摘掉）。
+ */
+val ANDROID_CAPABILITIES: Set<String> =
+    setOf(
+        BridgeCapabilities.SECURE_STORE,
+        // 键盘式扫码枪：它就是一只 USB HID 键盘，字符直接进 WebView 的 keydown 流，
+        // 因此这一项**不需要任何原生代码**（识别逻辑在 @wise/scan，两端共用）。
+        BridgeCapabilities.SCAN_GUN_KEYBOARD,
+    )
 
 /**
  * 手机壳的桥宿主：**同一份** [BridgeServer]（与桌面用的完全一样），只是托管方式不同——
@@ -49,7 +57,10 @@ object ShellBridge {
 
     /** 幂等：重复调用不会起第二个桥（Activity 重建、多入口都靠这个）。 */
     @Synchronized
-    fun startIfNeeded(version: String) {
+    fun startIfNeeded(
+        version: String,
+        filesDir: java.io.File,
+    ) {
         if (server != null) {
             return
         }
@@ -60,14 +71,25 @@ object ShellBridge {
         val host = com.huicang.wise.bridge.server.BridgeHostResolver.resolve()
         android.util.Log.i("WiseShell", "桥将绑定：$host（候选：${com.huicang.wise.bridge.server.BridgeHostResolver.candidates()}）")
         val token = newToken()
-        val tokens = com.huicang.wise.bridge.backend.InMemoryTokenStore()
+        val tokens = tokenStore(filesDir)
+        // 能力必须**如实**：拿不到 Keystore 就不能声明 storage.secure。
+        // 声明了做不到的能力比不声明更糟 —— UI 会据此画出永远不工作的入口。
+        val capabilities =
+            ANDROID_CAPABILITIES.filter { it != BridgeCapabilities.SECURE_STORE || tokens.persistent }.toSet()
+        if (!tokens.persistent) {
+            android.util.Log.w(
+                "WiseShell",
+                "本机拿不到 Android Keystore，凭据改为仅存内存（重启后需要重新登录），" +
+                    "并已撤回 ${BridgeCapabilities.SECURE_STORE} 能力声明",
+            )
+        }
         val instance =
             BridgeServer(
                 BridgeServerConfig(
                     port = 0,
                     token = token,
                     backend = OkHttpBackend(BuildConfig.WISE_BACKEND_URL, tokens),
-                    platform = AndroidPlatform(version),
+                    platform = AndroidPlatform(version, capabilities),
                     tokens = tokens,
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
                     host = host,
@@ -92,9 +114,27 @@ object ShellBridge {
                     host = host,
                     platform = AndroidPlatform(version).platform,
                     ver = version,
-                    capabilities = AndroidPlatform(version).capabilities.sorted(),
+                    capabilities = capabilities.sorted(),
                 ),
             )
+    }
+
+    /**
+     * 令牌存储：能用 Keystore 就加密落盘，用不了就退回内存**并如实撤回能力声明**。
+     *
+     * 为什么宁可"重启重新登录"也不明文落盘：令牌是长期凭据，
+     * 明文文件等于把这台机器变成一把钥匙；而重新登录的代价只是几十秒。
+     */
+    private fun tokenStore(filesDir: java.io.File): com.huicang.wise.bridge.backend.TokenStore {
+        if (!AndroidKeystoreCodec.available()) {
+            return com.huicang.wise.bridge.backend.InMemoryTokenStore()
+        }
+        val file = java.io.File(filesDir, "bridge-session.enc").toPath()
+        return com.huicang.wise.bridge.backend.PersistentTokenStore(
+            file = file,
+            codec = AndroidKeystoreCodec(),
+            log = { android.util.Log.i("WiseShell", it) },
+        )
     }
 
     fun stop() {

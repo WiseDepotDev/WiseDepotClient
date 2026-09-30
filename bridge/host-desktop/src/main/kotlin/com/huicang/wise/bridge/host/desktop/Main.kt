@@ -2,9 +2,12 @@ package com.huicang.wise.bridge.host.desktop
 
 import com.huicang.wise.bridge.backend.InMemoryTokenStore
 import com.huicang.wise.bridge.backend.OkHttpBackend
+import com.huicang.wise.bridge.backend.PersistentTokenStore
+import com.huicang.wise.bridge.backend.TokenStore
 import com.huicang.wise.bridge.capability.PlatformPort
 import com.huicang.wise.bridge.protocol.BridgeCapabilities
 import com.huicang.wise.bridge.server.BridgeHostResolver
+import com.huicang.wise.bridge.server.BridgeLog
 import com.huicang.wise.bridge.server.BridgeServer
 import com.huicang.wise.bridge.server.BridgeServerConfig
 import com.huicang.wise.bridge.server.BridgeTransportKind
@@ -38,6 +41,11 @@ private data class Args(
     val transport: BridgeTransportKind,
     /** 绑定地址。桌面缺省 127.0.0.1；WSA 之类的环境需要传点对点地址（见 BridgeHostResolver）。 */
     val host: String,
+    /**
+     * 令牌加密落盘的位置。**不传就不落盘**（仅内存，重启后需重新登录）。
+     * 由真正的宿主显式指定，理由见 [main] 里的说明。
+     */
+    val tokenFile: String?,
 )
 
 private fun parseArgs(argv: Array<String>): Args {
@@ -68,6 +76,8 @@ private fun parseArgs(argv: Array<String>): Args {
          * 注意它出现在 argv 里，因此**只用于测试与本地调试**；真实恢复流程应走 stdin 或安全存储。
          */
         accessToken = map["access-token"]?.takeIf { it.isNotBlank() },
+        // 不传 = 不落盘（默认）。见 Args.tokenFile 的说明。
+        tokenFile = map["token-file"]?.takeIf { it.isNotBlank() },
         // 桌面默认 Netty；`--transport plain` 用纯 socket 实现，供"两条传输语义一致"的对照验收。
         transport =
             if (map["transport"] == "plain") {
@@ -97,8 +107,48 @@ private fun newToken(): String {
 fun main(argv: Array<String>) {
     val args = parseArgs(argv)
     val token = newToken()
-    val tokens = InMemoryTokenStore()
+
+    /**
+     * 令牌存储。
+     *
+     * **默认不落盘**：只有宿主显式传 `--token-file` 时才启用加密持久化。
+     * 这个默认值是有意的 —— 所有 bench / 冒烟脚本都会 spawn 同一个宿主 jar，
+     * 如果默认就落盘，它们登录后会把凭据写进用户的会话文件，
+     * 表现为"下次开应用莫名以别的账号登着"。
+     *
+     * 能用 DPAPI 就加密；用不了就退回内存**并撤回 `storage.secure` 声明**，
+     * **绝不降级成明文落盘**（明文凭据文件比"重启重新登录"危险得多）。
+     */
+    val tokenFile = args.tokenFile
+    val tokens: TokenStore =
+        when {
+            tokenFile == null -> InMemoryTokenStore()
+            DpapiCodec.available() -> {
+                // 这行是现场排障的锚点：用户说"每次开都要重新登录"时，
+                // 先看这里 —— 没有这行就说明宿主根本没拿到 --token-file（持久化没启用）。
+                //
+                // 必须走 BridgeLog（stderr）而不是 println：stdout 被握手行占着，
+                // 主进程只解析它、不转发它 —— 我第一版用 println，结果这行**根本看不见**。
+                BridgeLog.info("凭据将加密保存（DPAPI）：$tokenFile")
+                PersistentTokenStore(file = java.nio.file.Paths.get(tokenFile), codec = DpapiCodec()) {
+                    BridgeLog.info(it)
+                }
+            }
+            else -> {
+                BridgeLog.info("本机拿不到 DPAPI，凭据仅存内存（重启后需要重新登录）")
+                InMemoryTokenStore()
+            }
+        }
     args.accessToken?.let { tokens.update(it, null) }
+
+    // 能力必须**如实**：拿不到加密存储就不能声明 storage.secure ——
+    // 声明了做不到的能力比不声明更糟（UI 会据此画出永远不工作的入口）。
+    val capabilities =
+        if (tokens.persistent) {
+            args.capabilities
+        } else {
+            args.capabilities - BridgeCapabilities.SECURE_STORE
+        }
 
     val server =
         BridgeServer(
@@ -106,7 +156,7 @@ fun main(argv: Array<String>) {
                 port = args.port,
                 token = token,
                 backend = OkHttpBackend(args.backend, tokens),
-                platform = DesktopPlatform(args.version, args.capabilities),
+                platform = DesktopPlatform(args.version, capabilities),
                 tokens = tokens,
                 allowedOrigins = args.origins,
                 transport = args.transport,

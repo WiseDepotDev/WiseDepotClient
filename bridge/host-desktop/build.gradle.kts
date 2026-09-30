@@ -21,6 +21,9 @@ dependencies {
     implementation(project(":bridge:capability"))
     implementation(project(":bridge:server"))
     implementation(libs.kotlinx.coroutines.core)
+    // DPAPI（Windows 上安全保存令牌）。**只引 jna-platform**，它是可选降级：
+    // 拿不到时宿主会退回内存存储并**撤回 storage.secure 的声明**，而不是假装自己有。
+    implementation(libs.jna.platform)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

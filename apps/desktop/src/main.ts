@@ -1,6 +1,7 @@
 import { app, BrowserWindow, protocol, net, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { join } from 'node:path';
 import { BridgeProcess, type BridgeHandshake } from './bridgeProcess';
 import { bootstrapResponse, resolveWebAsset } from './webAssets';
 
@@ -73,6 +74,15 @@ async function startBridge(): Promise<void> {
     mainClass: 'com.huicang.wise.bridge.host.desktop.MainKt',
     backendUrl: process.env.WISE_BACKEND_URL ?? 'http://127.0.0.1:18080',
     version: app.getVersion(),
+    // 令牌落盘**必须由真正的宿主显式指定**，而不是宿主自己猜一个路径。
+    //
+    // 为什么：所有 bench / 冒烟脚本都会 spawn 同一个宿主 jar。如果落盘路径是写死的默认值，
+    // 那些脚本一旦登录就会把凭据写进**用户的会话文件** —— 下次开应用会莫名其妙地
+    // 以 operator 身份登着。所以宿主的默认行为是"不落盘"，持久化由这里opt-in。
+    //
+    // 落点用 Electron 的 userData：那是这个应用自己的、按用户隔离的目录，
+    // 比在 LOCALAPPDATA 下再拼一个名字更不容易和别的东西撞。
+    extraArgs: ['--token-file', join(app.getPath('userData'), 'bridge-session.enc')],
     // jlink + AppCDS 的启动优化放在这里，而不是写死在宿主里：
     // 宿主是"一份"，它的启动参数属于"桌面这一侧的托管方式"。
     //
