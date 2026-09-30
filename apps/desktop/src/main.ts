@@ -75,11 +75,25 @@ async function startBridge(): Promise<void> {
     version: app.getVersion(),
     // jlink + AppCDS 的启动优化放在这里，而不是写死在宿主里：
     // 宿主是"一份"，它的启动参数属于"桌面这一侧的托管方式"。
-    jvmArgs: ['-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-Xms16m', '-Xmx256m'],
+    //
+    // `-Dfile.encoding=UTF-8` 等三项不是可选项：JVM 在中文 Windows 上默认用 GBK 写 stderr，
+    // 而主进程按 UTF-8 解码 —— 结果是**桥的中文日志全部变成乱码**，
+    // 刚加的排障日志（自检/握手被拒/前端已连接）等于白打。
+    jvmArgs: [
+      '-XX:+UseSerialGC',
+      '-XX:TieredStopAtLevel=1',
+      '-Xms16m',
+      '-Xmx256m',
+      '-Dfile.encoding=UTF-8',
+      '-Dstdout.encoding=UTF-8',
+      '-Dstderr.encoding=UTF-8',
+    ],
   });
 
   bridge.on('state', (s) => mainWindow?.webContents.send('bridge-state', s));
-  bridge.on('log', (line: string) => console.log(`[bridge] ${line.trimEnd()}`));
+  // 不重复加前缀：桥自己的日志已经以 `[bridge] ` 开头（那是它写给人看的一部分），
+  // 再套一层会变成 `[bridge] [bridge] …` —— 噪音虽小，但每条日志都多一层。
+  bridge.on('log', (line: string) => console.log(line.trimEnd()));
   bridge.on('exit', (info: { code: number | null; intentional: boolean }) => {
     if (!info.intentional) {
       console.error(`[bridge] 桥进程异常退出 code=${info.code}`);
