@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { DesktopShell, MobileShell } from '@wise/shells';
 import {
   AlertListScreen,
+  AlertDetailScreen,
   DashboardScreen,
   DeviceDetailScreen,
   DeviceListScreen,
@@ -12,6 +13,7 @@ import {
   InspectionTaskDetailScreen,
   InspectionTaskListScreen,
   InventoryListScreen,
+  InventoryDetailScreen,
   LoginScreen,
   MessageDetailScreen,
   MessageListScreen,
@@ -100,6 +102,30 @@ const cases: readonly Case[] = [
     name: 'AlertListScreen（告警中心，W5）',
     render: () => renderToStaticMarkup(<AlertListScreen bridge={fakeBridge([])} />),
     expect: ['告警中心', 'w-pageheader', 'w-skeleton', '只看未处理', '告警列表'],
+  },
+
+  // W11：旧 APP 的最后两块待迁屏（都从列表点一行推入）
+  {
+    name: 'AlertDetailScreen（告警详情，无参数 → 查询入口）',
+    render: () => renderToStaticMarkup(<AlertDetailScreen bridge={fakeBridge([])} />),
+    // 未传 eventId 时不取数，落空态而不是骨架
+    expect: ['告警详情', 'w-pageheader', 'w-state'],
+  },
+  {
+    name: 'AlertDetailScreen（带 screenParams.eventId → 首帧取数）',
+    render: () => renderToStaticMarkup(<AlertDetailScreen bridge={fakeBridge([])} screenParams={{ eventId: '1' }} />),
+    expect: ['w-pageheader', 'w-skeleton'],
+  },
+  {
+    name: 'InventoryDetailScreen（库存详情，无参数 → 查询入口）',
+    render: () => renderToStaticMarkup(<InventoryDetailScreen bridge={fakeBridge([])} />),
+    expect: ['库存详情', 'w-pageheader', 'w-state'],
+  },
+  {
+    name: 'InventoryDetailScreen（带 screenParams.inventoryId → 首帧取数）',
+    render: () =>
+      renderToStaticMarkup(<InventoryDetailScreen bridge={fakeBridge([])} screenParams={{ inventoryId: '1' }} />),
+    expect: ['w-pageheader', 'w-skeleton'],
   },
   {
     name: 'InventoryListScreen（库存查询，W5-inventory）',

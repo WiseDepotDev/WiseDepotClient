@@ -16,6 +16,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize, shortTime } from '../shared/api.js';
+import type { Navigator } from '../registry.js';
 import { LevelChip } from './DashboardScreen.js';
 
 /**
@@ -37,7 +38,13 @@ interface AlertItem {
 
 const PAGE_SIZE = 20;
 
-export function AlertListScreen({ bridge }: { bridge: Bridge }): React.ReactElement {
+export function AlertListScreen({
+  bridge,
+  onNavigate,
+}: {
+  bridge: Bridge;
+  onNavigate?: Navigator | undefined;
+}): React.ReactElement {
   const [page, setPage] = useState(1);
   const [onlyUnhandled, setOnlyUnhandled] = useState(false);
 
@@ -91,6 +98,17 @@ export function AlertListScreen({ bridge }: { bridge: Bridge }): React.ReactElem
                   <DataRow
                     key={a.eventId}
                     id={`#${a.eventId}`}
+                    /*
+                     * 整行点一下 = 进告警详情。
+                     * 用条件展开而不是 `onSelect={cond ? undefined : fn}`：
+                     * 本仓开了 `exactOptionalPropertyTypes`，显式传 undefined 编译不过。
+                     */
+                    {...(a.eventId === undefined
+                      ? {}
+                      : {
+                          onSelect: () =>
+                            onNavigate?.({ method: 'alert.detail', params: { eventId: String(a.eventId) } }),
+                        })}
                     main={a.title}
                     sub={
                       <>

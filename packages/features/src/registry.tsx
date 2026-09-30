@@ -2,7 +2,9 @@ import type { Bridge } from '@wise/bridge-client';
 import { Card, Mono, Section, Stack } from '@wise/patterns';
 import { DashboardScreen } from './overview/DashboardScreen.js';
 import { AlertListScreen } from './overview/AlertListScreen.js';
+import { AlertDetailScreen } from './overview/AlertDetailScreen.js';
 import { InventoryListScreen } from './inventory/InventoryListScreen.js';
+import { InventoryDetailScreen } from './inventory/InventoryDetailScreen.js';
 import { ProductListScreen } from './inventory/ProductListScreen.js';
 import { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 import { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
@@ -84,8 +86,12 @@ export type ScreenComponent = (props: {
 const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'dashboard.summary': DashboardScreen,
   'alert.list': AlertListScreen,
+  // 告警详情：由列表点一行推入（DESTINATIONS 里有它），不占导航项
+  'alert.detail': AlertDetailScreen,
   // W5 库存域：列表屏先迁 —— 它是操作员每天打开最多的那一屏
   'inventory.list': InventoryListScreen,
+  // 库存详情：由列表点一行推入（DESTINATIONS 里有它）
+  'inventory.detail': InventoryDetailScreen,
   // 搜索是同一个屏的另一种取数方式（服务端筛选），先复用列表屏
   'inventory.search': InventoryListScreen,
   // 商品主数据（标准 CRUD 屏的样板）

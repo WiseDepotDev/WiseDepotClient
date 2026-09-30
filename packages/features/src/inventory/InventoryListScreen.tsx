@@ -19,6 +19,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize } from '../shared/api.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 库存查询（inventory/list）。
@@ -50,7 +51,13 @@ const PAGE_SIZE = 20;
 
 type StockFilter = 'all' | 'low' | 'locked';
 
-export function InventoryListScreen({ bridge }: { bridge: Bridge }): React.ReactElement {
+export function InventoryListScreen({
+  bridge,
+  onNavigate,
+}: {
+  bridge: Bridge;
+  onNavigate?: Navigator | undefined;
+}): React.ReactElement {
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
@@ -131,6 +138,16 @@ export function InventoryListScreen({ bridge }: { bridge: Bridge }): React.React
                   <DataRow
                     key={r.inventoryId ?? `${r.productCode}-${r.location}`}
                     id={r.productCode}
+                    /* 整行点一下 = 进库存详情（条件展开的原因见 AlertListScreen） */
+                    {...(r.inventoryId === undefined
+                      ? {}
+                      : {
+                          onSelect: () =>
+                            onNavigate?.({
+                              method: 'inventory.detail',
+                              params: { inventoryId: String(r.inventoryId) },
+                            }),
+                        })}
                     main={r.productName ?? '未命名商品'}
                     sub={
                       <>

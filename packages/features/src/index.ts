@@ -1,6 +1,8 @@
 export { DashboardScreen, LevelChip } from './overview/DashboardScreen.js';
 export { AlertListScreen } from './overview/AlertListScreen.js';
+export { AlertDetailScreen } from './overview/AlertDetailScreen.js';
 export { InventoryListScreen } from './inventory/InventoryListScreen.js';
+export { InventoryDetailScreen } from './inventory/InventoryDetailScreen.js';
 export { ProductListScreen } from './inventory/ProductListScreen.js';
 export { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 export { StockOrderListScreen } from './inventory/StockOrderListScreen.js';

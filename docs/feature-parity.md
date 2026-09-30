@@ -18,7 +18,7 @@
 
 | # | 屏文件 | 行数 | 新域 | 迁移状态 |
 | --- | --- | --- | --- | --- |
-| 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 待迁（需 `alert.detail`） |
+| 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 已迁 · `overview/AlertDetailScreen.tsx` |
 | 2 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertListScreen.kt` | 317 | overview | 已迁 · `overview/AlertListScreen.tsx` |
 | 3 | `core/ui/src/main/java/com/huicang/wise/ui/camera/CameraScanScreen.kt` | 255 | **待归类** | 壳能力（相机 + 解码在原生侧），不映射桥方法 |
 | 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 已迁 · `field/InspectionTaskCreateScreen.tsx` |
@@ -27,7 +27,7 @@
 | 7 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceListScreen.kt` | 211 | field | 已迁 · `field/DeviceListScreen.tsx` |
 | 8 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionDetailScreen.kt` | 402 | field | 已迁 · `field/InspectionTaskDetailScreen.tsx` |
 | 9 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionListScreen.kt` | 276 | field | 已迁 · `field/InspectionTaskListScreen.tsx` |
-| 10 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryDetailScreen.kt` | 195 | inventory | 待迁（需 `inventory.detail`） |
+| 10 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryDetailScreen.kt` | 195 | inventory | 已迁 · `inventory/InventoryDetailScreen.tsx` |
 | 11 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryManagementScreen.kt` | 331 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
 | 12 | `app/src/main/java/com/huicang/wise/ui/main/InventoryScreen.kt` | 234 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
 | 13 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventorySearchScreen.kt` | 272 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
@@ -52,14 +52,14 @@
 
 | # | 路由 id | 新域 | 迁移状态 |
 | --- | --- | --- | --- |
-| 1 | `alert/detail` | overview | 待迁（需 `alert.detail`） |
+| 1 | `alert/detail` | overview | 已迁 · （未填新屏路径） |
 | 2 | `alert/list` | overview | 已迁 · （未填新屏路径） |
 | 3 | `device/detail` | field | 已迁 · （未填新屏路径） |
 | 4 | `device/list` | field | 已迁 · （未填新屏路径） |
 | 5 | `inspection/create` | field | 已迁 · （未填新屏路径） |
 | 6 | `inspection/detail` | field | 已迁 · （未填新屏路径） |
 | 7 | `inspection/list` | field | 已迁 · （未填新屏路径） |
-| 8 | `inventory/detail` | inventory | 待迁（需 `inventory.detail`） |
+| 8 | `inventory/detail` | inventory | 已迁 · （未填新屏路径） |
 | 9 | `inventory/management` | inventory | 已迁 · （未填新屏路径） |
 | 10 | `inventory/product` | inventory | 已迁 · （未填新屏路径） |
 | 11 | `inventory/search` | inventory | 已迁 · （未填新屏路径） |
@@ -330,11 +330,11 @@
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 23 |
+| ├ 已迁（依赖的桥方法全部已登记） | 25 |
 | ├ 部分迁（新屏在了，但还有方法没接） | 0 |
-| ├ 待迁（一个方法都没接） | 2 |
+| ├ 待迁（一个方法都没接） | 0 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
-| 旧路由已覆盖 | 17 / 19 |
-| 已登记屏（registry 条目数） | 32 |
+| 旧路由已覆盖 | 19 / 19 |
+| 已登记屏（registry 条目数） | 34 |
 
 ✓ 每一块旧屏都在 `LEGACY_SCREEN_MAP` 里有归宿（含"无对应物"的说明），无遗漏。
