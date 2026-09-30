@@ -18,6 +18,18 @@ JSON.stringify({
   shell: (document.querySelector('.w-root') || {}).className || '(未渲染)',
   hasTabBar: !!document.querySelector('.w-tabbar'),
   hasSidebar: !!document.querySelector('.w-sidebar'),
+  captchaRow: (() => {
+    const row = document.querySelector('.w-captcha');
+    if (!row) return null;
+    const r = row.getBoundingClientRect();
+    const b = row.querySelector('.w-btn');
+    const i = row.querySelector('.w-input');
+    return {
+      row: [Math.round(r.width), Math.round(r.height)],
+      btn: b ? [Math.round(b.getBoundingClientRect().width), Math.round(b.getBoundingClientRect().height)] : null,
+      input: i ? Math.round(i.getBoundingClientRect().width) : null,
+    };
+  })(),
   tabbarPlaceholderIcons: document.querySelectorAll('.w-tabbar__item span[aria-hidden]').length,
   shellRect: (() => { const e = document.querySelector('.w-root'); if (!e) return null; const r = e.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })(),
   rootFontSize: getComputedStyle(document.documentElement).fontSize,

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  壳的主题：**只要一个干净的容器**。
+
+  为什么不写主题会出事（W3 用户截图里那条黑色横条）：不指定 theme 时，
+  ComponentActivity 走平台默认主题（Theme.DeviceDefault），它**自带一个 ActionBar**，
+  于是在我们的 WebView 上方多出一条没人要的系统标题栏（写着应用名、纯黑）。
+  界面全由 Web 画，容器不该再有自己的一层装饰。
+
+  同时把 windowBackground 定成白色：WebView 首帧之前会露出窗口背景，
+  用深色会在启动瞬间闪一下黑。
+-->
+<resources>
+    <style name="Theme.WiseShell" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

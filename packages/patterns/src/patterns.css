@@ -273,6 +273,14 @@
   margin-bottom: var(--w-space-inline-gap);
 }
 
+/*
+ * 验证码行：三段（图 / 换一张 / 输入框）。
+ *
+ * 这里必须显式约束，否则窄屏上会崩：截图里 `换一张` 被挤成了竖排的
+ * 「换 / 一 / 张」——因为 flex 行里谁都没声明"我不许被压缩"，
+ * 于是输入框的 width:100% 一路把按钮压到只剩一个字宽。
+ * 规则：图与按钮 flex:none（它们该多大就多大），输入框 flex:1 + min-width:0（它才是弹性项）。
+ */
 .w-captcha {
   display: flex;
   align-items: center;
@@ -280,11 +288,23 @@
 }
 
 .w-captcha__image {
+  width: var(--w-dp-100);
   height: var(--w-space-touch-target-min);
+  flex: none;
   border: 1px solid var(--w-color-outline);
   border-radius: var(--w-radius-small);
   background: var(--w-color-surface-variant);
+  object-fit: contain;
+}
+
+.w-captcha > .w-btn {
   flex: none;
+  white-space: nowrap;
+}
+
+.w-captcha > .w-input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ================================================================ 控件 */
