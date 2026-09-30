@@ -18,6 +18,8 @@ import {
   ProductListScreen,
   ProfileScreen,
   StockOrderListScreen,
+  StockOrderCreateScreen,
+  StockOrderDetailScreen,
   TagListScreen,
   TagDetailScreen,
   UserListScreen,
@@ -117,7 +119,20 @@ const cases: readonly Case[] = [
   {
     name: 'StockOrderListScreen（出入库单，W5-inventory）',
     render: () => renderToStaticMarkup(<StockOrderListScreen bridge={fakeBridge([])} />),
-    expect: ['出入库单', 'w-pageheader', 'w-skeleton', 'w-bottombar', '新建单据', '单据列表'],
+    expect: ['出入库单', 'w-pageheader', 'w-skeleton', 'w-bottombar', '单据列表'],
+  },
+
+  // W9：出入库单的建单与详情（原先是列表屏里的一个内联表单，那个入口永远失败）
+  {
+    name: 'StockOrderCreateScreen（新建出入库单，W9-inventory）',
+    render: () => renderToStaticMarkup(<StockOrderCreateScreen bridge={fakeBridge([])} />),
+    expect: ['新建出入库单', 'w-pageheader', 'w-bottombar'],
+  },
+  {
+    name: 'StockOrderDetailScreen（出入库单详情，W9-inventory）',
+    render: () => renderToStaticMarkup(<StockOrderDetailScreen bridge={fakeBridge([])} />),
+    // 未传单据编号时不取数，落查询空态而不是骨架
+    expect: ['出入库单详情', 'w-pageheader', 'w-state'],
   },
   {
     name: 'TagListScreen（标签管理，W5-inventory）',

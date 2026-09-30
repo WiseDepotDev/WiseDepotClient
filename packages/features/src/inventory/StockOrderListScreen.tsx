@@ -6,9 +6,6 @@ import {
   Chip,
   DataList,
   DataRow,
-  Dot,
-  Field,
-  Input,
   Mono,
   PageHeader,
   Section,
@@ -19,85 +16,71 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize, shortTime } from '../shared/api.js';
+import { orderStatusOf, orderStatusText, orderTypeText } from './stockOrderState.js';
 
 /**
  * 出入库单（inventory/stockOrder）。
  *
- * 这一屏的建单入口用 [BottomActionBar] —— 规范里的硬规则：
- * **表单屏不允许"滚到底才看得到提交按钮"**（旧版建单屏 477 行就是这个毛病）。
- * 建单入口钉在底部，不随列表滚动。
+ * 这一屏**只负责列表**。建单已挪到专门的 `StockOrderCreateScreen`：
+ * 这里原先有一个内联建单表单，它调 `stockOrder.create` 时只传了 `{warehouseId, remark}`，
+ * 而服务端要求 `orderNo`（不生成，必须客户端给）与 `createBy` ——
+ * 所以那个入口**永远是失败的**（真实错误 `VAL-0001 单据编号不能为空`）。
+ * 建单这件事只能有一个属主，否则两边会各自漂移。
  *
- * 建单表单保持"最小可用"：目的仓库 + 备注 + 明细后续再补（明细要配合标签扫码，
- * 属 `stockOrder.addItem`，随标签屏一起做）。**宁可少字段，也不要假字段**。
+ * 类型与状态的判定统一在 `./stockOrderState.js`（详情屏用同一份），
+ * 那里的注释记着这一屏原本错在哪三处。
  */
-
-type OrderStatus = 'draft' | 'submitted' | 'audited' | 'unknown';
 
 interface StockOrderRow {
   readonly orderId?: number;
-  readonly orderCode?: string;
+  readonly orderNo?: string;
   readonly orderType?: number;
-  readonly status?: number;
+  /**
+   * 状态**数字码**。真实字段名是 `orderStatus`。
+   *
+   * 踩过的坑：这里原先写的是 `status`，而服务端返回的行里根本没有这个字段
+   * （实测响应：`{"orderStatus":0,"orderType":1,"orderStatusStr":"PENDING",…}`）。
+   * 于是每一行的状态标签都在走兜底分支 —— 而列表屏在服务端渲染时没有数据，
+   * 渲染用例也抓不到，靠真后端回读才看见。
+   */
+  readonly orderStatus?: number;
+  /** 状态的可读串（服务端也会给，优先用它，省一次映射）。 */
+  readonly orderStatusStr?: string;
+  readonly orderTypeStr?: string;
   readonly warehouseName?: string;
   readonly createTime?: string;
+  readonly createdByName?: string;
   readonly createByName?: string;
-  readonly itemCount?: number;
+  /** 明细条数：真实字段是 `totalItems`（原先写的 `itemCount` 服务端也没有）。 */
+  readonly totalItems?: number;
 }
 
 const PAGE_SIZE = 20;
 
-/** 旧版 `StockOrderType`：1 入库 / 2 出库（与后端枚举一致，改动要同步契约）。 */
-function orderTypeLabel(t: number | undefined): string {
-  return t === 1 ? '入库' : t === 2 ? '出库' : '单据';
-}
-
-function statusOf(s: number | undefined): OrderStatus {
-  switch (s) {
-    case 0:
-      return 'draft';
-    case 1:
-      return 'submitted';
-    case 2:
-      return 'audited';
-    default:
-      return 'unknown';
-  }
-}
-
-function StatusChip({ status }: { status: number | undefined }): React.ReactElement {
-  switch (statusOf(status)) {
-    case 'draft':
-      return (
-        <Chip tone="neutral">
-          <Dot tone="idle" />
-          草稿
-        </Chip>
-      );
-    case 'submitted':
-      return (
-        <Chip tone="info">
-          <Dot tone="ok" />
-          已提交
-        </Chip>
-      );
-    case 'audited':
-      return (
-        <Chip tone="ok">
-          <Dot tone="ok" />
-          已审核
-        </Chip>
-      );
-    default:
-      return <Chip tone="neutral">未知</Chip>;
-  }
+/**
+ * 状态胶囊。色调按归一化后的状态取，文案来自共享模块 ——
+ * 这里**不再自己维护一份码表**（原来那份是错的：0 被当成"草稿"，
+ * 而真实枚举 `PENDING(0)` 是"待审批"）。
+ */
+function StatusChip({ row }: { row: StockOrderRow }): React.ReactElement {
+  const tone = ((): 'ok' | 'info' | 'warn' | 'neutral' => {
+    switch (orderStatusOf(row)) {
+      case 'approved':
+      case 'completed':
+        return 'ok';
+      case 'submitted':
+        return 'info';
+      case 'rejected':
+        return 'warn';
+      default:
+        return 'neutral';
+    }
+  })();
+  return <Chip tone={tone}>{orderStatusText(row)}</Chip>;
 }
 
 export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.ReactElement {
   const [page, setPage] = useState(1);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ warehouseId: '', remark: '' });
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | undefined>(undefined);
 
   const { loading, data, error, reload } = useBridgeCall<unknown>(bridge, 'stockOrder.list', {
     page,
@@ -107,27 +90,6 @@ export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.Reac
   const rows = asList<StockOrderRow>(data);
   const total = asTotal(data);
   const hasMore = total !== undefined ? page * PAGE_SIZE < total : rows.length === PAGE_SIZE;
-
-  const submitCreate = async (): Promise<void> => {
-    const warehouseId = Number(form.warehouseId);
-    if (!Number.isFinite(warehouseId) || warehouseId <= 0) {
-      setActionError('请填写有效的仓库编号');
-      return;
-    }
-    setBusy(true);
-    setActionError(undefined);
-    try {
-      await bridge.call('stockOrder.create', { warehouseId, remark: form.remark.trim() });
-      setCreating(false);
-      setForm({ warehouseId: '', remark: '' });
-      setPage(1);
-      reload();
-    } catch (e) {
-      setActionError(humanize(e as never));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <Stack>
@@ -141,35 +103,9 @@ export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.Reac
         }
       />
 
-      {creating ? (
-        <Section title="新建单据">
-          <Card>
-            <Stack>
-              <Field label="目的仓库编号 *">
-                <Input
-                  value={form.warehouseId}
-                  onChange={(v) => setForm((f) => ({ ...f, warehouseId: v }))}
-                  placeholder="如：1"
-                  mono
-                />
-              </Field>
-              <Field label="备注">
-                <Input value={form.remark} onChange={(v) => setForm((f) => ({ ...f, remark: v }))} placeholder="选填" />
-              </Field>
-              {actionError ? (
-                <div className="w-state w-state--error">
-                  <span>{actionError}</span>
-                </div>
-              ) : null}
-              <div className="w-state">
-                <span>明细（商品与数量）在建单后逐条添加；标签扫码加明细随标签屏一起上线。</span>
-              </div>
-            </Stack>
-          </Card>
-        </Section>
-      ) : actionError ? (
+      {error ? (
         <div className="w-state w-state--error">
-          <span>{actionError}</span>
+          <span>{humanize(error)}</span>
         </div>
       ) : null}
 
@@ -177,27 +113,29 @@ export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.Reac
         <Card flush>
           <ListStateHost
             loading={loading}
-            error={error ? { code: error.code, text: humanize(error) } : undefined}
+            error={undefined}
             items={rows}
-            emptyText="还没有出入库单。点击下方「新建单据」开始建单。"
+            emptyText="还没有出入库单。到「新建出入库单」建第一张。"
             onRetry={reload}
           >
             {(items) => (
               <DataList>
                 {items.map((r) => (
                   <DataRow
-                    key={r.orderId ?? r.orderCode}
-                    id={r.orderCode}
-                    main={`${orderTypeLabel(r.orderType)}单`}
+                    key={r.orderId ?? r.orderNo}
+                    id={r.orderNo}
+                    main={`${orderTypeText(r)}单`}
                     sub={
                       <>
                         {r.warehouseName ? <span>{r.warehouseName} · </span> : null}
                         <span className="w-mono">{shortTime(r.createTime)}</span>
-                        {r.createByName ? <span className="w-muted"> · {r.createByName}</span> : null}
-                        {typeof r.itemCount === 'number' ? <span className="w-muted"> · {r.itemCount} 项</span> : null}
+                        {createdBy(r) ? <span className="w-muted"> · {createdBy(r)}</span> : null}
+                        {typeof r.totalItems === 'number' ? (
+                          <span className="w-muted">{` · ${r.totalItems} 项`}</span>
+                        ) : null}
                       </>
                     }
-                    trailing={<StatusChip status={r.status} />}
+                    trailing={<StatusChip row={r} />}
                   />
                 ))}
               </DataList>
@@ -216,15 +154,24 @@ export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.Reac
         </Button>
       </Toolbar>
 
-      {/* 建单入口钉在底部：列表滚多长都不用找它 */}
+      {/*
+        这里原先有一个**内联的建单表单**，它调 `stockOrder.create` 时只传了
+        `{warehouseId, remark}` —— 而服务端要求 `orderNo`（不生成）与 `createBy`，
+        所以那个入口**永远是失败的**（真实错误：`VAL-0001 单据编号不能为空`）。
+        现在建单有专门的屏（`StockOrderCreateScreen`），这里只留入口提示 ——
+        "建单"这件事只能有一个属主，否则两边会各自漂移。
+      */}
       <BottomActionBar>
         <Monocaption>{`共 ${rows.length} 张`}</Monocaption>
-        <Button variant="primary" block ariaLabel="新建单据" onClick={() => setCreating((v) => !v)}>
-          {creating ? '收起建单' : '新建单据'}
-        </Button>
+        <span className="w-muted">建单请到「新建出入库单」</span>
       </BottomActionBar>
     </Stack>
   );
+}
+
+/** 创建人：服务端给了可读名就用它，否则退回编号。 */
+function createdBy(row: StockOrderRow): string | undefined {
+  return row.createdByName ?? row.createByName;
 }
 
 /** 底部条左侧的计数说明（小号、次要色，不抢主按钮的注意力）。 */

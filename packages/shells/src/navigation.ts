@@ -47,6 +47,10 @@ export const DOMAINS: readonly NavDomain[] = [
       { id: 'tags', label: '标签管理', primaryMethod: 'tag.list' },
       { id: 'tag-detail', label: '标签详情', primaryMethod: 'tag.detail' },
       { id: 'stock-orders', label: '出入库单', primaryMethod: 'stockOrder.list' },
+      // 建单与详情各占一条：清单页只负责列表，建单是独立的一屏
+      // （原先在列表页里内联建单，那个入口因为缺 orderNo/createBy 永远是失败的）
+      { id: 'stock-order-create', label: '新建出入库单', primaryMethod: 'stockOrder.create' },
+      { id: 'stock-order-detail', label: '单据详情', primaryMethod: 'stockOrder.detail' },
       { id: 'warehouses', label: '仓库管理', primaryMethod: 'warehouse.list' },
     ],
   },

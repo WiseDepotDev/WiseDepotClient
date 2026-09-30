@@ -40,8 +40,8 @@
 | 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 已迁 · `inventory/ProductListScreen.tsx` |
 | 21 | `feature/user/src/main/java/com/huicang/wise/ui/user/ProfileScreen.kt` | 363 | me | 已迁 · `me/ProfileScreen.tsx` |
 | 22 | `core/ui/src/main/java/com/huicang/wise/ui/components/SkeletonScreen.kt` | 200 | **待归类** | 被 ListStateHost 四态（加载/错误/空/有数据）取代 |
-| 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 待迁（需 `stockOrder.create`） |
-| 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 待迁（需 `stockOrder.detail`） |
+| 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 已迁 · `inventory/StockOrderCreateScreen.tsx` |
+| 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 已迁 · `inventory/StockOrderDetailScreen.tsx` |
 | 25 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderListScreen.kt` | 252 | inventory | 已迁 · `inventory/StockOrderListScreen.tsx` |
 | 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 已迁 · `inventory/TagDetailScreen.tsx` |
 | 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 已迁 · `inventory/TagListScreen.tsx` |
@@ -66,8 +66,8 @@
 | 12 | `inventory/tag` | inventory | 已迁 · （未填新屏路径） |
 | 13 | `message/detail` | me | 已迁 · （未填新屏路径） |
 | 14 | `message/list` | me | 已迁 · （未填新屏路径） |
-| 15 | `stock/create` | inventory | 待迁（需 `stockOrder.create`） |
-| 16 | `stock/detail` | inventory | 待迁（需 `stockOrder.detail`） |
+| 15 | `stock/create` | inventory | 已迁 · （未填新屏路径） |
+| 16 | `stock/detail` | inventory | 已迁 · （未填新屏路径） |
 | 17 | `stock/list` | inventory | 已迁 · （未填新屏路径） |
 | 18 | `user/management` | me | 已迁 · （未填新屏路径） |
 | 19 | `warehouse/management` | field | 已迁 · （未填新屏路径） |
@@ -330,11 +330,11 @@
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 21 |
+| ├ 已迁（依赖的桥方法全部已登记） | 23 |
 | ├ 部分迁（新屏在了，但还有方法没接） | 0 |
-| ├ 待迁（一个方法都没接） | 4 |
+| ├ 待迁（一个方法都没接） | 2 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
-| 旧路由已覆盖 | 15 / 19 |
-| 已登记屏（registry 条目数） | 30 |
+| 旧路由已覆盖 | 17 / 19 |
+| 已登记屏（registry 条目数） | 32 |
 
 ✓ 每一块旧屏都在 `LEGACY_SCREEN_MAP` 里有归宿（含"无对应物"的说明），无遗漏。

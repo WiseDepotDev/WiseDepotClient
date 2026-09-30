@@ -4,6 +4,8 @@ export { InventoryListScreen } from './inventory/InventoryListScreen.js';
 export { ProductListScreen } from './inventory/ProductListScreen.js';
 export { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 export { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
+export { StockOrderCreateScreen } from './inventory/StockOrderCreateScreen.js';
+export { StockOrderDetailScreen } from './inventory/StockOrderDetailScreen.js';
 export { TagListScreen } from './inventory/TagListScreen.js';
 export { TagDetailScreen } from './inventory/TagDetailScreen.js';
 export { DeviceListScreen } from './field/DeviceListScreen.js';

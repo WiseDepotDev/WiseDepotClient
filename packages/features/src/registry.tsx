@@ -6,6 +6,8 @@ import { InventoryListScreen } from './inventory/InventoryListScreen.js';
 import { ProductListScreen } from './inventory/ProductListScreen.js';
 import { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 import { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
+import { StockOrderCreateScreen } from './inventory/StockOrderCreateScreen.js';
+import { StockOrderDetailScreen } from './inventory/StockOrderDetailScreen.js';
 import { TagListScreen } from './inventory/TagListScreen.js';
 import { TagDetailScreen } from './inventory/TagDetailScreen.js';
 import { DeviceListScreen } from './field/DeviceListScreen.js';
@@ -64,6 +66,9 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'warehouse.list': WarehouseListScreen,
   // 出入库单：建单入口走 BottomActionBar（表单屏不允许"滚到底找按钮"）
   'stockOrder.list': StockOrderListScreen,
+  // 建单与详情是两屏：建单必须给单号与创建人（服务端都不生成），详情承担状态流转
+  'stockOrder.create': StockOrderCreateScreen,
+  'stockOrder.detail': StockOrderDetailScreen,
   // 标签：本域唯一带批量操作与验证码的屏
   'tag.list': TagListScreen,
   // 标签详情：**扫码枪的落点**（扫到的编码经 screenParams.code 送进来）。
