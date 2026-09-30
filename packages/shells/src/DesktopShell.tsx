@@ -67,6 +67,7 @@ export function DesktopShell({
           <div key={d.id} className="w-navgroup">
             <NavItem
               label={d.label}
+              icon={d.id}
               active={d.id === domain && !d.children.some((c) => c.id === leaf.id)}
               onClick={() => {
                 setDomain(d.id);
@@ -88,9 +89,28 @@ export function DesktopShell({
           actions={<Chip tone="neutral">{`${bridge.capabilities.length} 项能力`}</Chip>}
           status={<BridgeStatusChip bridge={bridge} origin={origin} />}
         />
-        <MasterDetail
-          master={master}
-          detail={
+        {/*
+          主从双栏**只在 Expanded 出现**（ui-spec.md §1.2）。
+          Medium（600–839）是"单列 + 内容限宽 720 居中"，把双栏硬塞进这个宽度会让左栏只剩 200px、
+          右栏被压到 300px 出头 —— 两侧都不能读。这个错误在宽屏桌面上看不出来，
+          是在 WSA 那个 720px 竖屏窗口里暴露的。
+        */}
+        {size === 'expanded' ? (
+          <MasterDetail
+            master={master}
+            detail={
+              <Content size={size}>
+                <Page>
+                  <PageHeader title={leaf.label} subtitle={leaf.primaryMethod} />
+                  <Stack>
+                    <PageBody bridge={bridge} leaf={leaf} />
+                  </Stack>
+                </Page>
+              </Content>
+            }
+          />
+        ) : (
+          <div className="w-scroll">
             <Content size={size}>
               <Page>
                 <PageHeader title={leaf.label} subtitle={leaf.primaryMethod} />
@@ -99,8 +119,8 @@ export function DesktopShell({
                 </Stack>
               </Page>
             </Content>
-          }
-        />
+          </div>
+        )}
       </div>
     </div>
   );

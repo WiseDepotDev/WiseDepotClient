@@ -12,11 +12,22 @@
         android:supportsRtl="false"
         android:usesCleartextTraffic="false">
 
+        <!--
+          锁竖屏 + 不可缩放 —— 与旧 APP 一致，也是"手机端"这个产品定位应有的形态。
+
+          只写 screenOrientation 在 WSA 上**不生效**：WSA 以 `mode=freeform`（自由窗口）跑应用，
+          而 Android 在自由窗口 / 多窗口下会**忽略**方向请求。必须同时声明 resizeableActivity="false"，
+          系统才会把方向请求当真。这两条一起才是完整的修法（实测：只加前者，视口仍是 1280x656 横屏）。
+
+          放开竖屏锁的条件与旧仓 B5 相同：横屏各档真的验收过之后再放开。
+        -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

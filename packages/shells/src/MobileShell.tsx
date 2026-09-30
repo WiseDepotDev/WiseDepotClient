@@ -87,7 +87,7 @@ export function MobileShell({
 
       <TabBar>
         {DOMAINS.map((d) => (
-          <TabBarItem key={d.id} label={d.short} active={d.id === domain} onClick={() => switchDomain(d.id)} />
+          <TabBarItem key={d.id} label={d.short} icon={d.id} active={d.id === domain} onClick={() => switchDomain(d.id)} />
         ))}
       </TabBar>
     </div>

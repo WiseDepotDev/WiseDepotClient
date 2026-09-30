@@ -36,11 +36,13 @@ export function NavItem({
   label,
   active,
   child,
+  icon,
   onClick,
 }: {
   label: string;
   active: boolean;
   child?: boolean;
+  icon?: IconName;
   onClick: () => void;
 }): React.ReactElement {
   return (
@@ -50,6 +52,7 @@ export function NavItem({
       aria-current={active}
       onClick={onClick}
     >
+      {icon ? <Icon name={icon} size={18} /> : null}
       {label}
     </button>
   );
@@ -66,15 +69,17 @@ export function TabBar({ children }: { children: ReactNode }): React.ReactElemen
 export function TabBarItem({
   label,
   active,
+  icon,
   onClick,
 }: {
   label: string;
   active: boolean;
+  icon?: IconName;
   onClick: () => void;
 }): React.ReactElement {
   return (
     <button type="button" className="w-tabbar__item" aria-current={active} onClick={onClick}>
-      <span aria-hidden="true">●</span>
+      {icon ? <Icon name={icon} size={22} /> : null}
       {label}
     </button>
   );
@@ -253,6 +258,39 @@ export function Chip({
 
 export function Dot({ tone }: { tone: 'ok' | 'warn' | 'bad' | 'idle' }): React.ReactElement {
   return <span className={`w-dot w-dot--${tone}`} />;
+}
+
+/**
+ * 图标：内联 SVG，**不引图标库**。
+ *
+ * 为什么不用第三方图标库：整个产物预算只有 250KB(gzip)，而这里只需要 4 个 24×24 的实心路径。
+ * 更重要的是"少一个会随版本改变外观的依赖"——现场工具的外观不该由别人的 minor 版本决定。
+ *
+ * 之前的底栏用的是 `●` 字符占位，那在真机上是真的难看（W3 用户反馈），因此补齐。
+ */
+const ICON_PATHS = {
+  /** 看板（dashboard） */
+  overview: 'M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18v6h8V3h-8z',
+  /** 库存（box） */
+  inventory:
+    'M20 2H4c-1.1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-.9-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z',
+  /** 现场（layers） */
+  field:
+    'M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z',
+  /** 我的（person） */
+  me: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+  /** 扫码（qr） */
+  scan: 'M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm18 4V5c0-1.1-.9-2-2-2h-4v2h4v4h2zM5 15v4h4v2H5c-1.1 0-2-.9-2-2v-4h2zm16 4v-4h-2v4h-4v2h4c1.1 0 2-.9 2-2zM3 11h18v2H3z',
+} as const;
+
+export type IconName = keyof typeof ICON_PATHS;
+
+export function Icon({ name, size = 20 }: { name: IconName; size?: number }): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d={ICON_PATHS[name]} />
+    </svg>
+  );
 }
 
 // ================================================================ 数据
