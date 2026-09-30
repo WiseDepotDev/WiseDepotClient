@@ -61,8 +61,20 @@ class BridgeCallHandler(
         }
 
         val requestId = parsed.meta?.requestId?.takeIf { it.isNotBlank() } ?: parsed.id
-        return encodeOutcome(parsed.id, runCatching { dispatcher.dispatch(parsed.method, parsed.params, requestId) }
-            .getOrElse { BackendResult.Failed(BridgeErrorCodes.INTERNAL, "bridge.internal", retryable = true) })
+        val outcome =
+            try {
+                dispatcher.dispatch(parsed.method, parsed.params, requestId)
+            } catch (e: Throwable) {
+                // **兜底必须说话，而且要把原因链说完**。原先这里只回一个 BRIDGE_INTERNAL，异常被完全吞掉 ——
+                // 结果是"页面说取数失败、桥什么也没说"，只能靠猜（W3 在 WSA 上就卡在这个盲区）。
+                //
+                // 只打 `e.message` 也不够：`ExceptionInInitializerError` / `NoClassDefFoundError`
+                // 这类异常的 message 恰恰是 **null**，真正的原因藏在 cause 里 ——
+                // 实测第一次就撞上了这个，打印出来是一句毫无信息量的 `ExceptionInInitializerError: null`。
+                BridgeLog.info("[bridge] 分发异常 method=${parsed.method}：${describe(e)}")
+                BackendResult.Failed(BridgeErrorCodes.INTERNAL, "bridge.internal", retryable = true)
+            }
+        return encodeOutcome(parsed.id, outcome)
     }
 
     /** 异步版：分发是挂起的，传输层自己决定在哪个作用域里等它。 */
@@ -96,6 +108,19 @@ class BridgeCallHandler(
                     ),
                 )
         }
+
+    /** 把异常的原因链打平成一行的可读文本（`A: m ← B: m ← C: m`）。 */
+    private fun describe(e: Throwable): String {
+        val parts = mutableListOf<String>()
+        var cur: Throwable? = e
+        var depth = 0
+        while (cur != null && depth < 5) {
+            parts += "${cur.javaClass.name}: ${cur.message ?: "(无消息)"}"
+            cur = cur.cause
+            depth += 1
+        }
+        return parts.joinToString(" ← ")
+    }
 
     /** 供传输层复用的"未就绪"响应（纯 socket 传输在桥没起来时会用到）。 */
     fun unauthorizedFrame(): String =
