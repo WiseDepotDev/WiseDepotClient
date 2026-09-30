@@ -218,9 +218,18 @@ export class WebSocketTransport implements BridgeTransport {
           /* 已经关了就算了 */
         }
         this.socket = null;
-        reject(
-          new BridgeError({ code: BridgeErrorCode.BACKEND_UNREACHABLE, messageKey: 'bridge.connectTimeout', retryable: true }),
-        );
+        /*
+         * **不是直接失败，而是当作"这次尝试失败"交给重连逻辑。**
+         *
+         * 区别很重要：直接失败只解决"不再永远挂着"，却把"自愈"也一起丢了 ——
+         * 用户得自己点重试。交给重连之后：单次尝试有上限（不会再挂住），
+         * 后台按退避继续试，连上时 `state` 变成 open，
+         * 正在错误态的屏会自动重取（见 `useBridgeCall` 的状态订阅）。
+         *
+         * 整次调用的上限由 `callTimeoutMs` 兜（它从进入 call 就开始计时），
+         * 所以用户不会等超过那个预算。
+         */
+        void this.scheduleReconnect(resolve, reject);
       }, this.opts.connectTimeoutMs);
 
       const settle = (fn: () => void): void => {

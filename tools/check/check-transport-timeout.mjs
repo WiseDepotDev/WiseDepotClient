@@ -72,6 +72,7 @@ try {
     // 精确模拟"连接挂在那里"。
     {
         const RealWebSocket = globalThis.WebSocket;
+        let constructed = 0;
         globalThis.WebSocket = class {
             // **必须给全静态常量与 readyState**：`ensureOpen()` 里判的是
             // `this.socket?.readyState === WebSocket.OPEN` —— 少了这两个，
@@ -83,6 +84,7 @@ try {
             static CLOSED = 3;
             readyState = 0;
             constructor() {
+                constructed += 1;
                 /* 故意什么都不做：不 onopen、不 onclose、不 onerror */
             }
             close() {
@@ -93,10 +95,11 @@ try {
             }
         };
         try {
-            const budget = 3000;
+            const budget = 2500;
+            const connectTimeout = 300;
             const t = new WebSocketTransport(
                 { port: 9, token: 'x', host: '127.0.0.1' },
-                { callTimeoutMs: budget, connectTimeoutMs: 500, maxBackoffMs: 50, maxAttempts: 3 },
+                { callTimeoutMs: budget, connectTimeoutMs: connectTimeout, maxBackoffMs: 50, maxAttempts: 8 },
             );
             const started = Date.now();
             let outcome = 'hang';
@@ -108,17 +111,26 @@ try {
             }
             const elapsed = Date.now() - started;
             t.close();
+
             check(
                 '建连悬停时调用仍然结束（这就是"永远转骨架"的根因）',
                 outcome !== 'hang' && elapsed < budget + 1500,
                 `${elapsed}ms 结束，结果：${outcome}`,
             );
-            // **必须精确到建连超时**：如果这里接受 `bridge.timeout`，
-            // 那用例在"建连超时根本没生效、只是被调用超时兜住"时也会通过。
+            /*
+             * **关键断言：连接是"被放弃并重试"，而不是"一直挂在同一个 socket 上"。**
+             * 只断言"结束了"是不够的 —— 那可能只是被调用超时兜住，
+             * 期间一直挂在同一个不响应的 socket 上，现场表现为"每次都要重试好几遍"。
+             */
             check(
-                '是**建连超时**先兜住的（而不是等到整次调用超时）',
-                outcome === 'bridge.connectTimeout' && elapsed < 2000,
-                `${elapsed}ms，结果：${outcome}`,
+                '挂住的连接被按上限放弃并重试（不是死等同一个 socket）',
+                constructed >= 3,
+                `${connectTimeout}ms 上限下共发起 ${constructed} 次连接尝试`,
+            );
+            check(
+                '给出的错误是可重试的（UI 能显示明确原因 + 重试）',
+                outcome === 'bridge.timeout' || outcome === 'bridge.connectTimeout' || outcome === 'bridge.reconnectGaveUp',
+                String(outcome),
             );
         } finally {
             globalThis.WebSocket = RealWebSocket;
