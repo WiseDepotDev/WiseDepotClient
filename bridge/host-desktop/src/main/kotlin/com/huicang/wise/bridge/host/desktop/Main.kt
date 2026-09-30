@@ -6,6 +6,7 @@ import com.huicang.wise.bridge.capability.PlatformPort
 import com.huicang.wise.bridge.protocol.BridgeCapabilities
 import com.huicang.wise.bridge.server.BridgeServer
 import com.huicang.wise.bridge.server.BridgeServerConfig
+import com.huicang.wise.bridge.server.BridgeTransportKind
 import com.huicang.wise.bridge.server.DEFAULT_ALLOWED_ORIGINS
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,6 +34,7 @@ private data class Args(
     val origins: Set<String>,
     val maxPerSecond: Int,
     val accessToken: String?,
+    val transport: BridgeTransportKind,
 )
 
 private fun parseArgs(argv: Array<String>): Args {
@@ -63,6 +65,13 @@ private fun parseArgs(argv: Array<String>): Args {
          * 注意它出现在 argv 里，因此**只用于测试与本地调试**；真实恢复流程应走 stdin 或安全存储。
          */
         accessToken = map["access-token"]?.takeIf { it.isNotBlank() },
+        // 桌面默认 Netty；`--transport plain` 用纯 socket 实现，供"两条传输语义一致"的对照验收。
+        transport =
+            if (map["transport"] == "plain") {
+                BridgeTransportKind.PLAIN_SOCKET
+            } else {
+                BridgeTransportKind.NETTY
+            },
     )
 }
 
@@ -95,6 +104,7 @@ fun main(argv: Array<String>) {
                 platform = DesktopPlatform(args.version, args.capabilities),
                 tokens = tokens,
                 allowedOrigins = args.origins,
+                transport = args.transport,
                 maxPerSecond = args.maxPerSecond,
             ),
         )

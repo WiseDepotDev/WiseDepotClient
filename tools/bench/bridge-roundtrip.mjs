@@ -30,6 +30,15 @@ const ARGV = process.argv.slice(2);
 const JSON_ONLY = ARGV.includes('--json');
 const COUNT = Number((ARGV[ARGV.indexOf('--count') + 1] ?? '').replace(/^--.*/, '')) || 1000;
 
+/**
+ * 传输实现：`--transport plain` 用自写 RFC6455（手机侧），缺省 Netty（桌面侧）。
+ * 加这个开关的目的就是**同一套用例跑两条传输**，证明"换传输不改语义"。
+ */
+const TRANSPORT_ARGS = (() => {
+  const i = ARGV.indexOf('--transport');
+  return i >= 0 && ARGV[i + 1] ? ['--transport', ARGV[i + 1]] : [];
+})();
+
 /** 门禁阈值（与 docs/architecture.md §10 一致）。 */
 const GATE = {
   handshakeMs: 700,
@@ -78,7 +87,7 @@ class Host {
     }
     const classpath = path.join(LIB_DIR, '*');
     const t0 = Date.now();
-    this.child = spawn('java', ['-cp', classpath, MAIN_CLASS, ...this.extraArgs], {
+    this.child = spawn('java', ['-cp', classpath, MAIN_CLASS, ...this.extraArgs, ...TRANSPORT_ARGS], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });

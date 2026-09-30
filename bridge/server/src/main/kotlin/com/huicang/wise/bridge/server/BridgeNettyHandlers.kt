@@ -1,13 +1,10 @@
 package com.huicang.wise.bridge.server
 
-import com.huicang.wise.bridge.backend.BackendResult
 import com.huicang.wise.bridge.protocol.BridgeCodec
 import com.huicang.wise.bridge.protocol.BridgeError
 import com.huicang.wise.bridge.protocol.BridgeErrorCodes
 import com.huicang.wise.bridge.protocol.BridgeProtocol
 import com.huicang.wise.bridge.protocol.ErrFrame
-import com.huicang.wise.bridge.protocol.ReqFrame
-import com.huicang.wise.bridge.protocol.ResFrame
 import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
@@ -24,27 +21,18 @@ import io.netty.handler.codec.http.websocketx.TextWebSocketFrame
 import io.netty.util.CharsetUtil
 import io.netty.util.ReferenceCountUtil
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-
-/** 从原始报文里抠出 `"id"`，用于"帧太大但还没解析"时也能回一个带 id 的错误。 */
-private val RAW_ID = Regex("\"id\"\\s*:\\s*\"([^\"]{1,64})\"")
-
-/** 帧里 `id` 的最大长度（协议未规定，这里给一个防御性上限，防止异常报文撑爆日志）。 */
-private const val MAX_ID_LENGTH = 64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
- * 握手前的鉴权：token + Origin。
+ * Netty 侧的握手鉴权：token + Origin。
  *
  * 分工写清楚，避免"以为 Origin 是主防线"：
  * - **token 是主闸**：256-bit、每次启动新生成、校验一次后不再复验；
  * - **Origin 是纵深**：浏览器一定带 Origin，带且不在白名单就拒；不带则放行
  *   （原生客户端与基准脚本不带 Origin，而它们本来就已经持有 token）。
  *
- * 为什么不做 401 之外的细粒度拒绝：本地 loopback 上没有可信的"来源"概念，
- * 把复杂度放在 token 上比放在来源判断上更实在。
+ * 与纯 socket 传输（[PlainWebSocketServer]）的校验口径**逐条一致** —— 两条传输的行为不能有差异。
  */
 class BridgeAuthHandler(
     private val token: String,
@@ -108,22 +96,22 @@ class BridgeAuthHandler(
 }
 
 /**
- * 帧处理：解析 → 限流 → 分发 → 回帧。
+ * 帧处理（Netty 侧）：**只负责把字节搬给 [BridgeCallHandler]**。
  *
- * 分发是挂起的（要等后端），因此放在 [scope] 上跑；回写用 `writeAndFlush`，
- * Netty 会把它调度回该 channel 的 event loop，不需要手工切线程。
+ * 解析、限流、白名单、分发、编码全部在共用的处理器里 —— 于是"两条传输语义一致"
+ * 这件事是**结构保证**的，而不是靠两处代码互相对照维持。
  */
 class BridgeFrameHandler(
-    private val dispatcher: BridgeDispatcher,
+    private val callHandler: BridgeCallHandler,
     private val rateLimiter: RateLimiter,
     private val channels: ChannelGroup,
-    private val scope: CoroutineScope,
 ) : SimpleChannelInboundHandler<TextWebSocketFrame>() {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     override fun channelActive(ctx: ChannelHandlerContext) {
         channels.add(ctx.channel())
         // 连接建立 = "Web 侧真的连上来了"。这条日志是排障链的最后一环：
-        // 前面的"宿主已启动 / 引导已供给"都只说明壳和静态资源没问题，
-        // 只有它才能区分"页面白屏"与"页面在跑只是没东西显示"。
+        // 前面的"宿主已启动 / 引导已供给"都只说明壳和静态资源没问题。
         BridgeLog.info("[bridge] 前端已连接：${ctx.channel().remoteAddress()}")
         super.channelActive(ctx)
     }
@@ -137,66 +125,7 @@ class BridgeFrameHandler(
         ctx: ChannelHandlerContext,
         frame: TextWebSocketFrame,
     ) {
-        val text = frame.text()
-
-        if (text.length > BridgeProtocol.MAX_FRAME_BYTES) {
-            send(
-                ctx,
-                ErrFrame(
-                    id = RAW_ID.find(text)?.groupValues?.get(1) ?: "",
-                    error = BridgeError(BridgeErrorCodes.FRAME_TOO_LARGE, "bridge.frameTooLarge"),
-                ),
-            )
-            return
-        }
-
-        val parsed = runCatching { BridgeCodec.decode(text) }.getOrNull()
-        if (parsed !is ReqFrame) {
-            send(
-                ctx,
-                ErrFrame(
-                    id = RAW_ID.find(text)?.groupValues?.get(1) ?: "",
-                    error = BridgeError(BridgeErrorCodes.PARAMS_INVALID, "bridge.notARequestFrame"),
-                ),
-            )
-            return
-        }
-
-        if (!rateLimiter.tryAcquire()) {
-            send(ctx, ErrFrame(id = parsed.id, error = BridgeError(BridgeErrorCodes.RATE_LIMITED, "bridge.rateLimited")))
-            return
-        }
-
-        // requestId 优先用调用方给的（UI 的埋点链路），没有就用帧 id —— 保证每帧都有链路标识
-        val requestId = parsed.meta?.requestId?.takeIf { it.isNotBlank() } ?: parsed.id
-        val id = parsed.id
-
-        scope.launch {
-            val outcome =
-                try {
-                    dispatcher.dispatch(parsed.method, parsed.params, requestId)
-                } catch (e: Throwable) {
-                    BackendResult.Failed(BridgeErrorCodes.INTERNAL, "bridge.internal", retryable = true)
-                }
-            when (outcome) {
-                is BackendResult.Ok ->
-                    send(ctx, ResFrame(id = id, data = outcome.data ?: JsonNull))
-
-                is BackendResult.Failed ->
-                    send(
-                        ctx,
-                        ErrFrame(
-                            id = id,
-                            error =
-                                BridgeError(
-                                    code = outcome.code,
-                                    messageKey = outcome.messageKey,
-                                    retryable = outcome.retryable,
-                                ),
-                        ),
-                    )
-            }
-        }
+        callHandler.handleAsync(frame.text(), rateLimiter, scope) { reply -> sendText(ctx, reply) }
     }
 
     override fun exceptionCaught(
@@ -207,13 +136,13 @@ class BridgeFrameHandler(
         ctx.close()
     }
 
-    private fun send(
+    private fun sendText(
         ctx: ChannelHandlerContext,
-        frame: com.huicang.wise.bridge.protocol.BridgeFrame,
+        text: String,
     ) {
         if (!ctx.channel().isActive) {
             return
         }
-        ctx.writeAndFlush(TextWebSocketFrame(BridgeCodec.encode(frame)))
+        ctx.writeAndFlush(TextWebSocketFrame(text))
     }
 }

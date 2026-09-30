@@ -101,7 +101,34 @@ privileges:{ standard:true, secure:true, supportFetchAPI:true, corsEnabled:true,
 于是"桥明明在跑、日志一片空白"。修法：加 `BridgeLog` 端口，手机宿主接管为 `android.util.Log`
 （进 logcat），桌面保持 stderr。**没有它，上面那条链路日志根本看不到。**
 
-### 仍未通过的一项：**Netty 在 Android 上"绑定成功但监听不存在"**
+### 结论：**WSA 容器的 loopback 环境问题，与传输实现无关**
+
+W2 的预案（换手机侧传输）已经执行并**证伪**：
+
+| 环境 | 传输 | 启动自检（绑完立刻从本进程回连自己） |
+| --- | --- | --- |
+| JVM（桌面） | Netty | **成功** —— bench 13/13 全过，p50 0.34ms |
+| JVM（桌面） | 自写 RFC6455 | **成功** —— bench 13/13 全过，p50 0.24ms |
+| WSA（Android） | Netty | **失败** `ECONNREFUSED`（本进程连自己都被拒） |
+| WSA（Android） | 自写 RFC6455 | **失败**（同上） |
+
+同一份代码、同样 `bind().sync()` 返回成功、`localPort` 也拿到了 —— **换实现完全没用**，
+因为故障在 `bind` 之下，不在传输实现里。**Netty 已换回**（与桌面一致）。
+
+> 这条自检（`LoopbackSelfTest`）现在是两种传输共用的启动步骤，它把故障一分为二：
+> 自检失败 = bind 没在监听（环境）；自检成功但外部连不上 = 跨进程可见性。
+> 没有它，"连不上"会被一路误判 —— W3 先后怀疑过混合内容、CSP、Netty，三次都不是。
+
+**自写 RFC6455 的处置**：它是**已验证的退路**（与 Netty 跑同一套用例同样全过），
+保留在 `BridgeTransportKind.PLAIN_SOCKET`，由 `--transport plain` 启用。
+若后续在任何 Android 机型上遇到 transport 层问题，切它是一行配置。
+
+### 对结论的边界说明
+
+WSA 不是实体 Android 设备：它是跑在 Hyper-V 轻量 VM 里的 Android 子系统，网络经 NAT。
+`127.0.0.1` 的绑定在它的容器里"成功但不可达"很可能是 WSA 特有的。
+**因此这一条不能推断成"真机也不行"** —— 需要在实体设备上复验，
+而复验只需要看一行日志：`[bridge] 自检：本进程回连 <port> -> 成功`。
 
 用 CDP 进页面内部取证（`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` +
 `node tools/bench/_debug-cdp.mjs`），拿到的**事实**：

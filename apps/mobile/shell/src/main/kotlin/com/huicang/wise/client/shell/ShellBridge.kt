@@ -60,6 +60,11 @@ object ShellBridge {
                     platform = AndroidPlatform(version),
                     tokens = tokens,
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
+                    // 传输保持与桌面一致（Netty）。曾经因为"WSA 上连不上"改用过纯 socket 实现，
+                    // 但启动自检证明**换传输也没用**：bind 成功、本进程回连自己都失败 ——
+                    // 那是 WSA 容器的 loopback 环境问题，与传输实现无关。
+                    // 纯 socket 实现（BridgeTransportKind.PLAIN_SOCKET）保留为已验证的退路：
+                    // 它跑同一套 bench 同样 13/13 通过（见 tools/bench/bridge-roundtrip.mjs --transport plain）。
                 ),
             )
         val boundPort = instance.start()
