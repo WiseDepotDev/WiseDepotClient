@@ -480,9 +480,7 @@ export function InspectionTaskCreateScreen({
       {/* 主操作钉在底部：表单滚多长都不用找它 */}
       <BottomActionBar>
         <span className="w-muted w-mono">
-          {`计划 ${planId !== undefined ? planId : '未选'} · 仓库 ${warehouseId !== undefined ? warehouseId : '未选'} · 设备 ${
-            deviceId !== undefined ? deviceId : '未选'
-          }`}
+          {`已选 ${[planId, warehouseId, deviceId].filter((id) => id !== undefined).length}/3 项`}
         </span>
         <Button
           variant="primary"

@@ -19,6 +19,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize, shortTime } from '../shared/api.js';
+import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
 
 /**
  * 录入巡检结果（field/inspection 的"写"入口之一）。
@@ -50,53 +51,20 @@ interface TaskSummary {
   readonly normalItems?: number;
 }
 
-type TaskState = 'pending' | 'running' | 'done' | 'paused' | 'unknown';
-
 /**
- * 任务状态归一化 —— 与「巡检任务详情」屏同一套口径（先看状态名，再看状态码）。
- * 同一件事在同一个域里必须只有一种解释，否则两屏对同一个任务会给出不同结论。
+ * 任务状态归一化统一在 ./inspectionState.ts —— 现场域所有涉及任务状态的屏共用一份。
+ *
+ * 这里原先有一份本地副本，而它与别处的副本都犯过同一个错：
+ * 无条件信任 `statusDesc`。服务端列表接口的 `statusDesc` 实测给的是
+ * **`COMPLETED` 这样的枚举原文**，照抄就会把大写英文画到界面上。
+ * 共享模块的口径是「先翻译已知枚举 → 再信任中文描述 → 最后按状态码兜底」。
  */
 function stateOf(task: TaskSummary | undefined): TaskState {
-  const desc = task?.statusDesc ?? '';
-  if (desc.includes('完成')) {
-    return 'done';
-  }
-  if (desc.includes('进行') || desc.includes('执行中')) {
-    return 'running';
-  }
-  if (desc.includes('暂停') || desc.includes('中止')) {
-    return 'paused';
-  }
-  switch (task?.status) {
-    case 0:
-      return 'pending';
-    case 1:
-      return 'running';
-    case 2:
-      return 'done';
-    case 3:
-      return 'paused';
-    default:
-      return 'unknown';
-  }
+  return taskStateOf(task ?? {});
 }
 
 function stateText(task: TaskSummary | undefined): string {
-  if (task?.statusDesc) {
-    return task.statusDesc;
-  }
-  switch (stateOf(task)) {
-    case 'pending':
-      return '待开始';
-    case 'running':
-      return '进行中';
-    case 'done':
-      return '已完成';
-    case 'paused':
-      return '已暂停';
-    default:
-      return '状态未上报';
-  }
+  return taskStateText(task ?? {});
 }
 
 function StateChip({ task }: { task: TaskSummary | undefined }): React.ReactElement {
@@ -553,7 +521,7 @@ export function InspectionResultCreateScreen({ bridge }: { bridge: Bridge }): Re
 
       <BottomActionBar>
         <span className="w-muted w-mono">
-          {`${hasTask ? `任务 ${taskId}` : '未填任务序号'} · 应盘 ${countText(total)} · 实扫 ${countText(inspected)}`}
+          {`${hasTask ? `任务 ${taskId}` : '未填任务序号'} · 异常 ${abnormal !== undefined ? abnormal : '—'} 件`}
         </span>
         <Button
           variant="primary"

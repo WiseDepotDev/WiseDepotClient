@@ -19,6 +19,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize } from '../shared/api.js';
+import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
 
 /**
  * 手动补录巡检明细（field/inspection 的"写"入口之一）。
@@ -31,7 +32,7 @@ import { asList, humanize } from '../shared/api.js';
  *    因此每行只有 NFC 编号是常显的，TID 与备注收在「补充 TID / 备注」按钮后面
  *    （它们是少数情况才填的字段，常显会把一屏挤到只能看到两行）。
  *    行与行之间不用折叠 —— 展开哪一行是行自己记着的，不影响别的行。
- * 2. **删除是一颗真正的按钮**（≥48px 触摸目标），不是行尾的小叉：戴着手套点小图标点不中。
+ * 2. **删除是一颗真正的按钮**（触摸目标不小于 48），不是行尾的小叉：戴着手套点小图标点不中。
  * 3. **前置条件是"任务已完成"**：补录只对已完成的巡检任务开放，这一点在填一堆行之前就说清楚，
  *    而不是让操作员扫完十条再被后台拒绝。状态口径与「巡检任务详情」屏一致
  *    （先看状态名、再看状态码），同一个任务在同一个域里不允许有两种结论。
@@ -52,50 +53,19 @@ interface TaskSummary {
   readonly abnormalItems?: number;
 }
 
-type TaskState = 'pending' | 'running' | 'done' | 'paused' | 'unknown';
-
-/** 与「巡检任务详情」屏同一套状态归一化口径。 */
+/**
+ * 任务状态归一化统一在 ./inspectionState.ts —— 现场域所有涉及任务状态的屏共用一份。
+ *
+ * 这屏原本有一份本地副本，而"同口径"靠的是人手同步；服务端 `statusDesc` 实测会给
+ * 枚举原文（`COMPLETED`），本地副本无条件信任它，就把大写英文画到了界面上。
+ * 共享模块的口径是「先翻译已知枚举 → 再信任中文描述 → 最后按状态码兜底」。
+ */
 function stateOf(task: TaskSummary | undefined): TaskState {
-  const desc = task?.statusDesc ?? '';
-  if (desc.includes('完成')) {
-    return 'done';
-  }
-  if (desc.includes('进行') || desc.includes('执行中')) {
-    return 'running';
-  }
-  if (desc.includes('暂停') || desc.includes('中止')) {
-    return 'paused';
-  }
-  switch (task?.status) {
-    case 0:
-      return 'pending';
-    case 1:
-      return 'running';
-    case 2:
-      return 'done';
-    case 3:
-      return 'paused';
-    default:
-      return 'unknown';
-  }
+  return taskStateOf(task ?? {});
 }
 
 function stateText(task: TaskSummary | undefined): string {
-  if (task?.statusDesc) {
-    return task.statusDesc;
-  }
-  switch (stateOf(task)) {
-    case 'pending':
-      return '待开始';
-    case 'running':
-      return '进行中';
-    case 'done':
-      return '已完成';
-    case 'paused':
-      return '已暂停';
-    default:
-      return '状态未上报';
-  }
+  return taskStateText(task ?? {});
 }
 
 function StateChip({ task }: { task: TaskSummary | undefined }): React.ReactElement {
@@ -263,6 +233,12 @@ export function InspectionManualRecordScreen({ bridge }: { bridge: Bridge }): Re
     .map((row, index) => (row.rfid.trim() === '' ? index + 1 : 0))
     .filter((index) => index > 0);
   const rowsReady = rows.length > 0 && missingRows.length === 0;
+  // 二次确认里报前几条编号：入账不可撤销，让操作员能对着标签核对一眼
+  const previewItems = rows.slice(0, 3).map((row) => row.rfid.trim());
+  const previewText =
+    rows.length > previewItems.length
+      ? `${previewItems.join('、')} 等 ${rows.length} 条`
+      : previewItems.join('、');
 
   const updateRow = (key: string, patch: RowPatch): void => {
     setRows((prev) =>
@@ -432,7 +408,6 @@ export function InspectionManualRecordScreen({ bridge }: { bridge: Bridge }): Re
                 placeholder="如：501"
                 mono
                 ariaLabel="任务序号 *"
-                onEnter={addRow}
               />
             </Field>
             <span className="w-muted">
@@ -563,7 +538,12 @@ export function InspectionManualRecordScreen({ bridge }: { bridge: Bridge }): Re
       </Section>
 
       <BottomActionBar>
-        <span className="w-muted w-mono">{`${rows.length} 行 · ${missingRows.length} 行待扫`}</span>
+        {/* 按钮为什么不能点，就写在按钮旁边：现场不会去猜一个灰掉的按钮 */}
+        {gateText !== undefined ? (
+          <span className="w-muted">{gateText}</span>
+        ) : (
+          <span className="w-muted w-mono">{`${rows.length} 行 · ${missingRows.length} 行待扫`}</span>
+        )}
         <Button
           variant="primary"
           block
@@ -585,11 +565,12 @@ export function InspectionManualRecordScreen({ bridge }: { bridge: Bridge }): Re
             <span>
               {`将把 ${rows.length} 条明细补录到任务 ${taskId !== undefined ? taskId : '未填'}。`}
             </span>
-            <span className="w-muted">{`第 1 条：${rows[0]?.rfid.trim() ?? ''}`}</span>
+            <span className="w-muted">
+              {`待补录：${previewText}`}
+            </span>
             <span className="w-muted">
               补录会把这些标签计入该任务的盘点明细，可能改变它的账实差异。此操作不可撤销。
             </span>
-            {gateText !== undefined ? <span className="w-muted">{gateText}</span> : null}
             {actionError ? <span className="w-state w-state--error">{actionError}</span> : null}
           </Stack>
         }

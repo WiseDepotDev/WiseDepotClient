@@ -20,6 +20,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize, shortTime } from '../shared/api.js';
+import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
 
 /**
  * 巡检任务详情（field/inspection 任务详情）。
@@ -72,7 +73,7 @@ interface DiffRow {
   readonly status?: string;
 }
 
-type TaskState = 'pending' | 'running' | 'done' | 'paused' | 'unknown';
+// `TaskState` 与判定口径统一在 ./inspectionState.ts（列表屏与详情屏共用一份）
 
 function hasDetail(value: unknown): boolean {
   return value !== undefined && value !== null && typeof value === 'object' && Object.keys(value as object).length > 0;
@@ -87,46 +88,11 @@ function detailOf(value: unknown): TaskDetail | undefined {
 }
 
 function stateOf(task: TaskDetail): TaskState {
-  const desc = task.statusDesc ?? '';
-  if (desc.includes('完成')) {
-    return 'done';
-  }
-  if (desc.includes('进行') || desc.includes('执行中')) {
-    return 'running';
-  }
-  if (desc.includes('暂停') || desc.includes('中止')) {
-    return 'paused';
-  }
-  switch (task.status) {
-    case 0:
-      return 'pending';
-    case 1:
-      return 'running';
-    case 2:
-      return 'done';
-    case 3:
-      return 'paused';
-    default:
-      return 'unknown';
-  }
+  return taskStateOf(task);
 }
 
 function stateText(task: TaskDetail): string {
-  if (task.statusDesc) {
-    return task.statusDesc;
-  }
-  switch (stateOf(task)) {
-    case 'pending':
-      return '待开始';
-    case 'running':
-      return '进行中';
-    case 'done':
-      return '已完成';
-    case 'paused':
-      return '已暂停';
-    default:
-      return '状态未上报';
-  }
+  return taskStateText(task);
 }
 
 function typeText(task: TaskDetail): string {

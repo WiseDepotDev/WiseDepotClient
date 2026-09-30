@@ -19,6 +19,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize, shortTime } from '../shared/api.js';
+import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
 
 /**
  * 巡检任务列表（field/inspection 任务）。
@@ -67,49 +68,14 @@ const PAGE_SIZE = 20;
  * 详情与状态更新接口给英文串（PENDING / RUNNING / COMPLETED）。
  * 这里统一成"业务语言"，界面上只出现人话。
  */
-type TaskState = 'pending' | 'running' | 'done' | 'paused' | 'unknown';
-
+// 状态判定与文案统一在 ./inspectionState.ts —— 详情屏用的是同一份。
+// 曾经两屏各抄一份，于是两处都犯了同一个错（把服务端的枚举原文 `COMPLETED` 直接画到界面上）。
 function stateOf(task: TaskRow): TaskState {
-  const desc = task.statusDesc ?? '';
-  if (desc.includes('完成')) {
-    return 'done';
-  }
-  if (desc.includes('进行') || desc.includes('执行中')) {
-    return 'running';
-  }
-  if (desc.includes('暂停') || desc.includes('中止')) {
-    return 'paused';
-  }
-  switch (task.status) {
-    case 0:
-      return 'pending';
-    case 1:
-      return 'running';
-    case 2:
-      return 'done';
-    case 3:
-      return 'paused';
-    default:
-      return 'unknown';
-  }
+  return taskStateOf(task);
 }
 
 function stateText(task: TaskRow): string {
-  if (task.statusDesc) {
-    return task.statusDesc;
-  }
-  switch (stateOf(task)) {
-    case 'pending':
-      return '待开始';
-    case 'running':
-      return '进行中';
-    case 'done':
-      return '已完成';
-    case 'paused':
-      return '已暂停';
-    default:
-      return '状态未上报';
-  }
+  return taskStateText(task);
 }
 
 function typeText(task: TaskRow): string {
