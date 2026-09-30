@@ -43,6 +43,39 @@
 
 ---
 
+## 二·补 「打开一直转加载动画」
+
+现象：应用刚起来第一屏一直转骨架，**切走再切回来就好了**。
+
+这条的特征是"切换能治好"，说明**连接本身没问题，是第一个请求的时序问题**。
+先按顺序排除：
+
+1. **看是不是页面压根没连上** —— 用第一节的 1~3 步。桥没起、自检失败、握手没完成，
+   那是别的问题，别往这里靠。
+2. **看接口日志有没有到后端** —— 桥侧会在请求时打日志。**完全没有** = 请求根本没发出去，
+   问题在传输层而不是业务屏（这就是本次的真实情况）。
+3. **量一下 DOM，别只看截图**：
+   `node tools/bench/scan-e2e.mjs` 里有取 CDP 的样板；
+   看 `.w-skeleton` 的数量与 `document.body.innerText`。
+   骨架还在 = 调用没 settle（不是没触发）。
+
+### 根因（2026-09 实测修掉）
+
+`WebSocketTransport.call()` 原先先 `await ensureOpen()` **再**起计时器 ——
+**建连阶段没有超时**。而 WebSocket 可能既不 `onopen` 也不 `onclose`
+（丢包 / 黑洞地址 / WSA 的 loopback0 吞包），此时 OS 的 TCP 连接超时是**分钟级**，
+于是第一个请求永远不 settle：界面永远转，连报错都没有。
+切换之所以能治好，是因为那时连接已经建好了。
+
+修法见 `packages/bridge-client/src/transport.ts`：
+单次建连有 `connectTimeoutMs`（默认 6s），**放弃后交给重连逻辑**（保住自愈），
+整次调用由 `callTimeoutMs` 兜底；`useBridgeCall` 在连接恢复时自动重取。
+
+回归：`pnpm check:transport`（注入一个既不 onopen 也不 onclose 的 WebSocket 来复现，
+并断言"挂住的连接被按上限放弃并**重试过多次**"）。
+
+---
+
 ## 三、Android 平台差异备忘（都是实测踩出来的）
 
 | 项 | 记住这一条 |
@@ -106,3 +139,4 @@ runCatching { dispatch(...) }.getOrElse { Failed(INTERNAL, "bridge.internal") }
 | `tools/bench/_debug-cdp.mjs` | 页面内部取证：渲染文本、引导内容、浏览器日志（CSP/混合内容在这里才可见） |
 | `tools/bench/_debug-layout.mjs` | 布局事实：视口、档位、控件盒模型（"被挤扁"这类只能量尺寸确认） |
 | `tools/bench/_debug-backend.mjs` | 直连后端，对照 GET/POST 与有无信封的差异 |
+| **`tools/check/check-transport-timeout.mjs`** | 建连悬停 / 连上不回 / 端口拒绝 —— **"打开一直转"的第一选择**（注入假 WebSocket，无需网络） |
