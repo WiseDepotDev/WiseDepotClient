@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DesktopShell, MobileShell } from '@wise/shells';
+import { LoginScreen } from '@wise/features';
 import type { Bridge } from '@wise/bridge-client';
 
 /**
@@ -55,6 +56,11 @@ const cases: readonly Case[] = [
         <DesktopShell bridge={fakeBridge(['window.control', 'print.system'])} origin="test" size="expanded" />,
       ),
     expect: ['w-sidebar', 'w-navitem', 'w-master-detail', 'w-content--expanded', 'w-datarow', '2 项能力'],
+  },
+  {
+    name: 'LoginScreen（登录屏，W3-b）',
+    render: () => renderToStaticMarkup(<LoginScreen bridge={fakeBridge([])} onSignedIn={() => undefined} />),
+    expect: ['w-auth', 'w-auth__card', '账号', '密码', '验证码', 'w-captcha', '换一张', '登录'],
   },
 ];
 

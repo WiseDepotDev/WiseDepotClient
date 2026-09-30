@@ -68,6 +68,11 @@ function startFakeBackend() {
       seen.push({ url: req.url, auth, body: body.slice(0, 200) });
       res.setHeader('content-type', 'application/json; charset=utf-8');
 
+      if (req.url.startsWith('/api/captcha/generate')) {
+        res.end(envelope({ captchaId: 'captcha-1', captchaImage: 'data:image/png;base64,iVBORw0KGgo=', expireTime: '2026-01-01T00:00:00' }));
+        return;
+      }
+
       if (req.url.startsWith('/api/auth/login')) {
         res.end(
           envelope({
@@ -187,6 +192,15 @@ async function main() {
     console.log('--- 1. 登录前的会话状态 ---');
     const before = await call(ws, 's0', 'bridge.session');
     record('未登录时 bridge.session.authenticated = false', before.frame?.data?.authenticated === false, JSON.stringify(before.frame?.data));
+
+    console.log('--- 0. UI 序列：验证码 → 登录 → 会话 → 看板（登录屏将要走的每一步）---');
+    const cap = await call(ws, 'u1', 'captcha.generate', { type: 'math' });
+    record(
+      'captcha.generate 返回可直渲染的 data URL',
+      cap.frame?.type === 'res' && String(cap.frame.data?.captchaImage).startsWith('data:image') && typeof cap.frame.data?.captchaId === 'string',
+      `captchaId=${cap.frame?.data?.captchaId}`,
+    );
+    record('验证码响应不含令牌', !containsSecret(cap.frame));
 
     console.log('--- 2. 登录与**令牌截留** ---');
     const login = await call(ws, 's1', 'auth.login', {

@@ -204,7 +204,8 @@ export function Field({
   children,
 }: {
   label: string;
-  error?: string;
+  /** 显式带 `| undefined`：本仓开了 `exactOptionalPropertyTypes`，"转发一个可能没有的错误文案"才编译得过。 */
+  error?: string | undefined;
   children: ReactNode;
 }): React.ReactElement {
   return (

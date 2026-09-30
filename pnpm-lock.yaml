@@ -11,6 +11,9 @@ importers:
       '@wise/bridge-client':
         specifier: workspace:*
         version: link:packages/bridge-client
+      '@wise/features':
+        specifier: workspace:*
+        version: link:packages/features
       '@wise/patterns':
         specifier: workspace:*
         version: link:packages/patterns
@@ -47,6 +50,9 @@ importers:
       '@wise/contract':
         specifier: workspace:*
         version: link:../../packages/contract
+      '@wise/features':
+        specifier: workspace:*
+        version: link:../../packages/features
       '@wise/shells':
         specifier: workspace:*
         version: link:../../packages/shells
@@ -83,6 +89,25 @@ importers:
         version: link:../contract
 
   packages/contract: {}
+
+  packages/features:
+    dependencies:
+      '@wise/bridge-client':
+        specifier: workspace:*
+        version: link:../bridge-client
+      '@wise/contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@wise/patterns':
+        specifier: workspace:*
+        version: link:../patterns
+      react:
+        specifier: ^19.0.0
+        version: 19.3.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.3.0
 
   packages/patterns:
     dependencies:

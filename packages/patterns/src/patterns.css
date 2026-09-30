@@ -252,6 +252,41 @@
   margin-bottom: var(--w-space-group-gap);
 }
 
+/* 登录/引导类居中页：卡片最大宽度 480（ui-spec §3.2 表单卡片化） */
+.w-auth {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--w-space-screen-vertical) var(--w-space-screen-horizontal);
+  overflow: auto;
+}
+
+.w-auth__card {
+  width: 100%;
+  max-width: var(--w-dp-480);
+}
+
+.w-auth__brand {
+  font-size: var(--w-type-headline-small-size);
+  font-weight: var(--w-type-headline-small-weight);
+  margin-bottom: var(--w-space-inline-gap);
+}
+
+.w-captcha {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-captcha__image {
+  height: var(--w-space-touch-target-min);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-small);
+  background: var(--w-color-surface-variant);
+  flex: none;
+}
+
 /* ================================================================ 控件 */
 
 .w-btn {
