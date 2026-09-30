@@ -26,7 +26,9 @@
     "dev": "pnpm --filter @wise/web dev",
     "build": "pnpm --filter @wise/web build",
     "typecheck": "pnpm --filter @wise/web typecheck",
-    "bench:w3": "node tools/bench/w3-session.mjs"
+    "bench:w3": "node tools/bench/w3-session.mjs",
+    "smoke:real": "node tools/bench/real-smoke.mjs",
+    "smoke:real:admin": "node tools/bench/real-smoke.mjs --user admin"
   },
   "devDependencies": {
     "@wise/bridge-client": "workspace:*",
