@@ -30,7 +30,7 @@ class BridgeDispatcher(
     private val backend: BackendPort,
     private val platform: PlatformPort,
     private val local: LocalMethodPort? = null,
-    private val sessionInfo: () -> JsonElement? = { null },
+    private val session: SessionManager,
 ) {
     suspend fun dispatch(
         method: String,
@@ -59,15 +59,34 @@ class BridgeDispatcher(
                     retryable = false,
                 )
 
-        return backend.call(
+        val call =
             BackendCall(
                 httpMethod = entry.httpMethod,
                 pathTemplate = entry.path,
                 packetType = entry.packetType,
                 params = params as? JsonObject,
                 requestId = requestId,
-            ),
-        )
+            )
+
+        var result = backend.call(call)
+
+        // 登录态失效 → 用 refreshToken 续期后**重放一次**（只一次，避免续期失败时打成死循环）。
+        // 只有"本来持有令牌却失效"才走这条；未登录时的 AUTH 失败（例如密码错）直接透传，
+        // 否则会把"密码错误"也变成一次无谓的续期请求。
+        if (result is BackendResult.Failed && SessionManager.isAuthFailure(result.code) && session.authenticated) {
+            result = if (session.refresh()) backend.call(call) else result.also { session.markExpired() }
+        }
+
+        // 登出：本地先行（后端不可达也必须能登出），但返回值仍如实反映后端结果
+        if (method in SessionManager.LOGOUT_METHODS) {
+            session.clear()
+        }
+
+        // 令牌截留：出站前扫一遍，`accessToken`/`refreshToken` 一律留在桥里。
+        return when (result) {
+            is BackendResult.Ok -> BackendResult.Ok(session.scrub(result.data))
+            is BackendResult.Failed -> result
+        }
     }
 
     private fun dispatchBuiltin(method: String): BackendResult =
@@ -93,7 +112,7 @@ class BridgeDispatcher(
                     ),
                 )
 
-            BridgeBuiltins.SESSION -> BackendResult.Ok(sessionInfo() ?: JsonNull)
+            BridgeBuiltins.SESSION -> BackendResult.Ok(session.sessionInfo())
 
             else ->
                 BackendResult.Failed(BridgeErrorCodes.METHOD_UNKNOWN, "bridge.methodUnknown", retryable = false)

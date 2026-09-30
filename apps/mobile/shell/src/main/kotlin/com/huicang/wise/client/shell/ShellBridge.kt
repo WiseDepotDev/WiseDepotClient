@@ -56,6 +56,7 @@ object ShellBridge {
                     token = token,
                     backend = OkHttpBackend(BuildConfig.WISE_BACKEND_URL, tokens),
                     platform = AndroidPlatform(version),
+                    tokens = tokens,
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
                 ),
             )

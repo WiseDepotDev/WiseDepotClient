@@ -1,6 +1,7 @@
 package com.huicang.wise.bridge.server
 
 import com.huicang.wise.bridge.backend.BackendPort
+import com.huicang.wise.bridge.backend.TokenStore
 import com.huicang.wise.bridge.capability.LocalMethodPort
 import com.huicang.wise.bridge.capability.PlatformPort
 import com.huicang.wise.bridge.protocol.BridgeCodec
@@ -40,7 +41,8 @@ data class BridgeServerConfig(
     val backend: BackendPort,
     val platform: PlatformPort,
     val local: LocalMethodPort? = null,
-    val sessionInfo: () -> JsonElement? = { null },
+    /** 令牌存储：桥进程内唯一持有令牌的地方（桌面 DPAPI/KeyStore、手机 EncryptedPrefs 落在这后面）。 */
+    val tokens: TokenStore,
     val allowedOrigins: Set<String> = DEFAULT_ALLOWED_ORIGINS,
     val maxPerSecond: Int = 50,
     val burst: Int = 100,
@@ -57,12 +59,14 @@ data class BridgeServerConfig(
 class BridgeServer(
     private val config: BridgeServerConfig,
 ) {
+    private val session = SessionManager(config.tokens, config.backend, config.platform.version)
+
     private val dispatcher =
         BridgeDispatcher(
             backend = config.backend,
             platform = config.platform,
             local = config.local,
-            sessionInfo = config.sessionInfo,
+            session = session,
         )
 
     private val channels: ChannelGroup = DefaultChannelGroup("wise-bridge", GlobalEventExecutor.INSTANCE)

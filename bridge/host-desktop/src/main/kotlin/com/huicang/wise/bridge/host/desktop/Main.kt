@@ -93,6 +93,7 @@ fun main(argv: Array<String>) {
                 token = token,
                 backend = OkHttpBackend(args.backend, tokens),
                 platform = DesktopPlatform(args.version, args.capabilities),
+                tokens = tokens,
                 allowedOrigins = args.origins,
                 maxPerSecond = args.maxPerSecond,
             ),
