@@ -16,21 +16,25 @@
  *   3. 契约标 body 的方法 → 参数在 JSON 信封 body 里，URL 上没有 query；
  *   4. 两者的响应都能被正常解析（证明"不发信封 body"不会把响应链路带坏）。
  *
- * 用法：node tools/bench/query-param-probe.mjs
+ * 用法：
+ *   node tools/bench/query-param-probe.mjs            # 形状探测（记录型假后端，无需真后端）
+ *   node tools/bench/query-param-probe.mjs --real     # 再补一记真后端判别（需 WiseDeoptServer 在跑）
  */
 
 'use strict';
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const WORKSPACE_ROOT = path.resolve(CLIENT_ROOT, '..');
 const LIB_DIR = path.join(CLIENT_ROOT, 'bridge', 'host-desktop', 'build', 'install', 'wise-bridge', 'lib');
 const MAIN_CLASS = 'com.huicang.wise.bridge.host.desktop.MainKt';
 const CONTRACT_TS = path.join(CLIENT_ROOT, 'packages', 'contract', 'src', 'generated', 'bridgeContract.ts');
+const ENV_FILE = path.join(WORKSPACE_ROOT, 'deploy', '.env.local');
 
 /** 契约表里全部方法（从生成物读，不手抄）。 */
 function readMethods() {
@@ -128,9 +132,91 @@ function probeParams(m) {
     return p;
 }
 
+// ---------------------------------------------------------------- 真后端判别
+
+function readEnv() {
+    const map = {};
+    for (const line of fs.readFileSync(ENV_FILE, 'utf8').split('\n')) {
+        const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+        if (m) map[m[1]] = m[2];
+    }
+    return map;
+}
+
+function redisGet(key, password) {
+    return execFileSync(
+        'docker',
+        ['exec', 'wd-local-redis', 'redis-cli', '-a', password, '--no-auth-warning', 'GET', key],
+        { encoding: 'utf8' },
+    ).trim();
+}
+
+/**
+ * 真后端判别：挑一个"参数没绑上会 400、绑上了会是别的码"的端点。
+ *
+ * `POST /api/inventories/{inventoryId}/lock` 是理想候选 —— 它的 `@RequestParam("quantity")`
+ * 是必填的，而**主键不存在**时服务端明确返回 404（见 InventoryController 的接口说明）。
+ * 于是两种结果一眼可分，且**完全不写库**：
+ *   · 修好之前：Spring 报 "Required request parameter 'quantity' is not present" → HTTP-400
+ *   · 修好之后：参数绑上了，业务走到 404
+ *
+ * 登录要过验证码，答案从后端自己的 Redis 读（测试基础设施，见 real-smoke.mjs 的说明）。
+ */
+async function realDifferential() {
+    const backend = 'http://127.0.0.1:18080';
+    const env = readEnv();
+    console.log(`=== 真后端判别（${backend}）===`);
+
+    const { child, ws } = await startBridge(backend);
+    try {
+        const cap = await callBridge(ws, 'c1', 'captcha.generate', { type: 'math' });
+        const captchaId = cap.frame?.data?.captchaId;
+        const code = redisGet(`captcha:${captchaId}`, env.WD_REDIS_PASSWORD);
+        const login = await callBridge(ws, 'c2', 'auth.login', {
+            username: 'operator',
+            password: env.WD_OPERATOR_PASSWORD,
+            captchaId,
+            captchaCode: code,
+        });
+        record('真登录成功', login.frame?.type === 'res', `username=${login.frame?.data?.username}`);
+
+        // inventoryId 用一个不可能存在的主键：服务端会返回"库存不存在"，
+        // 既证明了 @RequestParam 绑定成功，又不会改动任何数据。
+        const r = await callBridge(ws, 'c3', 'inventory.lock', { inventoryId: -1, quantity: 1 });
+        const raw = JSON.stringify(r.frame ?? r);
+        // err 帧的形状是 { type:'err', error:{ code, retryable } } —— 注意 code 在 error 里，不在顶层。
+        const errCode = String(r.frame?.error?.code ?? '');
+        record(
+            'inventory.lock 的参数被服务端接受（不再是 HTTP-400）',
+            errCode !== 'HTTP-400' && r.frame?.type !== 'timeout',
+            `HTTP-400 表示 @RequestParam("quantity") 没收到值；实际 ${raw}`,
+        );
+        record(
+            '响应来自业务层（RES-0004 资源不存在），证明请求已经越过 Spring 的参数绑定',
+            errCode === 'RES-0004',
+            `期望 RES-0004（ErrorCode.NOT_FOUND，HTTP 404），实际 ${errCode}`,
+        );
+    } finally {
+        ws.close();
+        child.kill();
+    }
+
+    const failed = results.filter((r) => !r.passed).length;
+    console.log('');
+    if (failed > 0) {
+        console.error(`query-param-probe --real: ${failed}/${results.length} 项失败`);
+        process.exit(1);
+    }
+    console.log(`query-param-probe --real OK: ${results.length} 项全部通过`);
+}
+
 async function main() {
     if (!fs.existsSync(LIB_DIR)) {
         throw new Error(`找不到宿主产物：${LIB_DIR}\n请先跑 gradlew :bridge:host-desktop:installDist`);
+    }
+    if (process.argv.includes('--real')) {
+        await realDifferential();
+        return;
     }
     const methods = readMethods();
     const queryMethods = methods.filter((m) => m.paramStyle === 'query' && ['POST', 'PUT', 'PATCH'].includes(m.httpMethod));
