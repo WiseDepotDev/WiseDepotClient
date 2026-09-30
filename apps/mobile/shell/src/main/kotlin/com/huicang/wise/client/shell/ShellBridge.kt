@@ -47,6 +47,8 @@ object ShellBridge {
         if (server != null) {
             return
         }
+        // 接管桥的日志出口：Android 上 stderr 不保证进 logcat，现场就抓不到桥的日志。
+        com.huicang.wise.bridge.server.BridgeLog.sink = { android.util.Log.i("WiseShell", it) }
         val token = newToken()
         val tokens = com.huicang.wise.bridge.backend.InMemoryTokenStore()
         val instance =
@@ -62,6 +64,8 @@ object ShellBridge {
             )
         val boundPort = instance.start()
         server = instance
+        // 这一行是现场排障的锚点：端口不对/没打印 = 桥根本没起来
+        android.util.Log.i("WiseShell", "桥已启动：127.0.0.1:$boundPort，后端 ${BuildConfig.WISE_BACKEND_URL}")
         bootstrapJson =
             BridgeCodec.json.encodeToString(
                 BridgeBootstrap.serializer(),

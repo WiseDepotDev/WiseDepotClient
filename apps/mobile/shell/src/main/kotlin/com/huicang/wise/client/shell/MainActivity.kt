@@ -33,6 +33,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var assetLoader: WebViewAssetLoader
 
+    /** 只在首次供给引导时打一行日志，避免每帧刷屏。 */
+    @Volatile private var bootstrapServed = false
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +72,15 @@ class MainActivity : ComponentActivity() {
      * 一个兜底的 PathHandler 管全部路径：
      * - `__bridge.json` → 动态生成（桥未就绪时回 503，让 Web 明确显示"连接中"而不是转圈等超时）；
      * - 其余 → 交给 [WebViewAssetLoader.AssetsPathHandler] 读 APK 里的静态产物。
+     *
+     * **为什么要把 `assets/` 前缀手工剥掉**（W3 在 WSA 上实测踩到，日志是
+     * `FileNotFoundException: assets/web/index.html`）：
+     * `WebViewAssetLoader` 只会剥掉**注册时用的那个前缀**。注册在 `/` 时，
+     * 处理器收到的是完整路径（`assets/web/index.html`），而 `AssetsPathHandler.handle(path)`
+     * 是把这个字符串**原样**交给 `AssetManager.open()` 的 —— 于是它去找
+     * `assets/assets/web/index.html`，必然 FileNotFoundException，界面表现为
+     * `ERR_INVALID_RESPONSE`（一个看起来像网络问题、实际是路径问题的东西）。
+     * 库自带的用法（注册在 `/assets/`）靠的就是同一件事：前缀被剥掉再交给 AssetManager。
      */
     private fun buildAssetLoader(): WebViewAssetLoader {
         val assetsHandler = WebViewAssetLoader.AssetsPathHandler(this)
@@ -78,10 +90,10 @@ class MainActivity : ComponentActivity() {
                 "/",
                 object : WebViewAssetLoader.PathHandler {
                     override fun handle(path: String): WebResourceResponse? =
-                        if (path == BridgeProtocol.BOOTSTRAP_PATH) {
-                            bootstrapResponse()
-                        } else {
-                            assetsHandler.handle(path)
+                        when {
+                            path == BridgeProtocol.BOOTSTRAP_PATH.removePrefix("/") -> bootstrapResponse()
+                            path.startsWith(ASSET_PREFIX) -> assetsHandler.handle(path.removePrefix(ASSET_PREFIX))
+                            else -> null
                         }
                 },
             )
@@ -92,7 +104,12 @@ class MainActivity : ComponentActivity() {
         val json = ShellBridge.handshakeJson
         if (json == null) {
             // 503 + 空体：Web 侧的 loadBootstrap 把非 2xx 当作"宿主尚未就绪"（见 bootstrap.ts）
+            android.util.Log.i(TAG, "引导尚未就绪（桥还没起来），回 503")
             return WebResourceResponse("application/json", "utf-8", 503, "Bridge Not Ready", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        }
+        if (!bootstrapServed) {
+            bootstrapServed = true
+            android.util.Log.i(TAG, "首次供给 __bridge.json（桥已就绪）")
         }
         return WebResourceResponse(
             "application/json",
@@ -109,6 +126,27 @@ class MainActivity : ComponentActivity() {
             request: WebResourceRequest,
         ): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
 
+        /**
+         * 页面加载完成 = "装进设备后真的跑起来了"。
+         *
+         * 为什么值得专门打一行日志：没有设备的机器上，这一条是**唯一**能区分
+         * "壳启动了但页面白屏"与"页面正常"的信号；而白屏的原因（资源没打进包、
+         * 前缀没剥对、引导 503）在日志里看不出任何线索。
+         */
+        override fun onPageFinished(
+            view: WebView,
+            url: String,
+        ) {
+            super.onPageFinished(view, url)
+            android.util.Log.i(TAG, "页面加载完成：$url")
+        }
+
+        /**
+         * 不用 `onReceivedError(view, request, error)`：它在 `WebViewClientCompat` 里是 final。
+         * 资源级错误由 `WebViewAssetLoader` 自己记日志（W3 定位白屏靠的就是那条
+         * `FileNotFoundException: assets/web/index.html`），这里无需重复。
+         */
+
         /** 不让任何外链把 WebView 导航走：这是一个装本地产物的壳，不是一个浏览器。 */
         @Deprecated("Deprecated in Java")
         override fun shouldOverrideUrlLoading(
@@ -123,9 +161,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val TAG = "WiseShell"
         const val SHELL_DOMAIN = "appassets.androidplatform.net"
         const val SHELL_ORIGIN = "https://appassets.androidplatform.net"
         const val SHELL_INDEX_URL = "$SHELL_ORIGIN/assets/web/index.html"
+
+        /** 静态产物在 APK 里的前缀，与 `WebViewAssetLoader` 的默认约定一致。 */
+        const val ASSET_PREFIX = "assets/"
 
         fun isShellUrl(uri: Uri): Boolean = uri.toString().startsWith(SHELL_ORIGIN)
     }

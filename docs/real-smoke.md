@@ -41,27 +41,88 @@
 3. **登录响应里的 `accessToken`/`refreshToken` 位置是 `null` 而不是缺字段**——
    形状稳定，前端不需要处理"有没有这个 key"。
 
-## 2. 真机（Android）冒烟：**未完成，原因明确**
+## 2. Windows（Electron）端到端：**已通过**
 
-| 项 | 结果 |
-| --- | --- |
-| `adb devices` | 空 |
-| WSA 进程 | 在跑（`WsaService` + `WsaClient` + `vmwp`） |
-| `adb connect 127.0.0.1:58526` | **连接被拒**（`58526` 未监听） |
-
-WSA 的 adb 桥没开（需要在 WSA 设置里启用开发者/无线调试，CLI 无法代劳）。
-因此**"装到真机跑起来"这一条仍未验证**，命令如下，开启后即可执行：
+`pnpm --filter @wise/desktop build` 后运行：
 
 ```powershell
-# 1. 打开 WSA 设置 → 开发者 → 开启"无线调试"，记下端口（默认 58526）
-adb connect 127.0.0.1:58526
-adb devices                                    # 应看到 device
-# 2. 装壳（壳里已经带着当前 Web 产物）
-adb install -r apps\mobile\shell\build\outputs\apk\debug\shell-debug.apk
-# 3. 起桥 + 看日志（ShellApplication 在进程内启动桥）
-adb logcat -s WiseShell:* chromium:*
-# 4. 或接真机：adb reverse 不需要（桥在本机回环），直接把 BASE_URL 指到业务机即可
+$env:WISE_BACKEND_URL='http://127.0.0.1:18080'
+cd apps\desktop; .\node_modules\.bin\electron.cmd . --smoke
 ```
+
+`--smoke` 把断言放进**渲染进程**里跑（它才是真正的消费者）：
+
+| 断言 | 结果 |
+| --- | --- |
+| 页面来自 `app://wise` origin | ✓ |
+| `app://wise/__bridge.json` 回 200 | ✓ |
+| 引导给出临时端口与协议版本 3 | ✓ |
+| 引导标注平台 `desktop` | ✓ |
+| 渲染进程能连上桥并收到 `res` | ✓ |
+| **页面渲染出登录屏** | ✓ `慧仓智控 · WiseDepot 账号 密码 验证码 换一张 登录 …` |
+
+### 这一批在 Windows 上暴露并修掉的两个真 bug
+
+**① 自定义协议没登记特权 → 渲染进程 `fetch` 直接失败**
+`loadURL('app://wise/index.html')` 能成功，但 `fetch('app://wise/__bridge.json')` 抛 `Failed to fetch`，
+页面一片空白。修法：app ready 之前 `protocol.registerSchemesAsPrivileged([{ scheme:'app',
+privileges:{ standard:true, secure:true, supportFetchAPI:true, corsEnabled:true, stream:true } }])`。
+
+**② 把"宿主尚未就绪"当成了致命错误 → 两端同时白屏**
+两个宿主都是刻意并行启动的（桌面 spawn 桥的同时建窗、手机在 `Application.onCreate` 里异步起桥），
+所以页面第一次读引导拿到 **503 是必然事件**。而 `createBridge` 原先直接判定"没有可用的桥"并**永不重试**，
+界面停在错误页。修法：`createBridge` 增加有界等待（宿主式 15s / 开发态 1.2s），读到 503 就重试。
+**这一条同时是 Android 那条现象的根因。**
+
+## 3. Android（WSA）端到端：**部分通过**
+
+`adb connect 127.0.0.1:58526` 已可用（WSA 无线调试打开后）。安装并启动后：
+
+| 环节 | 结果 |
+| --- | --- |
+| APK 安装 / 启动 | ✓ |
+| **桥在 Android 进程内启动** | ✓ `桥已启动：127.0.0.1:38943，后端 http://127.0.0.1:18080/` |
+| **页面加载完成** | ✓ `页面加载完成：https://appassets.androidplatform.net/assets/web/index.html` |
+| **页面 JS 执行并请求引导** | ✓ `首次供给 __bridge.json（桥已就绪）` |
+| 冷启动（3 次 `am start -W`） | **445 / 457 / 517 ms** |
+| **前端连上桥** | ✗ **未出现** `前端已连接` 日志 |
+
+### 这一批在 Android 上暴露并修掉的两个真 bug
+
+**③ Web 资产前缀没剥对 → `ERR_INVALID_RESPONSE`（用户截图里那个白屏）**
+`WebViewAssetLoader` 只剥掉**注册时用的那个前缀**。注册在 `/` 时处理器收到的是 `assets/web/index.html`，
+而 `AssetsPathHandler.handle(path)` 把这个字符串**原样**交给 `AssetManager.open()`，
+于是它去找 `assets/assets/web/index.html` → `FileNotFoundException`。
+修法：在处理器里显式剥掉 `assets/` 前缀。定位靠的是 logcat 里那条
+`E WebViewAssetLoader: java.io.FileNotFoundException: assets/web/index.html`。
+
+**④ 桥的日志在 Android 上抓不到**
+`:bridge:*` 是平台无关模块，只能写 stderr —— 而 stderr 在 Android 上不保证进 logcat，
+于是"桥明明在跑、日志一片空白"。修法：加 `BridgeLog` 端口，手机宿主接管为 `android.util.Log`
+（进 logcat），桌面保持 stderr。**没有它，上面那条链路日志根本看不到。**
+
+### 仍未定位的一项
+
+**WS 未连接**：引导拿到 200、页面已加载、无 CSP/混合内容报错、无 `握手被拒`、无 JS 报错。
+两个候选（按可能性排序）：
+
+1. **`https://appassets…` 页面加载 `ws://127.0.0.1` 属混合内容**：Chromium 对 loopback 有豁免，
+   但 WebView 118 的行为需要实测确认。**建议的根治办法**：让桥的 loopback HTTP 端口同时托管 Web 静态资源，
+   使页面 origin 变成 `http://127.0.0.1:PORT` —— 这样引导与 WS 同源、彻底没有混合内容问题，
+   而且两端可以共用一条路径（桌面也不用再维护 `app://` 的资产解析）。
+2. WebView 的 CSP 对 `ws:` 的具体匹配行为。
+
+> 这条不影响 Windows，也不影响桥本身（桥侧一切正常）；它只影响"Android 页面能否连上本地桥"，
+> 是下一批要解决的第一件事。
+
+## 4. 真机（实体 Android 设备）
+
+未接实体设备。WSA 已可用，命令与上面一致（`adb install -r …` 后启动 `MainActivity`）。
+
+> **注意**：`applicationId` 是 `com.huicang.wise.client`，而 `namespace` 是 `com.huicang.wise.client.shell`，
+> 因此 `am start` 必须用**全限定类名**：
+> `adb shell am start -n com.huicang.wise.client/com.huicang.wise.client.shell.MainActivity`
+> 用 `.MainActivity` 会报 "Activity class does not exist"。
 
 ## 3. 已经验到的替代证据（在无设备情况下能拿到的最强证据）
 

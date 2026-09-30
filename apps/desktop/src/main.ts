@@ -19,6 +19,26 @@ const SCHEME = 'app';
 const HOST = 'wise';
 const ORIGIN = `${SCHEME}://${HOST}`;
 
+/**
+ * **必须在 app ready 之前**把自定义协议登记为"标准 + 安全 + 支持 fetch"。
+ *
+ * 不登记的话，`loadURL('app://wise/index.html')` 能成功，但渲染进程里
+ * `fetch('app://wise/__bridge.json')` 会直接抛 `Failed to fetch` ——
+ * 这正是 W3 首次跑 Windows 自检时踩到的现象（页面一片空白、控制台只有一句 Failed to fetch）。
+ *
+ * 四个特权各自的作用：
+ *   standard     —— 有正常的 origin 语义（否则 origin 是 opaque，CSP 与相对路径都会怪怪的）
+ *   secure       —— 算安全上下文（WebSocket、Crypto 等 API 才可用）
+ *   supportFetchAPI —— 允许 fetch/XHR（引导接口就靠它）
+ *   corsEnabled  —— 让 CORS 规则生效而不是一律拒绝
+ */
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+]);
+
 /** 打包后 Web 产物在 resources/web；开发态在 ../../web/dist。 */
 function resolveWebRoot(): string {
   const packaged = path.join(process.resourcesPath ?? '', 'web');
@@ -131,7 +151,101 @@ void app.whenReady().then(async () => {
   });
   await createWindow();
   await bridgeStartup;
+  if (SMOKE) {
+    await runSmoke();
+  }
 });
+
+/**
+ * `--smoke`：**Windows 端到端自检**（真 Electron + 真 app:// + 真桥子进程）。
+ *
+ * 为什么需要它：桥的逻辑早已在纯 Node 下验过（`pnpm bench:desktop`），
+ * 但那证明不了"Electron 把页面装起来、页面通过 app:// 拿到引导、再连上桥"这条链。
+ * 本模式把断言放进**渲染进程**里跑（它才是真正的消费者），结果打到 stdout 并据此定退出码，
+ * 因此可以无人值守地回归。
+ */
+const SMOKE = process.argv.includes('--smoke');
+
+async function runSmoke(): Promise<void> {
+  const win = mainWindow;
+  if (!win) {
+    console.error('[smoke] 窗口不存在');
+    app.exit(1);
+    return;
+  }
+  win.webContents.on('console-message', (...args: unknown[]) => {
+    const last = args[args.length - 1];
+    const first = args[0] as { message?: string } | undefined;
+    const text = typeof last === 'string' ? last : (first?.message ?? '');
+    console.log(`[renderer] ${text}`);
+  });
+
+  // 页面要等引导与桥都就绪，因此轮询而不是一次性读
+  const probe = `
+    (async () => {
+      const deadline = Date.now() + 15000;
+      let res = null, boot = null;
+      while (Date.now() < deadline) {
+        res = await fetch('/__bridge.json', { cache: 'no-store' });
+        if (res.ok) { boot = await res.json(); break; }
+        await new Promise(r => setTimeout(r, 300));
+      }
+      let ping = null;
+      if (boot) {
+        ping = await new Promise((resolve) => {
+          const ws = new WebSocket('ws://127.0.0.1:' + boot.port + '/bridge?token=' + encodeURIComponent(boot.token));
+          const timer = setTimeout(() => resolve({ error: 'ws timeout' }), 5000);
+          ws.onopen = () => ws.send(JSON.stringify({ v: 3, type: 'req', id: 'smoke-1', method: 'bridge.ping' }));
+          ws.onmessage = (e) => {
+            const f = JSON.parse(e.data);
+            if (f.id === 'smoke-1') { clearTimeout(timer); resolve(f); ws.close(); }
+          };
+          ws.onerror = () => { clearTimeout(timer); resolve({ error: 'ws error' }); };
+        });
+      }
+      // UI 断言必须**轮询**：读一次就断言等于在测"我的探测够不够快"，
+      // 而不是在测"界面最终有没有渲染出来"（W3 首次跑时就栽在这上面）。
+      const uiDeadline = Date.now() + 12000;
+      let body = document.body.innerText.replace(/\\s+/g, ' ');
+      while (Date.now() < uiDeadline && !/验证码|概览|本地桥不可用/.test(body)) {
+        await new Promise(r => setTimeout(r, 250));
+        body = document.body.innerText.replace(/\\s+/g, ' ');
+      }
+      return JSON.stringify({
+        origin: location.origin,
+        indexStatus: res ? res.status : null,
+        bootPort: boot ? boot.port : null,
+        bootPlatform: boot ? boot.platform : null,
+        capabilities: boot ? boot.capabilities : null,
+        protocol: boot ? boot.protocol : null,
+        pingType: ping ? ping.type : null,
+        pingPlatform: ping && ping.data ? ping.data.platform : null,
+        bodyText: body.slice(0, 300),
+      });
+    })()
+  `;
+
+  const raw = (await win.webContents.executeJavaScript(probe, true)) as string;
+  console.log(`[smoke] ${raw}`);
+  const r = JSON.parse(raw) as Record<string, unknown>;
+  const checks: Array<[string, boolean]> = [
+    ['页面来自 app://wise origin', String(r.origin ?? '') === 'app://wise'],
+    ['app://wise/__bridge.json 回 200', r.indexStatus === 200],
+    ['引导给出临时端口与协议版本', typeof r.bootPort === 'number' && r.protocol === 3],
+    ['引导标注平台为 desktop', r.bootPlatform === 'desktop'],
+    ['渲染进程能连上桥并收到 res', r.pingType === 'res' && r.pingPlatform === 'desktop'],
+    ['页面渲染出登录屏（未登录状态）', typeof r.bodyText === 'string' && r.bodyText.includes('验证码')],
+  ];
+  let ok = true;
+  for (const [name, passed] of checks) {
+    if (!passed) {
+      ok = false;
+    }
+    console.log(`  ${passed ? '✓' : '✗'} ${name}`);
+  }
+  console.log(ok ? '✓ Windows 端到端自检通过' : '✗ Windows 端到端自检失败');
+  app.exit(ok ? 0 : 1);
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

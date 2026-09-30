@@ -71,7 +71,7 @@ class BridgeAuthHandler(
 
             if (rejection != null) {
                 // 拒绝握手必须留痕：静默拒绝会让"连不上"变成无法诊断的悬案
-                System.err.println("[bridge] 握手被拒 ${rejection.code()}：path=${uri.path()} origin=${origin ?: "(无)"}")
+                BridgeLog.info("[bridge] 握手被拒 ${rejection.code()}：path=${uri.path()} origin=${origin ?: "(无)"}")
                 reject(ctx, rejection)
                 ReferenceCountUtil.release(msg)
                 return
@@ -121,6 +121,10 @@ class BridgeFrameHandler(
 ) : SimpleChannelInboundHandler<TextWebSocketFrame>() {
     override fun channelActive(ctx: ChannelHandlerContext) {
         channels.add(ctx.channel())
+        // 连接建立 = "Web 侧真的连上来了"。这条日志是排障链的最后一环：
+        // 前面的"宿主已启动 / 引导已供给"都只说明壳和静态资源没问题，
+        // 只有它才能区分"页面白屏"与"页面在跑只是没东西显示"。
+        BridgeLog.info("[bridge] 前端已连接：${ctx.channel().remoteAddress()}")
         super.channelActive(ctx)
     }
 
