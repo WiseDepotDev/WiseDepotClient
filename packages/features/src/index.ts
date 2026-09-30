@@ -2,6 +2,7 @@ export { DashboardScreen, LevelChip } from './overview/DashboardScreen.js';
 export { AlertListScreen } from './overview/AlertListScreen.js';
 export { InventoryListScreen } from './inventory/InventoryListScreen.js';
 export { ProductListScreen } from './inventory/ProductListScreen.js';
+export { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 
 export {
   screenFor,

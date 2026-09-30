@@ -4,6 +4,7 @@ import { DashboardScreen } from './overview/DashboardScreen.js';
 import { AlertListScreen } from './overview/AlertListScreen.js';
 import { InventoryListScreen } from './inventory/InventoryListScreen.js';
 import { ProductListScreen } from './inventory/ProductListScreen.js';
+import { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 
 /**
  * 屏注册表：**桥方法 id → 屏组件**。
@@ -25,6 +26,8 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'inventory.search': InventoryListScreen,
   // 商品主数据（标准 CRUD 屏的样板）
   'product.list': ProductListScreen,
+  // 仓库（第二个 CRUD 屏，结构同上；第三个出现时再抽通用组件）
+  'warehouse.list': WarehouseListScreen,
 };
 
 export function screenFor(primaryMethod: string): ScreenComponent | undefined {
