@@ -14,5 +14,43 @@
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.25.0"
+  },
+  "build": {
+    "appId": "com.huicang.wise.depot",
+    "productName": "慧仓智控 WiseDepot",
+    "directories": {
+      "output": "release"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      },
+      {
+        "from": "../../bridge/host-desktop/build/install/wise-bridge/lib",
+        "to": "bridge/lib"
+      },
+      {
+        "from": "build/runtime",
+        "to": "runtime"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "artifactName": "WiseDepot-Setup-${version}.${ext}"
+    }
   }
 }
