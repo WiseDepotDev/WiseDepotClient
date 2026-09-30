@@ -7,10 +7,10 @@ import {
   Button,
   Content,
   Page,
-  PageHeader,
   TabBar,
   TabBarItem,
-  Toolbar,
+  TabStrip,
+  TabStripItem,
   type WindowSize,
 } from '@wise/patterns';
 import { BridgeStatusChip } from './BridgeStatusChip.js';
@@ -63,15 +63,16 @@ export function MobileShell({
         <Content size={size}>
           <Page>
             {current.children.length > 1 ? (
-              <Toolbar>
+              <TabStrip>
                 {current.children.map((c) => (
-                  <Button key={c.id} ariaLabel={c.label} onClick={() => setLeaf(c)}>
-                    {c.label}
-                  </Button>
+                  <TabStripItem key={c.id} label={c.label} active={c.id === leaf.id} onClick={() => setLeaf(c)} />
                 ))}
-              </Toolbar>
+              </TabStrip>
             ) : null}
-            <PageHeader title={leaf.label} subtitle={`${leaf.primaryMethod}`} />
+            {/*
+              这里原先还画一行 `PageHeader`，而每屏自己也会画一个 —— 于是一个标题出现两次。
+              现在**由屏自己负责页头**（它才知道该配什么副标题与操作），壳不再重复。
+            */}
             <PageBody bridge={bridge} leaf={leaf} />
           </Page>
         </Content>

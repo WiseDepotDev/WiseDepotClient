@@ -42,7 +42,7 @@ const cases: readonly Case[] = [
       renderToStaticMarkup(
         <MobileShell bridge={fakeBridge(['scan.camera', 'nfc.read'])} origin="test" size="compact" />,
       ),
-    expect: ['w-root--stack', 'w-appbar', 'w-tabbar', 'w-pageheader', '概览', '库存', '现场', '我的', '扫码', 'w-mono'],
+    expect: ['w-root--stack', 'w-appbar', 'w-tabstrip', 'w-tabbar', '看板', '概览', '库存', '现场', '我的', '扫码'],
   },
   {
     name: 'MobileShell 无扫码能力（能力表驱动，不是平台字符串）',

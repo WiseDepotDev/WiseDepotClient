@@ -125,6 +125,56 @@
   font-weight: 600;
 }
 
+/* ---- 域内二级切换条（横向可滚，不换行）----
+ *
+ * 原先这里用的是一个会自动换行的按钮组，5 个功能在窄屏上折成两行、挤成一堆。
+ * 移动端的惯例是**横向滚动**：一行放得下就一行，放不下就滑，不折行、不压缩。 */
+.w-tabstrip {
+  display: flex;
+  gap: var(--w-space-inline-gap);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: var(--w-dp-4);
+  margin-bottom: var(--w-space-group-gap);
+  scrollbar-width: none;
+}
+
+.w-tabstrip::-webkit-scrollbar { display: none; }
+
+.w-tabstrip > .w-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.w-tabstrip > .w-btn[aria-current="true"] {
+  background: var(--w-color-primary-container);
+  color: var(--w-color-on-primary-container);
+  border-color: var(--w-color-primary);
+  font-weight: 600;
+}
+
+/* ---- 焦点样式：**只在键盘导航时**出现 ----
+ *
+ * 之前没定义任何焦点样式，于是浏览器默认焦点环（一条橙黄色 outline）在**触摸点击**后
+ * 也留着，和"选中态"叠成了双重高亮（用户截图里那个黄框）。
+ * `:focus-visible` 的语义正是"该给键盘用户看的时候才显示" —— 触摸不触发。 */
+.w-btn:focus-visible,
+.w-navitem:focus-visible,
+.w-tabbar__item:focus-visible,
+.w-datarow:focus-visible,
+.w-input:focus-visible {
+  outline: 2px solid var(--w-color-primary);
+  outline-offset: 2px;
+}
+
+/* 指针设备下明确不画焦点环，避免"点一下留个框" */
+.w-btn:focus:not(:focus-visible),
+.w-navitem:focus:not(:focus-visible),
+.w-tabbar__item:focus:not(:focus-visible),
+.w-datarow:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ---- 内容区 ---- */
 
 .w-main {

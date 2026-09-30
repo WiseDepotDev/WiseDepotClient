@@ -174,6 +174,33 @@ export function Toolbar({ children }: { children: ReactNode }): React.ReactEleme
   return <div className="w-toolbar">{children}</div>;
 }
 
+/**
+ * 横向可滚的二级切换条（移动端域内切换用）。
+ *
+ * 与 [Toolbar] 的区别：Toolbar 会换行（适合筛选条件），TabStrip **不换行**（适合一组平级功能）。
+ * 用哪个取决于"这组东西多不多、能否被压缩"—— 5 个功能名在窄屏换行就会挤成一堆（用户实测反馈）。
+ */
+export function TabStrip({ children }: { children: ReactNode }): React.ReactElement {
+  return <nav className="w-tabstrip">{children}</nav>;
+}
+
+/** TabStrip 里的一项。选中态用容器色 + 主色描边，与底栏的"只变色"刻意区分层级。 */
+export function TabStripItem({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <button type="button" className="w-btn" aria-current={active} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
 // ================================================================ 控件
 
 export function Button({
@@ -274,11 +301,15 @@ const ICON_PATHS = {
   /** 库存（box） */
   inventory:
     'M20 2H4c-1.1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-.9-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z',
-  /** 现场（layers） */
-  field:
-    'M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z',
   /** 我的（person） */
   me: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+  /**
+   * 现场（location pin）。
+   *
+   * 原来用的是"图层"图标 —— 抽象，业务用户看第一眼不知道是什么模块（用户反馈）。
+   * 现场作业 = 到某个位置去巡检/看设备，定位图标的语义更直接。
+   */
+  field: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z',
   /** 扫码（qr） */
   scan: 'M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm18 4V5c0-1.1-.9-2-2-2h-4v2h4v4h2zM5 15v4h4v2H5c-1.1 0-2-.9-2-2v-4h2zm16 4v-4h-2v4h-4v2h4c1.1 0 2-.9 2-2zM3 11h18v2H3z',
 } as const;

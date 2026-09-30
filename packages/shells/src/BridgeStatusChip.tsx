@@ -20,18 +20,38 @@ function tone(kind: Bridge['kind'], state: ConnectionState): 'ok' | 'warn' | 'ba
 }
 
 /**
- * 桥状态条。
+ * 桥连接状态。
  *
- * **必须**把 `mock` 明确画出来：开发态的假桥如果看起来和真桥一样，
- * 就会变成"假通过"的来源（W1 的 mock 纪律第 3 条）。
+ * **默认只在"不正常"的时候出现**（用户反馈："已连接 mobile" 放在标题栏，业务用户看不懂 ——
+ * 是设备？网络？还是什么模式？）。
+ *
+ * 规则来自一条通用的界面原则：**正常状态不需要常驻告知**。
+ * 连接正常时它什么也不画；异常时画一条明确的提示；想看细节的人去"我的 → 关于"里看。
  */
-export function BridgeStatusChip({ bridge, origin }: { bridge: Bridge; origin: string }): React.ReactElement {
-  const label = bridge.kind === 'mock' ? '开发态 mock' : STATE_LABEL[bridge.state];
+export function BridgeStatusChip({
+  bridge,
+  origin,
+  /** 桌面端调试/诊断场景可以强制常驻显示。缺省 false = 只在异常时出现。 */
+  alwaysShow = false,
+}: {
+  bridge: Bridge;
+  origin: string;
+  alwaysShow?: boolean;
+}): React.ReactElement | null {
+  const isMock = bridge.kind === 'mock';
+  const healthy = !isMock && bridge.state === 'open';
+
+  if (healthy && !alwaysShow) {
+    return null;
+  }
+
+  // 异常时给**业务语言**，不给内部术语。"mock" 只在开发态出现（页面里本来就有开发标记）
+  const label = isMock ? '开发态假数据' : bridge.state === 'open' ? '连接正常' : STATE_LABEL[bridge.state];
+
   return (
-    <span className={bridge.kind === 'mock' ? 'w-chip w-chip--warn' : 'w-chip'} title={origin}>
+    <span className={tone(bridge.kind, bridge.state) === 'warn' ? 'w-chip w-chip--warn' : 'w-chip'} title={origin}>
       <span className={`w-dot w-dot--${tone(bridge.kind, bridge.state)}`} />
       {label}
-      <span className="w-mono">{bridge.platform}</span>
     </span>
   );
 }

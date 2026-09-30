@@ -101,7 +101,7 @@ export function DesktopShell({
             detail={
               <Content size={size}>
                 <Page>
-                  <PageHeader title={leaf.label} subtitle={leaf.primaryMethod} />
+                  {/* 页头由屏自己画（它才知道该配什么副标题与操作），壳不重复 */}
                   <Stack>
                     <PageBody bridge={bridge} leaf={leaf} />
                   </Stack>
@@ -113,7 +113,6 @@ export function DesktopShell({
           <div className="w-scroll">
             <Content size={size}>
               <Page>
-                <PageHeader title={leaf.label} subtitle={leaf.primaryMethod} />
                 <Stack>
                   <PageBody bridge={bridge} leaf={leaf} />
                 </Stack>

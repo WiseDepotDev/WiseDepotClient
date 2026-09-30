@@ -26,21 +26,27 @@ export function screenFor(primaryMethod: string): ScreenComponent | undefined {
 /** 已迁入的桥方法 id 列表（供对照清单与测试使用）。 */
 export const MIGRATED_METHODS: readonly string[] = Object.keys(REGISTRY);
 
-/** 未迁入时的占位：把"该页会调什么"显示出来，而不是给一片空白。 */
+/**
+ * 未迁入时的占位。
+ *
+ * **业务用户永远不该看到技术术语**（用户实测反馈：页面直接显示
+ * `inventory.list` 与"W5–W7 逐域迁入""令牌"这类开发内部文案，
+ * 给人的感知是"功能未完成/系统异常"）。
+ *
+ * 因此这里给的是业务语言；方法 id 只在**开发态**追加一行，
+ * 方便对照迁移清单 —— 生产构建里那段不会存在（`import.meta.env.DEV` 被静态替换掉）。
+ */
 export function NotMigratedScreen({ method }: { method: string }): React.ReactElement {
+  const dev = Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV);
   return (
-    <Stack>
-      <Section title="待迁入">
-        <Card>
-          <Stack tight>
-            <Mono>{method}</Mono>
-            <span className="w-muted">
-              该页在 W5–W7 逐域迁入。当前占位 —— 它会一直显式存在，直到对应的屏注册进
-              registry。
-            </span>
-          </Stack>
-        </Card>
-      </Section>
-    </Stack>
+    <Section title="功能上线中">
+      <Card>
+        <Stack tight>
+          <span>该功能正在上线中，暂时无法使用。</span>
+          <span className="w-muted">如需使用，请联系管理员了解上线时间。</span>
+          {dev ? <Mono>{`dev-only: ${method}`}</Mono> : null}
+        </Stack>
+      </Card>
+    </Section>
   );
 }
