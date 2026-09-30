@@ -82,7 +82,11 @@ async function startBridge(): Promise<void> {
     //
     // 落点用 Electron 的 userData：那是这个应用自己的、按用户隔离的目录，
     // 比在 LOCALAPPDATA 下再拼一个名字更不容易和别的东西撞。
-    extraArgs: ['--token-file', join(app.getPath('userData'), 'bridge-session.enc')],
+    //
+    // **自检模式不落盘**：自检断言"应当渲染出登录屏"，而那要求桥是未登录状态。
+    // 一旦沿用用户的会话文件，这个断言就变成"取决于这台机器上有没有登录过" ——
+    // 自检必须封闭可重复，不能依赖环境（踩过一次：登录过之后自检就红了）。
+    extraArgs: SMOKE ? [] : ['--token-file', join(app.getPath('userData'), 'bridge-session.enc')],
     // jlink + AppCDS 的启动优化放在这里，而不是写死在宿主里：
     // 宿主是"一份"，它的启动参数属于"桌面这一侧的托管方式"。
     //
@@ -187,6 +191,8 @@ void app.whenReady().then(async () => {
  * 但那证明不了"Electron 把页面装起来、页面通过 app:// 拿到引导、再连上桥"这条链。
  * 本模式把断言放进**渲染进程**里跑（它才是真正的消费者），结果打到 stdout 并据此定退出码，
  * 因此可以无人值守地回归。
+ *
+ * 定义在文件前部：`startBridge()` 需要它来决定要不要落盘令牌。
  */
 const SMOKE = process.argv.includes('--smoke');
 

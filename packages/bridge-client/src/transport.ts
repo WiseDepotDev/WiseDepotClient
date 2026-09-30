@@ -24,13 +24,22 @@ export interface BridgeTransport {
 export interface WebSocketTransportOptions {
   /** 单次调用超时。作业现场网络抖动多，超时要给重试按钮留出空间（不要设成"永不超时"）。 */
   readonly callTimeoutMs?: number;
+  /**
+   * **单次建连**超时。
+   *
+   * 为什么必须单独给一个：TCP 连接可能既不成功也不失败（丢包、黑洞地址、
+   * WSA 的 loopback0 之类的怪环境），而操作系统的连接超时是**分钟级**的 ——
+   * 那段时间里界面只能一直转骨架，用户以为应用坏了。
+   * 有它才能把"连不上"变成一条明确的可重试错误。
+   */
+  readonly connectTimeoutMs?: number;
   /** 重连退避上限。 */
   readonly maxBackoffMs?: number;
   /** 连续失败多少次后放弃（放弃后 state=closed，UI 显示"桥已断开"）。 */
   readonly maxAttempts?: number;
 }
 
-const DEFAULTS = { callTimeoutMs: 15_000, maxBackoffMs: 5_000, maxAttempts: 6 } as const;
+const DEFAULTS = { callTimeoutMs: 15_000, connectTimeoutMs: 6_000, maxBackoffMs: 5_000, maxAttempts: 6 } as const;
 
 /**
  * 生产传输：`ws://127.0.0.1:{port}{HANDSHAKE_PATH}?token=…`。
@@ -70,28 +79,70 @@ export class WebSocketTransport implements BridgeTransport {
   }
 
   async call<T>(method: string, params?: unknown, meta?: ReqMeta): Promise<T> {
-    await this.ensureOpen();
     const id = `c-${++this.seq}`;
-    const frame = {
-      v: BRIDGE_PROTOCOL_VERSION,
-      type: 'req' as const,
-      id,
-      method,
-      ...(params === undefined ? {} : { params }),
-      ...(meta === undefined ? {} : { meta }),
-    };
-    const text = JSON.stringify(frame);
-    if (text.length > MAX_FRAME_BYTES) {
-      throw new BridgeError({ code: BridgeErrorCode.FRAME_TOO_LARGE, messageKey: 'bridge.frameTooLarge' });
-    }
 
+    /*
+     * **计时从进入 call 就开始，而不是从"发出去"才开始。**
+     *
+     * 踩过的坑：原先的写法是 `await this.ensureOpen()` 之后才起计时器，于是建连阶段
+     * 完全没有超时 —— 连接一卡（TCP 既不成功也不失败，OS 级超时是分钟级），
+     * 调用就永远不 settle：界面永远转骨架、连报错都没有，
+     * 而"切走再切回来"因为连接已经建好就正常了。这正是用户报的现象。
+     *
+     * 现在连接 + 发送 + 等回复共用同一个预算：无论如何，调用都会在
+     * `callTimeoutMs` 内给出结果（成功或可重试的错误）。
+     */
     return await new Promise<T>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
+      let settled = false;
+      const timer = globalThis.setTimeout(() => {
+        settled = true;
         this.pending.delete(id);
         reject(new BridgeError({ code: BridgeErrorCode.BACKEND_UNREACHABLE, messageKey: 'bridge.timeout', retryable: true }));
       }, this.opts.callTimeoutMs);
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
-      this.socket?.send(text);
+
+      const fail = (e: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(timer);
+        reject(e);
+      };
+
+      void this.ensureOpen()
+        .then(() => {
+          if (settled) {
+            return;
+          }
+          const frame = {
+            v: BRIDGE_PROTOCOL_VERSION,
+            type: 'req' as const,
+            id,
+            method,
+            ...(params === undefined ? {} : { params }),
+            ...(meta === undefined ? {} : { meta }),
+          };
+          const text = JSON.stringify(frame);
+          if (text.length > MAX_FRAME_BYTES) {
+            fail(new BridgeError({ code: BridgeErrorCode.FRAME_TOO_LARGE, messageKey: 'bridge.frameTooLarge' }));
+            return;
+          }
+          // 先登记 pending 再发：否则极快的回复会找不到接收者
+          this.pending.set(id, {
+            resolve: ((v: unknown) => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              globalThis.clearTimeout(timer);
+              resolve(v as T);
+            }) as (v: unknown) => void,
+            reject: fail,
+            timer: timer as unknown as number,
+          });
+          this.socket?.send(text);
+        })
+        .catch(fail);
     });
   }
 
@@ -149,10 +200,42 @@ export class WebSocketTransport implements BridgeTransport {
       const socket = new WebSocket(url);
       this.socket = socket;
 
+      /*
+       * 单次建连也要有上限。WebSocket 可能**既不 onopen 也不 onclose**：
+       * 对端丢包、地址是黑洞、或所在环境（例如 WSA 的 loopback0）把包吞了。
+       * 那时候 OS 的连接超时是分钟级 —— 没有这个定时器，用户只能一直看骨架。
+       */
+      let settled = false;
+      const connectTimer = globalThis.setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        // 主动关掉，让 onclose 不要再走重连分支（这次由我们判定为超时）
+        try {
+          socket.close();
+        } catch {
+          /* 已经关了就算了 */
+        }
+        this.socket = null;
+        reject(
+          new BridgeError({ code: BridgeErrorCode.BACKEND_UNREACHABLE, messageKey: 'bridge.connectTimeout', retryable: true }),
+        );
+      }, this.opts.connectTimeoutMs);
+
+      const settle = (fn: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(connectTimer);
+        fn();
+      };
+
       socket.onopen = () => {
         this.attempts = 0;
         this.setState('open');
-        resolve();
+        settle(resolve);
       };
       socket.onmessage = (ev) => this.dispatch(String(ev.data));
       socket.onerror = () => {
@@ -162,10 +245,12 @@ export class WebSocketTransport implements BridgeTransport {
         this.socket = null;
         this.failPending();
         if (this.currentState === 'closed') {
-          reject(new BridgeError({ code: BridgeErrorCode.UNAUTHORIZED, messageKey: 'bridge.closed' }));
+          settle(() => reject(new BridgeError({ code: BridgeErrorCode.UNAUTHORIZED, messageKey: 'bridge.closed' })));
           return;
         }
-        void this.scheduleReconnect(resolve, reject);
+        settle(() => {
+          void this.scheduleReconnect(resolve, reject);
+        });
       };
     });
   }
@@ -202,7 +287,7 @@ export class WebSocketTransport implements BridgeTransport {
         if (!entry) {
           return;
         }
-        window.clearTimeout(entry.timer);
+        globalThis.clearTimeout(entry.timer);
         this.pending.delete(frame.id);
         entry.resolve(frame.data);
         return;
@@ -212,7 +297,7 @@ export class WebSocketTransport implements BridgeTransport {
         if (!entry) {
           return;
         }
-        window.clearTimeout(entry.timer);
+        globalThis.clearTimeout(entry.timer);
         this.pending.delete(frame.id);
         entry.reject(new BridgeError(frame.error));
         return;
@@ -234,7 +319,7 @@ export class WebSocketTransport implements BridgeTransport {
 
   private failPending(): void {
     for (const [, entry] of this.pending) {
-      window.clearTimeout(entry.timer);
+      globalThis.clearTimeout(entry.timer);
       entry.reject(new BridgeError({ code: BridgeErrorCode.BACKEND_UNREACHABLE, messageKey: 'bridge.disconnected', retryable: true }));
     }
     this.pending.clear();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BridgeError, type Bridge } from '@wise/bridge-client';
 
 export interface CallState<T> {
@@ -83,6 +83,30 @@ export function useBridgeCall<T>(
   }, [bridge, method, paramsKey, nonce]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  /**
+   * 连接恢复后**自动重取一次**。
+   *
+   * 为什么需要：应用刚起来时第一个请求可能赶上建连还没完成（TCP 连接慢、首次握手、
+   * 现场网络抖），表现为"一直转加载 / 转完是错误，切走再切回来才好"。
+   * 传输层现在有超时兜底（不会再永远转），但**用户不该为此手动切页面**：
+   * 连接一旦恢复，这一屏自己把数据取回来。
+   *
+   * 只在**当前正处在错误态**时重取：否则每次重连都会让所有屏一起重新请求，
+   * 那是在用网络换"看起来会自愈"。
+   */
+  const failedRef = useRef(false);
+  failedRef.current = error !== undefined;
+  useEffect(
+    () =>
+      bridge.onStateChange((s) => {
+        if (s === 'open' && failedRef.current) {
+          setNonce((n) => n + 1);
+        }
+      }),
+    [bridge],
+  );
+
   // `loading` 用**派生值**而不是内部 state：内部 state 的初值是 true，
   // 而 effect 在首帧之后才跑（服务端渲染里根本不跑），于是 `enabled: false` 的屏
   // 首帧会画出一块永远不落地的骨架。派生值把"没在取数"这件事在首帧就说清楚。

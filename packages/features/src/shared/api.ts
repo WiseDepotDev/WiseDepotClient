@@ -53,6 +53,8 @@ export function humanize(error: BridgeError | undefined): string {
   switch (error.messageKey) {
     case 'bridge.backendUnreachable':
       return '后端不可达，请检查网络或服务状态';
+    case 'bridge.connectTimeout':
+      return '连不上本地服务，请完全退出后重新打开';
     case 'bridge.timeout':
       return '请求超时，可重试';
     case 'bridge.reconnectGaveUp':
