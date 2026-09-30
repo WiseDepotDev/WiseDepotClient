@@ -5,6 +5,7 @@ dist/
 dist-electron/
 release/
 .gradle/
+.kotlin/
 node_modules/
 .turbo/
 .vite/
