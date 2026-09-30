@@ -13,8 +13,39 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 
-/** 从原始报文里抠出 `"id"`：帧太大还没解析时也要能回一个带 id 的错误。 */
-internal val RAW_ID = Regex("\"id\"\\s*:\\s*\"([^\"]{1,64})\"")
+/**
+ * 从原始报文里抠出 `"id"`：帧太大、还没解析时也要能回一个带 id 的错误。
+ *
+ * **手写而不是正则**：原先这里是 `Regex("\"id\"\\s*:\\s*\"([^\"]{1,64})\"")`。
+ * 同类正则在 Android 的 `java.util.regex` 上已经炸过一次（见 PathTemplate 的注释），
+ * 而这个属性只在"超大帧/非法帧"这类罕见路径上才会被初始化 ——
+ * 也就是说它是一颗**平时不响、真出事时才响**的地雷，正好落在最不该出问题的地方。
+ * 手写扫描没有引擎差异，也更快。
+ */
+internal fun extractRawId(text: String): String {
+    val key = "\"id\""
+    var from = text.indexOf(key)
+    while (from >= 0) {
+        var i = from + key.length
+        while (i < text.length && text[i].isWhitespace()) {
+            i += 1
+        }
+        if (i < text.length && text[i] == ':') {
+            i += 1
+            while (i < text.length && text[i].isWhitespace()) {
+                i += 1
+            }
+            if (i < text.length && text[i] == '"') {
+                val end = text.indexOf('"', i + 1)
+                if (end > i) {
+                    return text.substring(i + 1, end).take(64)
+                }
+            }
+        }
+        from = text.indexOf(key, from + 1)
+    }
+    return ""
+}
 
 /**
  * 一帧请求的完整处理：解析 → 限流 → 分发 → 编码响应。
@@ -38,7 +69,7 @@ class BridgeCallHandler(
         if (text.length > BridgeProtocol.MAX_FRAME_BYTES) {
             return BridgeCodec.encode(
                 ErrFrame(
-                    id = RAW_ID.find(text)?.groupValues?.get(1) ?: "",
+                    id = extractRawId(text),
                     error = BridgeError(BridgeErrorCodes.FRAME_TOO_LARGE, "bridge.frameTooLarge"),
                 ),
             )
@@ -48,7 +79,7 @@ class BridgeCallHandler(
         if (parsed !is ReqFrame) {
             return BridgeCodec.encode(
                 ErrFrame(
-                    id = RAW_ID.find(text)?.groupValues?.get(1) ?: "",
+                    id = extractRawId(text),
                     error = BridgeError(BridgeErrorCodes.PARAMS_INVALID, "bridge.notARequestFrame"),
                 ),
             )
