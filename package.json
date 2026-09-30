@@ -16,9 +16,17 @@
     "check:parity": "node tools/gen/gen-feature-parity.js --check",
     "check:tokens": "node tools/gen/gen-tokens.js --check",
     "check:css": "node tools/check/check-css-vars.js",
-    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css",
+    "check:render": "node tools/check/check-shell-render.mjs",
+    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css && pnpm check:render",
     "dev": "pnpm --filter @wise/web dev",
     "build": "pnpm --filter @wise/web build",
     "typecheck": "pnpm --filter @wise/web typecheck"
+  },
+  "devDependencies": {
+    "@wise/bridge-client": "workspace:*",
+    "@wise/shells": "workspace:*",
+    "esbuild": "^0.25.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   }
 }

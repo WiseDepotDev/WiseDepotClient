@@ -1,0 +1,85 @@
+import { renderToStaticMarkup } from 'react-dom/server';
+import { DesktopShell, MobileShell } from '@wise/shells';
+import type { Bridge } from '@wise/bridge-client';
+
+/**
+ * 外壳渲染检查的入口（由 tools/check/check-shell-render.mjs 用 esbuild 打包后执行）。
+ *
+ * 为什么要有它：W1 的交付物是"两套空壳"，而空壳最容易出的问题恰恰是**渲染期崩溃**
+ * （未定义的令牌变量本身不会崩，但组件里少判一个 undefined 就会）。
+ * 在没有浏览器驱动的前提下，用 React 的服务端渲染把两套外壳真跑一遍，
+ * 是"能渲染"最便宜的客观证据。
+ */
+
+/** 假桥：实现 Bridge 接口，不依赖 window（SSR 环境里没有 window）。 */
+function fakeBridge(capabilities: readonly string[]): Bridge {
+  return {
+    kind: 'ws',
+    platform: 'desktop',
+    hostVersion: '1.0.0-test',
+    capabilities,
+    state: 'open',
+    supports: (c: string) => capabilities.includes(c),
+    call: <T,>() => Promise.resolve({} as T),
+    subscribe: () => () => undefined,
+    onStateChange: () => () => undefined,
+    close: () => undefined,
+  };
+}
+
+interface Case {
+  readonly name: string;
+  readonly render: () => string;
+  /** 必须在输出里出现（结构断言，不是像素断言）。 */
+  readonly expect: readonly string[];
+}
+
+const cases: readonly Case[] = [
+  {
+    name: 'MobileShell（紧凑档外壳）',
+    render: () => renderToStaticMarkup(<MobileShell bridge={fakeBridge(['scan.camera', 'nfc.read'])} origin="test" />),
+    expect: ['w-mobile', 'w-tabbar', '概览', '库存', '现场', '我的', '扫码', 'w-mono'],
+  },
+  {
+    name: 'MobileShell 无扫码能力（能力表驱动，不是平台字符串）',
+    render: () => renderToStaticMarkup(<MobileShell bridge={fakeBridge(['nfc.read'])} origin="test" />),
+    expect: ['w-mobile'],
+  },
+  {
+    name: 'DesktopShell（扩展档外壳）',
+    render: () => renderToStaticMarkup(<DesktopShell bridge={fakeBridge(['window.control', 'print.system'])} origin="test" />),
+    expect: ['w-desktop', 'w-sidebar', 'w-navitem', 'w-split', 'w-listrow', '列表栏', '2 项能力'],
+  },
+];
+
+let failures = 0;
+for (const c of cases) {
+  let html = '';
+  try {
+    html = c.render();
+  } catch (e) {
+    console.error(`✗ ${c.name} 渲染抛异常：${(e as Error).message}`);
+    failures += 1;
+    continue;
+  }
+  const missing = c.expect.filter((token) => !html.includes(token));
+  if (missing.length > 0) {
+    console.error(`✗ ${c.name} 输出缺少结构标记：${missing.join(', ')}`);
+    failures += 1;
+    continue;
+  }
+  console.log(`  ✓ ${c.name}（${html.length} 字节）`);
+}
+
+// 反向断言：无扫码能力时不应画出扫码按钮
+const noScan = cases[1]!.render();
+if (noScan.includes('扫码')) {
+  console.error('✗ 无 scan.camera 能力时仍然渲染了扫码入口');
+  failures += 1;
+}
+
+if (failures > 0) {
+  console.error(`check-shell-render: ${failures} 个用例失败`);
+  process.exit(1);
+}
+console.log('check-shell-render OK: 两套外壳均可渲染，能力表驱动生效');

@@ -6,7 +6,23 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@wise/bridge-client':
+        specifier: workspace:*
+        version: link:packages/bridge-client
+      '@wise/shells':
+        specifier: workspace:*
+        version: link:packages/shells
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      react:
+        specifier: ^19.1.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.3.0(react@19.3.0)
 
   apps/web:
     dependencies:
