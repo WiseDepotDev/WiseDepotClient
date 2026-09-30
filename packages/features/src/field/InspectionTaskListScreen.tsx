@@ -20,6 +20,7 @@ import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize, shortTime } from '../shared/api.js';
 import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 巡检任务列表（field/inspection 任务）。
@@ -130,10 +131,10 @@ function TaskStateChip({ task }: { task: TaskRow }): React.ReactElement {
 
 export function InspectionTaskListScreen({
   bridge,
-  onOpenTask,
+  onNavigate,
 }: {
   bridge: Bridge;
-  onOpenTask?: ((task: TaskRow) => void) | undefined;
+  onNavigate?: Navigator | undefined;
 }): React.ReactElement {
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
@@ -250,7 +251,16 @@ export function InspectionTaskListScreen({
                       </>
                     }
                     trailing={<TaskStateChip task={t} />}
-                    onSelect={() => onOpenTask?.(t)}
+                    /*
+                     * 整行点一下 = 去下一层看这个任务（返回由外壳负责）。
+                     * 序号缺失的行点了什么都不做：详情屏只认数字序号。
+                     */
+                    onSelect={() => {
+                      if (t.taskId === undefined) {
+                        return;
+                      }
+                      onNavigate?.({ method: 'inspection.taskDetail', params: { taskId: String(t.taskId) } });
+                    }}
                   />
                 ))}
               </DataList>

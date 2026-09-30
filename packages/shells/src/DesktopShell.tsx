@@ -5,6 +5,7 @@ import { useScanGun } from '@wise/scan';
 import type { ScreenParams } from '@wise/features';
 import {
   AppBar,
+  Button,
   Chip,
   Content,
   Mono,
@@ -16,7 +17,13 @@ import {
 } from '@wise/patterns';
 import { BridgeStatusChip } from './BridgeStatusChip.js';
 import { PageBody } from './PageBody.js';
-import { DOMAINS, SCAN_TARGET_METHOD, findLeafByMethod, type DomainId, type NavLeaf } from './navigation.js';
+import { DOMAINS, SCAN_TARGET_METHOD, destinationOf, findLeafByMethod, screenKey, type DomainId, type NavLeaf } from './navigation.js';
+
+/** 推入栈里的一层（与移动外壳同构）。 */
+interface Crumb {
+  readonly leaf: NavLeaf;
+  readonly params?: ScreenParams | undefined;
+}
 
 /**
  * 桌面外壳（Medium / Expanded，≥600px，见 docs/ui-spec.md §2）。
@@ -45,17 +52,47 @@ export function DesktopShell({
 }): React.ReactElement {
   const [domain, setDomain] = useState<DomainId>('overview');
   const [leaf, setLeaf] = useState<NavLeaf>(DOMAINS[0]!.children[0]!);
-  const [params, setParams] = useState<ScreenParams | undefined>(undefined);
+  /** 推入栈：屏请求去的下一层（详情类）。空栈 = 在导航叶子上。 */
+  const [stack, setStack] = useState<readonly Crumb[]>([]);
+  const top = stack.length > 0 ? stack[stack.length - 1]! : undefined;
+  const shown = top ?? { leaf, params: undefined as ScreenParams | undefined };
 
-  /** 扫码枪扫到东西 → 跳到标签详情并带上编码（与移动外壳同一套落点）。 */
-  const onScan = useCallback((code: string) => {
-    const target = findLeafByMethod(SCAN_TARGET_METHOD);
-    if (!target) {
+  const goRoot = (next: NavLeaf, nextDomain?: DomainId): void => {
+    if (nextDomain !== undefined) {
+      setDomain(nextDomain);
+    }
+    setLeaf(next);
+    setStack([]);
+  };
+
+  /** 屏请求导航：能推到下一层就推，推不了（未知目的地）就留日志而不是静默。 */
+  const onNavigate = useCallback((to: { method: string; params?: ScreenParams | undefined }) => {
+    const dest = destinationOf(to.method);
+    if (!dest) {
+      console.warn(`[shell] 收到未知的导航目标：${to.method}`);
       return;
     }
-    setDomain(target.domain);
-    setLeaf(target.leaf);
-    setParams({ code });
+    setStack((prev) => [
+      ...prev,
+      { leaf: { id: dest.method, label: dest.label, primaryMethod: dest.method }, params: to.params },
+    ]);
+  }, []);
+
+  /** 扫码枪扫到东西 → 推入标签详情并带上编码（与移动外壳同一套落点与语义）。 */
+  const onScan = useCallback((code: string) => {
+    const dest = destinationOf(SCAN_TARGET_METHOD);
+    const target = findLeafByMethod(SCAN_TARGET_METHOD);
+    if (target && !dest) {
+      goRoot(target.leaf, target.domain);
+      return;
+    }
+    if (!dest) {
+      return;
+    }
+    setStack((prev) => [
+      ...prev,
+      { leaf: { id: dest.method, label: dest.label, primaryMethod: dest.method }, params: { code } },
+    ]);
   }, []);
 
   useScanGun({ enabled: bridge.supports(Capability.SCAN_GUN_KEYBOARD), onScan });
@@ -75,11 +112,7 @@ export function DesktopShell({
               label={d.label}
               icon={d.id}
               active={d.id === domain && !d.children.some((c) => c.id === leaf.id)}
-              onClick={() => {
-                setDomain(d.id);
-                setLeaf(d.children[0]!);
-                setParams(undefined);
-              }}
+              onClick={() => goRoot(d.children[0]!, d.id)}
             />
             {d.id === domain
               ? d.children.map((c) => (
@@ -87,13 +120,8 @@ export function DesktopShell({
                     key={c.id}
                     label={c.label}
                     child
-                    active={c.id === leaf.id}
-                    onClick={() => {
-                      setLeaf(c);
-                      // 换目的地就丢掉上一屏的参数，否则"扫码 → 手点别的页"会把
-                      // 上一个编码带进新屏（详情屏会按旧编码再查一次）。
-                      setParams(undefined);
-                    }}
+                    active={c.id === leaf.id && top === undefined}
+                    onClick={() => goRoot(c)}
                   />
                 ))
               : null}
@@ -103,8 +131,17 @@ export function DesktopShell({
 
       <div className="w-main">
         <AppBar
-          title={leaf.label}
-          actions={<Chip tone="neutral">{`${bridge.capabilities.length} 项能力`}</Chip>}
+          title={top ? top.leaf.label : leaf.label}
+          actions={
+            <>
+              {top ? (
+                <Button ariaLabel="返回" onClick={() => setStack((prev) => prev.slice(0, -1))}>
+                  返回
+                </Button>
+              ) : null}
+              <Chip tone="neutral">{`${bridge.capabilities.length} 项能力`}</Chip>
+            </>
+          }
           status={<BridgeStatusChip bridge={bridge} origin={origin} />}
         />
         <div className="w-scroll">
@@ -113,7 +150,13 @@ export function DesktopShell({
               {/* 页头由屏自己画（它才知道该配什么副标题与操作），壳不重复 */}
               <Stack>
                 {/* `key` 让"换目的地"或"扫到另一个码"时屏重新挂载（同组件复用会带着上一份 state） */}
-                <PageBody key={`${leaf.id}:${params?.code ?? ''}`} bridge={bridge} leaf={leaf} params={params} />
+                <PageBody
+                  key={screenKey(shown.leaf.id, shown.params)}
+                  bridge={bridge}
+                  leaf={shown.leaf}
+                  params={shown.params}
+                  onNavigate={onNavigate}
+                />
               </Stack>
             </Page>
           </Content>

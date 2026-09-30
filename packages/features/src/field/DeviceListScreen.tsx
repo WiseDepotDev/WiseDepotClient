@@ -21,6 +21,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize, shortTime } from '../shared/api.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 设备管理（field/device）。
@@ -148,10 +149,10 @@ function DeviceStatusChip({ device }: { device: DeviceRow }): React.ReactElement
 
 export function DeviceListScreen({
   bridge,
-  onOpenDevice,
+  onNavigate,
 }: {
   bridge: Bridge;
-  onOpenDevice?: ((device: DeviceRow) => void) | undefined;
+  onNavigate?: Navigator | undefined;
 }): React.ReactElement {
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
@@ -260,7 +261,16 @@ export function DeviceListScreen({
                       </>
                     }
                     trailing={<DeviceStatusChip device={d} />}
-                    onSelect={() => onOpenDevice?.(d)}
+                    /*
+                     * 整行点一下 = 去下一层看这台设备（返回由外壳负责）。
+                     * 序号缺失的行点了什么都不做：详情屏只认数字序号。
+                     */
+                    onSelect={() => {
+                      if (d.deviceId === undefined) {
+                        return;
+                      }
+                      onNavigate?.({ method: 'device.detail', params: { deviceId: String(d.deviceId) } });
+                    }}
                   />
                 ))}
               </DataList>

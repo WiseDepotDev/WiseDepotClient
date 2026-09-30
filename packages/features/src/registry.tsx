@@ -40,6 +40,30 @@ export interface ScreenParams {
 }
 
 /**
+ * 导航目标：**屏请求去另一屏**。
+ *
+ * 为什么需要它：屏原先只能被"当前选中的导航叶子"决定，因此一切
+ * "列表点一行进详情"的路径都做不到 —— 详情屏只能被迫也占一条导航叶子，
+ * 于是库存域长出 8 个导航项，手机上要横滚才能看全。
+ *
+ * 用 `method` 而不是"叶子 id"：方法 id 是契约的一部分（`BridgeMethodId`），
+ * 屏本来就知道自己要调到哪个方法的界面；叶子 id 只是壳的内部编号。
+ */
+export interface NavTarget {
+  readonly method: string;
+  readonly params?: ScreenParams | undefined;
+}
+
+/**
+ * 屏拿到的导航句柄。
+ *
+ * 约定：`onNavigate` 可选 —— 没传的屏（例如直接在渲染用例里单独渲染）不该崩，
+ * 因此调用点一律 `onNavigate?.({...})`。这也是所有屏都能保持
+ * "只依赖 bridge"的最小假设不被破坏的原因。
+ */
+export type Navigator = (to: NavTarget) => void;
+
+/**
  * 屏注册表：**桥方法 id → 屏组件**。
  *
  * 为什么用注册表而不是在壳里写 `if/switch`：
@@ -47,10 +71,14 @@ export interface ScreenParams {
  *  · W5–W7 逐域迁移时，**每一屏就是加一行**，不需要动壳；
  *  · 没登记的方法自动落到"待迁入"占位，`docs/feature-parity.md` 的清单与它一一对应，
  *    漏迁会以"占位屏"的形式显式存在，而不是悄悄消失。
+ *
+ * 屏签名里的 `screenParams` / `onNavigate` 都是**可选**的：
+ * 老屏只声明 `bridge` 依然赋值兼容，加参数不必动任何已有屏。
  */
 export type ScreenComponent = (props: {
   bridge: Bridge;
   screenParams?: ScreenParams | undefined;
+  onNavigate?: Navigator | undefined;
 }) => React.ReactElement;
 
 const REGISTRY: Readonly<Record<string, ScreenComponent>> = {

@@ -20,6 +20,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize } from '../shared/api.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 新建巡检任务（field/inspection 的"写"入口）。
@@ -280,11 +281,11 @@ function OptionPicker({
 
 export function InspectionTaskCreateScreen({
   bridge,
-  onOpenTask,
+  onNavigate,
 }: {
   bridge: Bridge;
-  /** 传了才渲染「查看该任务」：路由是外围的事，屏不该假定自己能跳转。 */
-  onOpenTask?: ((taskId: number) => void) | undefined;
+  /** 传了才渲染「查看该任务」：去下一层是外围的事，屏不该假定自己能跳转。 */
+  onNavigate?: Navigator | undefined;
 }): React.ReactElement {
   const [planQuery, setPlanQuery] = useState('');
   const [warehouseQuery, setWarehouseQuery] = useState('');
@@ -319,10 +320,10 @@ export function InspectionTaskCreateScreen({
 
   const openCreated = (): void => {
     const taskId = created?.taskId;
-    if (taskId === undefined || onOpenTask === undefined) {
+    if (taskId === undefined) {
       return;
     }
-    onOpenTask(taskId);
+    onNavigate?.({ method: 'inspection.taskDetail', params: { taskId: String(taskId) } });
   };
 
   const submit = async (): Promise<void> => {
@@ -397,7 +398,7 @@ export function InspectionTaskCreateScreen({
                 ? '任务已经建好，但这次没有拿到任务序号。到「巡检任务」列表刷新一次即可看到它。'
                 : '记下这个序号：开始盘点、上传数据、事后补录都要用它。'}
             </span>
-            {onOpenTask !== undefined && created?.taskId !== undefined ? (
+            {onNavigate !== undefined && created?.taskId !== undefined ? (
               <Toolbar>
                 <Button variant="primary" ariaLabel="查看刚创建的任务" onClick={openCreated}>
                   查看该任务

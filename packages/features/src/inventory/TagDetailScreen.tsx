@@ -34,9 +34,11 @@ import { asList, humanize, shortTime } from '../shared/api.js';
  * 1. **先按标签编码查，编码为空才按系统编号查。**
  *    扫码枪读出来的是**贴在货上的条码**，系统编号只有后台才有。因此"编码"是主入口，
  *    现场不需要先查一次表才能点进详情（与 `field/DeviceDetailScreen` 同一取舍）。
- * 2. **屏参数带来的码要自动查。**
+ * 2. **屏参数带来的目标要自动查。**
  *    `screenParams.code` 有值时是**扫码进来的路径**：此时再让用户手输一遍同一个码，
  *    等于让扫码枪白扫一次。因此开机就按它取数，输入框里也回填同一个值（用户看得见"在查什么"）。
+ *    `screenParams.tagId` 是**从标签列表点一行进来的路径**：那一行给的是系统序号（列表里没有编码），
+ *    同样要自动查、同样要把序号回填到输入框，否则用户会以为"点了没反应"。
  *
  * ## 没有查询目标时一个请求都不发
  * 两个 `useBridgeCall` 都靠 `enabled` 关掉。否则每次进这一屏都会向真后端发两次
@@ -103,13 +105,19 @@ export function TagDetailScreen({
   screenParams?: ScreenParams | undefined;
 }): React.ReactElement {
   const paramCode = screenParams?.code;
+  // 屏参数是字符串袋 → 标签序号要自己转数字；转不出来就当"没有这个目标"，
+  // 不发一个必然是错的请求（服务端只认数字序号）。
+  const rawTagId = screenParams?.tagId;
+  const parsedTagId = rawTagId !== undefined ? Number(rawTagId) : Number.NaN;
+  const paramTagId = Number.isFinite(parsedTagId) && parsedTagId > 0 ? parsedTagId : undefined;
 
   const [codeInput, setCodeInput] = useState(paramCode ?? '');
-  const [idInput, setIdInput] = useState('');
+  const [idInput, setIdInput] = useState(paramTagId !== undefined ? String(paramTagId) : '');
   // 显式带 `| undefined`：本仓开了 `exactOptionalPropertyTypes`，
   // "把屏参数里的可选编码原样放进可选项"只有这样才能成立
   const [lookup, setLookup] = useState<{ code?: string | undefined; id?: number | undefined }>({
     code: paramCode,
+    id: paramTagId,
   });
   const [lookupError, setLookupError] = useState<string | undefined>(undefined);
 
@@ -216,15 +224,25 @@ export function TagDetailScreen({
    * 现在三态分开：取数中 / 取数失败 / 拿到了数据。
    */
   const failed = byCode.error ?? byId.error;
-  const headerSubtitle = !hasCode
-    ? '扫码或输入标签编码，查看这个标签绑定的商品'
-    : bound
-      ? `标签编码 ${lookup.code} · ${boundOneLine}`
-      : failed !== undefined
-        ? `标签编码 ${lookup.code} · 没有查到（详见下方说明）`
-        : loading
-          ? `正在查询标签编码 ${lookup.code}…`
-          : `标签编码 ${lookup.code} · 这个标签还没绑定商品`;
+  /*
+   * 副标题先说"在查什么"（编码还是序号），再给结论 —— 两种入口进来时，
+   * 一个只说"扫码或输入标签编码"的副标题会与屏上正在转的骨架互相矛盾。
+   */
+  const targetLabel = hasCode
+    ? `标签编码 ${lookup.code}`
+    : hasId
+      ? `标签序号 ${lookup.id}`
+      : undefined;
+  const headerSubtitle =
+    targetLabel === undefined
+      ? '扫码或输入标签编码，查看这个标签绑定的商品'
+      : bound
+        ? `${targetLabel} · ${boundOneLine}`
+        : failed !== undefined
+          ? `${targetLabel} · 没有查到（详见下方说明）`
+          : loading
+            ? `正在查询 ${targetLabel}…`
+            : `${targetLabel} · 这个标签还没绑定商品`;
 
   return (
     <Stack>

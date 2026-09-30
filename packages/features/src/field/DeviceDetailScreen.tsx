@@ -20,6 +20,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize, shortTime } from '../shared/api.js';
+import type { ScreenParams } from '../registry.js';
 
 /**
  * 设备详情（field/device 详情）。
@@ -136,22 +137,25 @@ function numberText(value: number | undefined, unit: string): string {
 
 export function DeviceDetailScreen({
   bridge,
-  deviceId,
-  deviceCode,
-  onBack,
+  screenParams,
 }: {
   bridge: Bridge;
-  deviceId?: number | undefined;
-  deviceCode?: string | undefined;
-  onBack?: (() => void) | undefined;
+  screenParams?: ScreenParams | undefined;
 }): React.ReactElement {
-  const [codeInput, setCodeInput] = useState('');
+  // 屏参数是字符串袋 → 设备编号原样可用，设备序号要自己转数字；
+  // 序号转不出来就当"没有这个目标"，不发一个必然是错的请求。
+  const paramCode = screenParams?.deviceCode;
+  const rawDeviceId = screenParams?.deviceId;
+  const parsedDeviceId = rawDeviceId !== undefined ? Number(rawDeviceId) : Number.NaN;
+  const paramId = Number.isFinite(parsedDeviceId) && parsedDeviceId > 0 ? parsedDeviceId : undefined;
+
+  const [codeInput, setCodeInput] = useState(paramCode ?? '');
   const [idInput, setIdInput] = useState('');
   // 显式带 `| undefined`：本仓开了 `exactOptionalPropertyTypes`，
   // "把外部传来的可选编号原样放进可选项"只有这样才能成立
   const [lookup, setLookup] = useState<{ code?: string | undefined; id?: number | undefined }>({
-    code: deviceCode,
-    id: deviceId,
+    code: paramCode,
+    id: paramId,
   });
   const [lookupError, setLookupError] = useState<string | undefined>(undefined);
 
@@ -210,16 +214,9 @@ export function DeviceDetailScreen({
             : '查看某台设备的在线状态、心跳与参数'
         }
         actions={
-          <>
-            {onBack ? (
-              <Button ariaLabel="返回设备列表" onClick={onBack}>
-                返回列表
-              </Button>
-            ) : null}
-            <Button variant="primary" ariaLabel="刷新设备详情" disabled={!hasTarget} onClick={reload}>
-              刷新
-            </Button>
-          </>
+          <Button variant="primary" ariaLabel="刷新设备详情" disabled={!hasTarget} onClick={reload}>
+            刷新
+          </Button>
         }
       />
 

@@ -248,11 +248,9 @@ type PendingAction =
 export function StockOrderDetailScreen({
   bridge,
   screenParams,
-  onBack,
 }: {
   bridge: Bridge;
   screenParams?: ScreenParams | undefined;
-  onBack?: (() => void) | undefined;
 }): React.ReactElement {
   const [pending, setPending] = useState<PendingAction | undefined>(undefined);
   const [rejectReason, setRejectReason] = useState('');
@@ -368,21 +366,14 @@ export function StockOrderDetailScreen({
             : '查看单据内容，并按当前状态推进流转'
         }
         actions={
-          <>
-            {onBack ? (
-              <Button ariaLabel="返回单据列表" onClick={onBack}>
-                返回列表
-              </Button>
-            ) : null}
-            <Button
-              variant="primary"
-              ariaLabel="刷新单据"
-              disabled={!hasTarget || busy}
-              onClick={detailCall.reload}
-            >
-              刷新
-            </Button>
-          </>
+          <Button
+            variant="primary"
+            ariaLabel="刷新单据"
+            disabled={!hasTarget || busy}
+            onClick={detailCall.reload}
+          >
+            刷新
+          </Button>
         }
       />
 

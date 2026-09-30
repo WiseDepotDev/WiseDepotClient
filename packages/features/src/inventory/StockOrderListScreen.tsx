@@ -17,6 +17,7 @@ import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize, shortTime } from '../shared/api.js';
 import { orderStatusOf, orderStatusText, orderTypeText } from './stockOrderState.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 出入库单（inventory/stockOrder）。
@@ -79,7 +80,13 @@ function StatusChip({ row }: { row: StockOrderRow }): React.ReactElement {
   return <Chip tone={tone}>{orderStatusText(row)}</Chip>;
 }
 
-export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.ReactElement {
+export function StockOrderListScreen({
+  bridge,
+  onNavigate,
+}: {
+  bridge: Bridge;
+  onNavigate?: Navigator | undefined;
+}): React.ReactElement {
   const [page, setPage] = useState(1);
 
   const { loading, data, error, reload } = useBridgeCall<unknown>(bridge, 'stockOrder.list', {
@@ -136,6 +143,17 @@ export function StockOrderListScreen({ bridge }: { bridge: Bridge }): React.Reac
                       </>
                     }
                     trailing={<StatusChip row={r} />}
+                    /*
+                     * 整行点一下 = 去下一层看这张单子（返回由外壳负责）。
+                     * 没有单据编号的行点了什么都不做：详情屏只认数字编号，
+                     * 推一个转不出编号的目标过去，用户看到的只会是一个空详情。
+                     */
+                    onSelect={() => {
+                      if (r.orderId === undefined) {
+                        return;
+                      }
+                      onNavigate?.({ method: 'stockOrder.detail', params: { orderId: String(r.orderId) } });
+                    }}
                   />
                 ))}
               </DataList>

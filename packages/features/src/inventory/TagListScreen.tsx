@@ -22,6 +22,7 @@ import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, asTotal, humanize } from '../shared/api.js';
 import { CaptchaRow, useCaptcha } from '../shared/CaptchaField.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 标签管理（inventory/tag）。
@@ -46,11 +47,28 @@ interface TagRow {
 
 const PAGE_SIZE = 20;
 
-export function TagListScreen({ bridge }: { bridge: Bridge }): React.ReactElement {
+export function TagListScreen({
+  bridge,
+  onNavigate,
+}: {
+  bridge: Bridge;
+  onNavigate?: Navigator | undefined;
+}): React.ReactElement {
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  /**
+   * 是否处于**批量选择模式**。
+   *
+   * 为什么需要这个开关：整行点击一次只能有一个属主，而这一屏对它有两个诉求 ——
+   * 「点一行看看这个标签是什么」（导航）与「勾几行做批量绑定/解绑」（选择）。
+   * 两者挤在同一次点击上时，批量动作会永远拿不到输入（按钮永久禁用）。
+   *
+   * 移动端的通行解法就是显式模式：不选时点行 = 进详情；点「选择」后点行 = 勾选，
+   * 底部才出现批量动作条。这样两个能力都有明确入口，谁也不挡谁。
+   */
+  const [selecting, setSelecting] = useState(false);
 
   const [batch, setBatch] = useState<'bind' | 'unbind' | undefined>(undefined);
   const [productId, setProductId] = useState('');
@@ -74,6 +92,12 @@ export function TagListScreen({ bridge }: { bridge: Bridge }): React.ReactElemen
     : all;
   const hasMore = total !== undefined ? page * PAGE_SIZE < total : all.length === PAGE_SIZE;
 
+  /**
+   * 勾选一行（只在批量选择模式下被调用）。
+   *
+   * 注意：不在选择模式时，整行点击**归导航**（进标签详情）—— 一次点击只能有一个属主，
+   * 这正是上面 `selecting` 开关存在的理由。
+   */
   const toggle = (tagId: number | undefined): void => {
     if (tagId === undefined) {
       return;
@@ -131,11 +155,31 @@ export function TagListScreen({ bridge }: { bridge: Bridge }): React.ReactElemen
     <Stack>
       <PageHeader
         title="标签管理"
-        subtitle={total !== undefined ? `共 ${total} 个标签` : '条码 / RFID / NFC 标签'}
+        subtitle={
+          selecting
+            ? `已选 ${selected.size} 个 · 点行勾选`
+            : total !== undefined
+              ? `共 ${total} 个标签`
+              : '条码 / RFID / NFC 标签'
+        }
         actions={
-          <Button ariaLabel="刷新" onClick={reload}>
-            刷新
-          </Button>
+          <>
+            <Button
+              ariaLabel={selecting ? '完成选择' : '批量选择'}
+              variant={selecting ? 'primary' : 'default'}
+              onClick={() => {
+                setSelecting((v) => !v);
+                // 退出选择模式就清空勾选：否则下次进来会看到上次残留的勾，
+                // 而用户以为"我刚进来什么都没选"。
+                setSelected(new Set());
+              }}
+            >
+              {selecting ? '完成' : '选择'}
+            </Button>
+            <Button ariaLabel="刷新" onClick={reload}>
+              刷新
+            </Button>
+          </>
         }
       />
 
@@ -179,7 +223,8 @@ export function TagListScreen({ bridge }: { bridge: Bridge }): React.ReactElemen
                       id={r.barcode ?? r.rfid}
                       main={
                         <>
-                          {isSelected ? '☑ ' : '☐ '}
+                          {/* 勾选框只在选择模式出现：平时它是噪音，还会让人以为"点一下能选" */}
+                          {selecting ? (isSelected ? '☑ ' : '☐ ') : null}
                           {r.productName ?? '未绑定商品'}
                         </>
                       }
@@ -203,7 +248,23 @@ export function TagListScreen({ bridge }: { bridge: Bridge }): React.ReactElemen
                         )
                       }
                       active={isSelected}
-                      onSelect={() => toggle(tagId)}
+                      /*
+                       * 整行点一下 = 去下一层看这个标签（返回由外壳负责）。
+                       * 序号缺失的行点了什么都不做：没有目标就推不出详情，
+                       * 推一个空目标过去只会让用户看到一个查不到东西的屏。
+                       */
+                      onSelect={() => {
+                        if (tagId === undefined) {
+                          return;
+                        }
+                        // 选择模式下点行 = 勾选；否则 = 进详情。一次点击只有一个属主，
+                        // 由 `selecting` 决定它归谁（这就是那个开关存在的全部理由）。
+                        if (selecting) {
+                          toggle(tagId);
+                          return;
+                        }
+                        onNavigate?.({ method: 'tag.detail', params: { tagId: String(tagId) } });
+                      }}
                     />
                   );
                 })}
@@ -223,16 +284,21 @@ export function TagListScreen({ bridge }: { bridge: Bridge }): React.ReactElemen
         </Button>
       </Toolbar>
 
-      {/* 批量动作钉在底部：现场是"扫一批 → 一次提交"，逐行点按钮不现实 */}
-      <BottomActionBar>
-        <span className="w-muted w-mono">{`已选 ${selected.size}`}</span>
-        <Button ariaLabel="批量绑定" disabled={selected.size === 0} onClick={() => setBatch('bind')}>
-          批量绑定
-        </Button>
-        <Button ariaLabel="批量解绑" disabled={selected.size === 0} onClick={() => setBatch('unbind')}>
-          批量解绑
-        </Button>
-      </BottomActionBar>
+      {/*
+        批量动作条**只在选择模式出现**：常驻会一直摆着两个禁用按钮，
+        看起来像"功能坏了"，也让用户以为行是可以勾的。
+      */}
+      {selecting ? (
+        <BottomActionBar>
+          <span className="w-muted w-mono">{`已选 ${selected.size}`}</span>
+          <Button ariaLabel="批量绑定" disabled={selected.size === 0} onClick={() => setBatch('bind')}>
+            批量绑定
+          </Button>
+          <Button ariaLabel="批量解绑" disabled={selected.size === 0} onClick={() => setBatch('unbind')}>
+            批量解绑
+          </Button>
+        </BottomActionBar>
+      ) : null}
 
       <ConfirmDialog
         open={batch !== undefined}

@@ -1,4 +1,5 @@
 import type { BridgeDomain } from '@wise/contract';
+import type { ScreenParams } from '@wise/features';
 
 /**
  * 信息架构：**四域 + 系统域**。
@@ -45,12 +46,11 @@ export const DOMAINS: readonly NavDomain[] = [
       { id: 'inventory', label: '库存查询', primaryMethod: 'inventory.list' },
       { id: 'products', label: '商品管理', primaryMethod: 'product.list' },
       { id: 'tags', label: '标签管理', primaryMethod: 'tag.list' },
-      { id: 'tag-detail', label: '标签详情', primaryMethod: 'tag.detail' },
+      // 标签详情**不是**导航项：它由「标签管理」点一行、或扫码枪扫到编码推入（见 DESTINATIONS）
       { id: 'stock-orders', label: '出入库单', primaryMethod: 'stockOrder.list' },
-      // 建单与详情各占一条：清单页只负责列表，建单是独立的一屏
-      // （原先在列表页里内联建单，那个入口因为缺 orderNo/createBy 永远是失败的）
       { id: 'stock-order-create', label: '新建出入库单', primaryMethod: 'stockOrder.create' },
-      { id: 'stock-order-detail', label: '单据详情', primaryMethod: 'stockOrder.detail' },
+      // 单据详情同理：由列表点一行推入，不占导航项
+      { id: 'warehouses', label: '仓库管理', primaryMethod: 'warehouse.list' },
       { id: 'warehouses', label: '仓库管理', primaryMethod: 'warehouse.list' },
     ],
   },
@@ -108,4 +108,59 @@ export function findLeafByMethod(method: string): { domain: DomainId; leaf: NavL
     }
   }
   return undefined;
+}
+
+/**
+ * **可被"推进去"的屏**：详情类目的地。
+ *
+ * 它们**不进导航栏**，只能从别的屏跳过来（列表点一行、扫到一个码）。
+ *
+ * 为什么要把这件事显式列出来：在这之前，一个屏想可达就只能占一条导航叶子 ——
+ * 于是"标签详情""单据详情"这类屏都被塞进侧栏/底栏，库存域因此长出 8 个导航项，
+ * 手机上要横向滚动才看得全。详情屏在信息架构里本来就该在**下一层**，
+ * 而不是和它的列表页平级。
+ *
+ * `label` 是推入后的页头标题（推入的屏由壳来显示返回，标题也就由壳来给）。
+ */
+export interface Destination {
+  readonly method: string;
+  readonly label: string;
+}
+
+export const DESTINATIONS: readonly Destination[] = [
+  { method: 'tag.detail', label: '标签详情' },
+  { method: 'tag.byCode', label: '标签详情' },
+  { method: 'stockOrder.detail', label: '单据详情' },
+  { method: 'device.detail', label: '设备详情' },
+  { method: 'inspection.taskDetail', label: '巡检任务详情' },
+  { method: 'alert.detail', label: '告警详情' },
+  { method: 'inventory.detail', label: '库存详情' },
+  { method: 'message.detail', label: '消息详情' },
+  { method: 'user.detail', label: '用户详情' },
+];
+
+export function destinationOf(method: string): Destination | undefined {
+  return DESTINATIONS.find((d) => d.method === method);
+}
+
+/** 一个目的地是否可达：要么是导航叶子，要么在 `DESTINATIONS` 里。 */
+export function canReach(method: string): boolean {
+  return findLeafByMethod(method) !== undefined || destinationOf(method) !== undefined;
+}
+
+/**
+ * 屏的**挂载键**：目的地 + 它的**全部**参数。
+ *
+ * 为什么要它：同一屏组件被复用时 React 会保留上一份 state（查询结果、已选行），
+ * 现场表现为"推了新的目标却还是旧内容"。
+ *
+ * 踩过的坑：第一版只把 `code`/`orderId` 拼进 key（当时只有这两种参数），
+ * 后来加了 `tagId`/`deviceId`/`taskId`/`resultId` —— 这些变化**不会**触发重挂载。
+ * 所以现在把参数整个序列化进 key，加新参数不必再记得改这里。
+ */
+export function screenKey(id: string, params: ScreenParams | undefined): string {
+  const entries = Object.entries(params ?? {})
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return entries.length === 0 ? id : `${id}#${entries.map(([k, v]) => `${k}=${v}`).join('&')}`;
 }

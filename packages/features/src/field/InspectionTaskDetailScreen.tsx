@@ -21,6 +21,7 @@ import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize, shortTime } from '../shared/api.js';
 import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
+import type { ScreenParams } from '../registry.js';
 
 /**
  * 巡检任务详情（field/inspection 任务详情）。
@@ -163,15 +164,19 @@ function DiffChip({ diff }: { diff: DiffRow }): React.ReactElement {
 
 export function InspectionTaskDetailScreen({
   bridge,
-  taskId,
-  onBack,
+  screenParams,
 }: {
   bridge: Bridge;
-  taskId?: number | undefined;
-  onBack?: (() => void) | undefined;
+  screenParams?: ScreenParams | undefined;
 }): React.ReactElement {
+  // 屏参数是字符串袋 → 任务序号要自己转数字；转不出来就当"没有目标"，
+  // 不发一个必然是错的请求（服务端只认数字序号）。
+  const rawTaskId = screenParams?.taskId;
+  const parsedTaskId = rawTaskId !== undefined ? Number(rawTaskId) : Number.NaN;
+  const paramTaskId = Number.isFinite(parsedTaskId) && parsedTaskId > 0 ? parsedTaskId : undefined;
+
   const [idInput, setIdInput] = useState('');
-  const [selectedId, setSelectedId] = useState<number | undefined>(taskId);
+  const [selectedId, setSelectedId] = useState<number | undefined>(paramTaskId);
   const [lookupError, setLookupError] = useState<string | undefined>(undefined);
   const [onlyAbnormal, setOnlyAbnormal] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<'RUNNING' | 'COMPLETED' | undefined>(undefined);
@@ -255,16 +260,9 @@ export function InspectionTaskDetailScreen({
             : '查看任务进度、物料差异，并推进任务状态'
         }
         actions={
-          <>
-            {onBack ? (
-              <Button ariaLabel="返回任务列表" onClick={onBack}>
-                返回列表
-              </Button>
-            ) : null}
-            <Button variant="primary" ariaLabel="刷新任务详情" disabled={!hasTarget || busy} onClick={detailCall.reload}>
-              刷新
-            </Button>
-          </>
+          <Button variant="primary" ariaLabel="刷新任务详情" disabled={!hasTarget || busy} onClick={detailCall.reload}>
+            刷新
+          </Button>
         }
       />
 

@@ -20,6 +20,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize } from '../shared/api.js';
+import type { Navigator } from '../registry.js';
 
 /**
  * 新建出入库单（inventory/stockOrder 的"写"入口）。
@@ -266,11 +267,11 @@ function WarehousePicker({
 
 export function StockOrderCreateScreen({
   bridge,
-  onOpenOrder,
+  onNavigate,
 }: {
   bridge: Bridge;
-  /** 传了才渲染「查看该单」：路由是外围的事，屏不该假定自己能跳转。 */
-  onOpenOrder?: ((orderId: number) => void) | undefined;
+  /** 传了才渲染「查看该单」：去下一层是外围的事，屏不该假定自己能跳转。 */
+  onNavigate?: Navigator | undefined;
 }): React.ReactElement {
   const [orderNo, setOrderNo] = useState(() => defaultOrderNo('IN', new Date()));
   const [orderNoTouched, setOrderNoTouched] = useState(false);
@@ -309,10 +310,10 @@ export function StockOrderCreateScreen({
 
   const openCreated = (): void => {
     const orderId = created?.orderId;
-    if (orderId === undefined || onOpenOrder === undefined) {
+    if (orderId === undefined) {
       return;
     }
-    onOpenOrder(orderId);
+    onNavigate?.({ method: 'stockOrder.detail', params: { orderId: String(orderId) } });
   };
 
   const submit = async (): Promise<void> => {
@@ -404,7 +405,7 @@ export function StockOrderCreateScreen({
                 ? '单据已经建好，但这次没有拿到单据编号。到「出入库单」列表刷新一次即可看到它。'
                 : '记下这个编号：加明细、提交审核都要用它。'}
             </span>
-            {onOpenOrder !== undefined && created?.orderId !== undefined ? (
+            {onNavigate !== undefined && created?.orderId !== undefined ? (
               <Toolbar>
                 <Button variant="primary" ariaLabel="查看刚建的单据" onClick={openCreated}>
                   查看该单

@@ -137,7 +137,17 @@ const cases: readonly Case[] = [
   {
     name: 'TagListScreen（标签管理，W5-inventory）',
     render: () => renderToStaticMarkup(<TagListScreen bridge={fakeBridge([])} />),
-    expect: ['标签管理', 'w-pageheader', 'w-search', 'w-skeleton', 'w-bottombar', '批量绑定', '批量解绑', '标签列表'],
+    // 默认态**没有**底部批量条：批量动作只在「选择」模式下出现
+    // （行点击一次只能有一个属主，选择模式是让"进详情"和"勾选"各有入口的那个开关）。
+    // 渲染用例点不了按钮，所以批量条那一段由真机验证覆盖。
+    expect: ['标签管理', 'w-pageheader', 'w-search', 'w-skeleton', '选择', '标签列表'],
+  },
+  {
+    // 可选 prop 的契约：传了 `onNavigate` 不崩（列表点进详情靠它）。
+    // 不传的形态由上一条用例覆盖 —— 两种都要能渲染，因为屏在单独渲染时拿不到壳。
+    name: 'TagListScreen 传 onNavigate（子导航句柄）也能渲染',
+    render: () => renderToStaticMarkup(<TagListScreen bridge={fakeBridge([])} onNavigate={() => undefined} />),
+    expect: ['标签管理', 'w-pageheader'],
   },
 
   // W9：扫码枪的落点。两种入口共屏：

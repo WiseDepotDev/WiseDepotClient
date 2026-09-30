@@ -21,6 +21,7 @@ import {
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
 import { asList, humanize, shortTime } from '../shared/api.js';
+import type { ScreenParams } from '../registry.js';
 
 /**
  * 巡检结果列表（field/inspection 结果）。
@@ -94,27 +95,36 @@ function ResultStateChip({ result }: { result: ResultRow }): React.ReactElement 
 
 export function InspectionResultListScreen({
   bridge,
-  resultId,
+  screenParams,
 }: {
   bridge: Bridge;
-  resultId?: number | undefined;
+  screenParams?: ScreenParams | undefined;
 }): React.ReactElement {
+  // 屏参数是字符串袋 → 结果序号要自己转数字；转不出来就当"没有目标"，
+  // 不发一个必然是错的请求（服务端只认数字序号）。
+  const rawResultId = screenParams?.resultId;
+  const parsedResultId = rawResultId !== undefined ? Number(rawResultId) : Number.NaN;
+  const paramResultId = Number.isFinite(parsedResultId) && parsedResultId > 0 ? parsedResultId : undefined;
+
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
   const [filter, setFilter] = useState<ResultFilter>('all');
   const [selected, setSelected] = useState<ResultRow | undefined>(undefined);
   const [pendingConfirm, setPendingConfirm] = useState<ResultRow | undefined>(undefined);
-  const [selectedId, setSelectedId] = useState<number | undefined>(resultId);
+  const [selectedId, setSelectedId] = useState<number | undefined>(paramResultId);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
   const listCall = useBridgeCall<unknown>(bridge, 'inspection.resultList', {});
   const detailId = selected?.resultId ?? selectedId;
+  // `enabled`：没有"看哪一条结果"之前不发请求 —— 服务端要 resultId，
+  // 空手调一次只会拿回一个必然是错的响应，还在日志里装成"这一屏一直报错"。
   const detailCall = useBridgeCall<unknown>(
     bridge,
     'inspection.resultDetail',
     detailId !== undefined ? { resultId: detailId } : undefined,
+    { enabled: detailId !== undefined },
   );
 
   const all = asList<ResultRow>(listCall.data);

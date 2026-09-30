@@ -28,6 +28,8 @@ export {
   MIGRATED_METHODS,
   type ScreenComponent,
   type ScreenParams,
+  type NavTarget,
+  type Navigator,
 } from './registry.js';
 
 export { useBridgeCall, type CallState } from './shared/useBridgeCall.js';

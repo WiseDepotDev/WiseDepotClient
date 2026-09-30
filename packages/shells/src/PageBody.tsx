@@ -1,5 +1,5 @@
 import type { Bridge } from '@wise/bridge-client';
-import { NotMigratedScreen, screenFor, type ScreenParams } from '@wise/features';
+import { NotMigratedScreen, screenFor, type Navigator, type ScreenParams } from '@wise/features';
 import type { NavLeaf } from './navigation.js';
 
 /**
@@ -11,21 +11,24 @@ import type { NavLeaf } from './navigation.js';
  * 好处是**迁移进度可度量**：`MIGRATED_METHODS` 就是已迁入的方法集合，
  * 没登记的路由会画出显式的"待迁入"占位，而不是悄悄空白。
  *
- * `params` 是壳到屏的只读参数袋（例：扫码枪扫到的标签编码 → 标签详情屏）。
- * 屏签名里它是可选的，所以老屏不受影响。
+ * `params` 是壳到屏的只读参数袋（例：扫码枪扫到的标签编码 → 标签详情屏）；
+ * `onNavigate` 反向：屏请求去下一层（列表点一行 → 详情）。
+ * 两者在屏签名里都是可选的，所以老屏不受影响。
  */
 export function PageBody({
   bridge,
   leaf,
   params,
+  onNavigate,
 }: {
   bridge: Bridge;
   leaf: NavLeaf;
   params?: ScreenParams | undefined;
+  onNavigate?: Navigator | undefined;
 }): React.ReactElement {
   const Screen = screenFor(leaf.primaryMethod);
   return Screen ? (
-    <Screen bridge={bridge} screenParams={params} />
+    <Screen bridge={bridge} screenParams={params} onNavigate={onNavigate} />
   ) : (
     <NotMigratedScreen method={leaf.primaryMethod} />
   );
