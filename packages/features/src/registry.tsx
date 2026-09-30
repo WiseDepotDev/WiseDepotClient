@@ -7,6 +7,15 @@ import { ProductListScreen } from './inventory/ProductListScreen.js';
 import { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 import { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
 import { TagListScreen } from './inventory/TagListScreen.js';
+import { DeviceListScreen } from './field/DeviceListScreen.js';
+import { DeviceDetailScreen } from './field/DeviceDetailScreen.js';
+import { InspectionTaskListScreen } from './field/InspectionTaskListScreen.js';
+import { InspectionTaskDetailScreen } from './field/InspectionTaskDetailScreen.js';
+import { InspectionResultListScreen } from './field/InspectionResultListScreen.js';
+import { MessageListScreen } from './me/MessageListScreen.js';
+import { MessageDetailScreen } from './me/MessageDetailScreen.js';
+import { UserListScreen } from './me/UserListScreen.js';
+import { ProfileScreen } from './me/ProfileScreen.js';
 
 /**
  * 屏注册表：**桥方法 id → 屏组件**。
@@ -34,6 +43,32 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'stockOrder.list': StockOrderListScreen,
   // 标签：本域唯一带批量操作与验证码的屏
   'tag.list': TagListScreen,
+
+  // ---- W6 field 域：设备与巡检 ----
+  // 设备列表是现场作业的入口；详情复用同一屏的取数（点行内联展开），故两条都指向它
+  'device.list': DeviceListScreen,
+  'device.detail': DeviceDetailScreen,
+  // 巡检任务：列表 + 分页取数是同屏两种取数方式（与 inventory.search 同理）
+  'inspection.taskList': InspectionTaskListScreen,
+  'inspection.taskPage': InspectionTaskListScreen,
+  // 详情屏承载状态流转（taskStatus/taskProgress/taskDiff），三条入口都落到它
+  'inspection.taskDetail': InspectionTaskDetailScreen,
+  'inspection.taskStatus': InspectionTaskDetailScreen,
+  'inspection.taskDiff': InspectionTaskDetailScreen,
+  // 巡检结果：列表 + 确认（确认走 ConfirmDialog）
+  'inspection.resultList': InspectionResultListScreen,
+  'inspection.resultDetail': InspectionResultListScreen,
+  'inspection.resultConfirm': InspectionResultListScreen,
+
+  // ---- W7 me 域：消息 / 用户 / 个人资料 ----
+  // 未读数不是独立目的地，它就是列表页的角标数据源 —— 指向同一屏
+  'message.list': MessageListScreen,
+  'message.unreadCount': MessageListScreen,
+  'message.detail': MessageDetailScreen,
+  'user.list': UserListScreen,
+  'user.detail': UserListScreen,
+  'profile.get': ProfileScreen,
+  'profile.settings': ProfileScreen,
 };
 
 export function screenFor(primaryMethod: string): ScreenComponent | undefined {

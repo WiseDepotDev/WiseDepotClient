@@ -38,7 +38,7 @@ docs/              架构、协议、归档、对照清单
 
 ```powershell
 # 契约 + 令牌 + 样式门禁（不需要 Android SDK；生成器只需 node）
-pnpm check                      # = check:contract + check:contract:legacy + check:parity + check:tokens + check:css
+pnpm check                      # = check:contract + check:contract:legacy + check:parity + check:tokens + check:css + check:ui + check:render
 
 # 生成物与源码不同步时（改了服务端注解 / bridge-overlay.json / 归档主题之后）
 pnpm gen:contract               # 重新生成 Kotlin 注册表 + TS 类型
@@ -99,6 +99,7 @@ pnpm dev                        # 开发态：无宿主时自动回退到 mock �
 | --- | --- | --- |
 | 令牌无漂移 | `pnpm check:tokens` | 27 颜色槽位（亮/暗）× 8 状态色 × 30 刻度 × 11 语义间距 × 5 圆角 × 12 字号档，与归档主题一致 |
 | 令牌纪律 | `pnpm check:css` | 149 个令牌定义，38 处引用全部命中，**0 处 hex / 0 处字面量尺寸** |
+| 文案与内联样式纪律 | `pnpm check:ui` | 扫描全部 TSX，比对 167 个桥方法 id + 8 条黑话规则；**0 处方法 id / 黑话泄漏、0 处内联 hex 与字面量尺寸** |
 | 两套外壳可渲染 | `pnpm check:render` | MobileShell / DesktopShell 用 React 服务端渲染真跑一遍，结构断言全过；**无 `scan.camera` 能力时不画扫码入口**（证明能力表驱动，而非平台字符串驱动） |
 | 类型安全 | `pnpm typecheck` | `tsc --noEmit` 通过（严格模式 + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`） |
 | 可构建 | `pnpm build` | `vite build` 成功，46 模块 |

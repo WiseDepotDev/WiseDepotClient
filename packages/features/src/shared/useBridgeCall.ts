@@ -8,6 +8,17 @@ export interface CallState<T> {
   readonly reload: () => void;
 }
 
+export interface CallOptions {
+  /**
+   * 为 `false` 时不发请求，直接停在"空且不加载"的静止态。
+   *
+   * 为什么不能用 `params === undefined` 来代替这个开关：`dashboard.summary`
+   * 这类方法**本来就无参**，用 `undefined` 表示"别发"会把它们一起误伤。
+   * "无参"与"还没准备好参数"是两件事，必须分开表达。
+   */
+  readonly enabled?: boolean | undefined;
+}
+
 /**
  * 最小可用的取数 hook（W4 会被 TanStack Query 取代）。
  *
@@ -16,15 +27,32 @@ export interface CallState<T> {
  * 2. 卸载后不再 setState（避免 React 19 的告警与真实竞态）；
  * 3. 依赖变化时重取，且只依赖 `method`/`paramsKey`，不依赖对象引用。
  */
-export function useBridgeCall<T>(bridge: Bridge, method: string, params?: unknown): CallState<T> {
+export function useBridgeCall<T>(
+  bridge: Bridge,
+  method: string,
+  params?: unknown,
+  options?: CallOptions,
+): CallState<T> {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<BridgeError>();
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
   const paramsKey = JSON.stringify(params ?? null);
+  const enabled = options?.enabled ?? true;
 
   useEffect(() => {
     let alive = true;
+
+    // 未就绪时不发请求：带缺参的请求到后端必然 400，
+    // 白白占一次网络往返，还会在日志里制造"这个屏一直在报错"的假象。
+    if (!enabled) {
+      setLoading(false);
+      setError(undefined);
+      return () => {
+        alive = false;
+      };
+    }
+
     setLoading(true);
     setError(undefined);
 
@@ -55,5 +83,8 @@ export function useBridgeCall<T>(bridge: Bridge, method: string, params?: unknow
   }, [bridge, method, paramsKey, nonce]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
-  return { loading, data, error, reload };
+  // `loading` 用**派生值**而不是内部 state：内部 state 的初值是 true，
+  // 而 effect 在首帧之后才跑（服务端渲染里根本不跑），于是 `enabled: false` 的屏
+  // 首帧会画出一块永远不落地的骨架。派生值把"没在取数"这件事在首帧就说清楚。
+  return { loading: enabled && loading, data, error, reload };
 }

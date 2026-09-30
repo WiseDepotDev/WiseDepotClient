@@ -3,11 +3,20 @@ import { DesktopShell, MobileShell } from '@wise/shells';
 import {
   AlertListScreen,
   DashboardScreen,
+  DeviceDetailScreen,
+  DeviceListScreen,
+  InspectionResultListScreen,
+  InspectionTaskDetailScreen,
+  InspectionTaskListScreen,
   InventoryListScreen,
   LoginScreen,
+  MessageDetailScreen,
+  MessageListScreen,
   ProductListScreen,
+  ProfileScreen,
   StockOrderListScreen,
   TagListScreen,
+  UserListScreen,
   WarehouseListScreen,
 } from '@wise/features';
 import type { Bridge } from '@wise/bridge-client';
@@ -107,6 +116,59 @@ const cases: readonly Case[] = [
     name: 'TagListScreen（标签管理，W5-inventory）',
     render: () => renderToStaticMarkup(<TagListScreen bridge={fakeBridge([])} />),
     expect: ['标签管理', 'w-pageheader', 'w-search', 'w-skeleton', 'w-bottombar', '批量绑定', '批量解绑', '标签列表'],
+  },
+
+  // W6：field 域（设备 / 巡检）。列表屏必须同时具备页头、搜索、四态宿主；
+  // 详情屏没有搜索（详情不是可搜索的集合），因此只断言页头与四态宿主。
+  {
+    name: 'DeviceListScreen（设备管理，W6-field）',
+    render: () => renderToStaticMarkup(<DeviceListScreen bridge={fakeBridge(['scan.camera'])} />),
+    expect: ['设备管理', 'w-pageheader', 'w-search', 'w-skeleton'],
+  },
+  {
+    name: 'DeviceDetailScreen（设备详情，W6-field）',
+    render: () => renderToStaticMarkup(<DeviceDetailScreen bridge={fakeBridge([])} />),
+    // 未传编号 → 屏上落的是"查询入口 + 空态"，**不该**是骨架：
+    // 骨架表示"正在取数"，而这一屏在拿到目标之前根本不取数（useBridgeCall 的 enabled=false）。
+    expect: ['设备详情', '按设备编号查询', 'w-pageheader', 'w-search', 'w-state'],
+  },
+  {
+    name: 'InspectionTaskListScreen（巡检任务，W6-field）',
+    render: () => renderToStaticMarkup(<InspectionTaskListScreen bridge={fakeBridge([])} />),
+    expect: ['巡检任务', 'w-pageheader', 'w-search', 'w-skeleton'],
+  },
+  {
+    name: 'InspectionTaskDetailScreen（巡检任务详情，W6-field）',
+    render: () => renderToStaticMarkup(<InspectionTaskDetailScreen bridge={fakeBridge([])} />),
+    // 同上：未传任务序号时不取数，落空态而不是骨架
+    expect: ['巡检任务详情', '查看某个任务', 'w-pageheader', 'w-state'],
+  },
+  {
+    name: 'InspectionResultListScreen（巡检结果，W6-field）',
+    render: () => renderToStaticMarkup(<InspectionResultListScreen bridge={fakeBridge([])} />),
+    expect: ['巡检结果', 'w-pageheader', 'w-search', 'w-skeleton'],
+  },
+
+  // W7：me 域（消息 / 用户 / 个人资料）
+  {
+    name: 'MessageListScreen（消息中心，W7-me）',
+    render: () => renderToStaticMarkup(<MessageListScreen bridge={fakeBridge([])} />),
+    expect: ['w-pageheader', 'w-search', 'w-skeleton'],
+  },
+  {
+    name: 'MessageDetailScreen（消息详情，W7-me）',
+    render: () => renderToStaticMarkup(<MessageDetailScreen bridge={fakeBridge([])} />),
+    expect: ['w-pageheader', 'w-skeleton'],
+  },
+  {
+    name: 'UserListScreen（用户管理，W7-me）',
+    render: () => renderToStaticMarkup(<UserListScreen bridge={fakeBridge([])} />),
+    expect: ['w-pageheader', 'w-search', 'w-skeleton'],
+  },
+  {
+    name: 'ProfileScreen（个人资料，W7-me）',
+    render: () => renderToStaticMarkup(<ProfileScreen bridge={fakeBridge([])} />),
+    expect: ['w-pageheader', 'w-skeleton'],
   },
 ];
 

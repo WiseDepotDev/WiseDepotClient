@@ -2,7 +2,7 @@
 
 > **本文件由 `tools/gen/gen-feature-parity.js` 生成，禁止手改。**
 > 重跑：`pnpm gen:parity`；校验：`pnpm gen:parity --check`。
-> 「迁移状态」由 W5–W7 逐域推进时在验收记录里回填，本文件只固定"有哪些、归哪域"。
+> 「迁移状态」**不是人回填的**：它由 `packages/features/src/registry.tsx` 里已登记的桥方法机械推导。接一屏，状态自己变；没接，就一直显示缺口。
 
 ## 0. 口径与来源
 
@@ -18,59 +18,59 @@
 
 | # | 屏文件 | 行数 | 新域 | 迁移状态 |
 | --- | --- | --- | --- | --- |
-| 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 待迁（W5–W7） |
-| 2 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertListScreen.kt` | 317 | overview | 待迁（W5–W7） |
-| 3 | `core/ui/src/main/java/com/huicang/wise/ui/camera/CameraScanScreen.kt` | 255 | **待归类** | 待迁（W5–W7） |
-| 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 待迁（W5–W7） |
-| 5 | `feature/dashboard/src/main/java/com/huicang/wise/ui/dashboard/DashboardScreen.kt` | 116 | overview | 待迁（W5–W7） |
-| 6 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceDetailScreen.kt` | 251 | field | 待迁（W5–W7） |
-| 7 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceListScreen.kt` | 211 | field | 待迁（W5–W7） |
-| 8 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionDetailScreen.kt` | 402 | field | 待迁（W5–W7） |
-| 9 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionListScreen.kt` | 276 | field | 待迁（W5–W7） |
-| 10 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryDetailScreen.kt` | 195 | inventory | 待迁（W5–W7） |
-| 11 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryManagementScreen.kt` | 331 | inventory | 待迁（W5–W7） |
-| 12 | `app/src/main/java/com/huicang/wise/ui/main/InventoryScreen.kt` | 234 | inventory | 待迁（W5–W7） |
-| 13 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventorySearchScreen.kt` | 272 | inventory | 待迁（W5–W7） |
-| 14 | `feature/auth/src/main/java/com/huicang/wise/ui/login/LoginScreen.kt` | 273 | system（登录不在一级域内） | 待迁（W5–W7） |
-| 15 | `app/src/main/java/com/huicang/wise/ui/main/MainScreen.kt` | 277 | **待归类** | 待迁（W5–W7） |
-| 16 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/ManualRecordScreen.kt` | 267 | **待归类** | 待迁（W5–W7） |
-| 17 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageDetailScreen.kt` | 337 | me | 待迁（W5–W7） |
-| 18 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageListScreen.kt` | 396 | me | 待迁（W5–W7） |
-| 19 | `feature/auth/src/main/java/com/huicang/wise/ui/nfc/NfcLoginScreen.kt` | 235 | system（登录不在一级域内） | 待迁（W5–W7） |
-| 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 待迁（W5–W7） |
-| 21 | `feature/user/src/main/java/com/huicang/wise/ui/user/ProfileScreen.kt` | 363 | me | 待迁（W5–W7） |
-| 22 | `core/ui/src/main/java/com/huicang/wise/ui/components/SkeletonScreen.kt` | 200 | **待归类** | 待迁（W5–W7） |
-| 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 待迁（W5–W7） |
-| 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 待迁（W5–W7） |
-| 25 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderListScreen.kt` | 252 | inventory | 待迁（W5–W7） |
-| 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 待迁（W5–W7） |
-| 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 待迁（W5–W7） |
-| 28 | `feature/user/src/main/java/com/huicang/wise/ui/user/UserManagementScreen.kt` | 219 | me | 待迁（W5–W7） |
-| 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 待迁（W5–W7） |
+| 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 待迁（需 `alert.detail`） |
+| 2 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertListScreen.kt` | 317 | overview | 已迁 · `overview/AlertListScreen.tsx` |
+| 3 | `core/ui/src/main/java/com/huicang/wise/ui/camera/CameraScanScreen.kt` | 255 | **待归类** | 壳能力（相机 + 解码在原生侧），不映射桥方法 |
+| 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 待迁（需 `inspection.taskCreate`） |
+| 5 | `feature/dashboard/src/main/java/com/huicang/wise/ui/dashboard/DashboardScreen.kt` | 116 | overview | 已迁 · `overview/DashboardScreen.tsx` |
+| 6 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceDetailScreen.kt` | 251 | field | 已迁 · `field/DeviceDetailScreen.tsx` |
+| 7 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceListScreen.kt` | 211 | field | 已迁 · `field/DeviceListScreen.tsx` |
+| 8 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionDetailScreen.kt` | 402 | field | 已迁 · `field/InspectionTaskDetailScreen.tsx` |
+| 9 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionListScreen.kt` | 276 | field | 已迁 · `field/InspectionTaskListScreen.tsx` |
+| 10 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryDetailScreen.kt` | 195 | inventory | 待迁（需 `inventory.detail`） |
+| 11 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryManagementScreen.kt` | 331 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
+| 12 | `app/src/main/java/com/huicang/wise/ui/main/InventoryScreen.kt` | 234 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
+| 13 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventorySearchScreen.kt` | 272 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
+| 14 | `feature/auth/src/main/java/com/huicang/wise/ui/login/LoginScreen.kt` | 273 | system（登录不在一级域内） | 已迁 · `auth/LoginScreen.tsx`（登录屏不是可导航目的地，由 App.tsx 的会话闸门直接渲染，因此不登记在屏注册表里） |
+| 15 | `app/src/main/java/com/huicang/wise/ui/main/MainScreen.kt` | 277 | **待归类** | 被 AppFrame / MobileShell / DesktopShell 取代（壳不再是一个屏） |
+| 16 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/ManualRecordScreen.kt` | 267 | **待归类** | 待迁（需 `inspection.manualRecord`） |
+| 17 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageDetailScreen.kt` | 337 | me | 已迁 · `me/MessageDetailScreen.tsx` |
+| 18 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageListScreen.kt` | 396 | me | 已迁 · `me/MessageListScreen.tsx` |
+| 19 | `feature/auth/src/main/java/com/huicang/wise/ui/nfc/NfcLoginScreen.kt` | 235 | system（登录不在一级域内） | 壳能力（NFC 读取在原生侧），不映射桥方法 |
+| 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 已迁 · `inventory/ProductListScreen.tsx` |
+| 21 | `feature/user/src/main/java/com/huicang/wise/ui/user/ProfileScreen.kt` | 363 | me | 已迁 · `me/ProfileScreen.tsx` |
+| 22 | `core/ui/src/main/java/com/huicang/wise/ui/components/SkeletonScreen.kt` | 200 | **待归类** | 被 ListStateHost 四态（加载/错误/空/有数据）取代 |
+| 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 待迁（需 `stockOrder.create`） |
+| 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 待迁（需 `stockOrder.detail`） |
+| 25 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderListScreen.kt` | 252 | inventory | 已迁 · `inventory/StockOrderListScreen.tsx` |
+| 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 待迁（需 `tag.detail`） |
+| 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 已迁 · `inventory/TagListScreen.tsx` |
+| 28 | `feature/user/src/main/java/com/huicang/wise/ui/user/UserManagementScreen.kt` | 219 | me | 已迁 · `me/UserListScreen.tsx` |
+| 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 已迁 · `inventory/WarehouseListScreen.tsx` |
 
 ## 2. 旧路由目录（AppRoute.kt）
 
 | # | 路由 id | 新域 | 迁移状态 |
 | --- | --- | --- | --- |
-| 1 | `alert/detail` | overview | 待迁（W5–W7） |
-| 2 | `alert/list` | overview | 待迁（W5–W7） |
-| 3 | `device/detail` | field | 待迁（W5–W7） |
-| 4 | `device/list` | field | 待迁（W5–W7） |
-| 5 | `inspection/create` | field | 待迁（W5–W7） |
-| 6 | `inspection/detail` | field | 待迁（W5–W7） |
-| 7 | `inspection/list` | field | 待迁（W5–W7） |
-| 8 | `inventory/detail` | inventory | 待迁（W5–W7） |
-| 9 | `inventory/management` | inventory | 待迁（W5–W7） |
-| 10 | `inventory/product` | inventory | 待迁（W5–W7） |
-| 11 | `inventory/search` | inventory | 待迁（W5–W7） |
-| 12 | `inventory/tag` | inventory | 待迁（W5–W7） |
-| 13 | `message/detail` | me | 待迁（W5–W7） |
-| 14 | `message/list` | me | 待迁（W5–W7） |
-| 15 | `stock/create` | inventory | 待迁（W5–W7） |
-| 16 | `stock/detail` | inventory | 待迁（W5–W7） |
-| 17 | `stock/list` | inventory | 待迁（W5–W7） |
-| 18 | `user/management` | me | 待迁（W5–W7） |
-| 19 | `warehouse/management` | field | 待迁（W5–W7） |
+| 1 | `alert/detail` | overview | 待迁（需 `alert.detail`） |
+| 2 | `alert/list` | overview | 已迁 · （未填新屏路径） |
+| 3 | `device/detail` | field | 已迁 · （未填新屏路径） |
+| 4 | `device/list` | field | 已迁 · （未填新屏路径） |
+| 5 | `inspection/create` | field | 待迁（需 `inspection.taskCreate`） |
+| 6 | `inspection/detail` | field | 已迁 · （未填新屏路径） |
+| 7 | `inspection/list` | field | 已迁 · （未填新屏路径） |
+| 8 | `inventory/detail` | inventory | 待迁（需 `inventory.detail`） |
+| 9 | `inventory/management` | inventory | 已迁 · （未填新屏路径） |
+| 10 | `inventory/product` | inventory | 已迁 · （未填新屏路径） |
+| 11 | `inventory/search` | inventory | 已迁 · （未填新屏路径） |
+| 12 | `inventory/tag` | inventory | 已迁 · （未填新屏路径） |
+| 13 | `message/detail` | me | 已迁 · （未填新屏路径） |
+| 14 | `message/list` | me | 已迁 · （未填新屏路径） |
+| 15 | `stock/create` | inventory | 待迁（需 `stockOrder.create`） |
+| 16 | `stock/detail` | inventory | 待迁（需 `stockOrder.detail`） |
+| 17 | `stock/list` | inventory | 已迁 · （未填新屏路径） |
+| 18 | `user/management` | me | 已迁 · （未填新屏路径） |
+| 19 | `warehouse/management` | field | 已迁 · （未填新屏路径） |
 
 ## 3. 桥方法按域分布
 
@@ -292,3 +292,39 @@
 | `health.minio` | `GET /api/health/minio` | 运维接口，客户端无用 |
 
 > 减法记在 `tools/gen/bridge-overlay.json` 的 `hidden`，改动会出现在生成物的 `excluded` 列表里，删不掉也藏不住。
+
+## 5.1 参数必须走 query string 的方法（11 条）
+
+这些端点的 HTTP 方法是 POST/PUT/PATCH，但服务端用 `@RequestParam` 取值 —— 而 `@RequestParam` **只认 query string，不认 JSON body**。
+桥按 HTTP 方法一刀切发 body 的话，它们必然 400，界面上只表现为「点了没反应」。
+因此契约表给它们标 `paramStyle: 'query'`：拼 query 且**不发 body**。
+
+| 方法 id | HTTP | 路径 | 服务端为什么只认 query |
+| --- | --- | --- | --- |
+| `device.heartbeat` | POST | `/api/device/heartbeat` | POST /api/device/heartbeat —— @RequestParam("deviceCode") |
+| `device.logUpload` | POST | `/api/device/logs/upload` | POST /api/device/logs/upload —— @RequestParam("deviceId") |
+| `file.upload` | POST | `/api/files/upload` | POST /api/files/upload —— @RequestParam("file") @RequestParam("bucketName")；元数据可走 query，但**文件本体仍需 multipart**，本方法在 Web 侧尚未实现 |
+| `inspection.resultCreate` | POST | `/api/inspection/result` | POST /api/inspection/result —— @RequestParam 六个计数（taskId/totalItems/normalItems/abnormalItems/missingItems/extraItems） |
+| `inspection.taskProgress` | PUT | `/api/inspection/task/{taskId}/progress` | PUT /api/inspection/task/{taskId}/progress —— @RequestParam("progress") @RequestParam(value="scannedCount", required=false) |
+| `inspection.taskStatus` | PUT | `/api/inspection/task/{taskId}/status` | PUT /api/inspection/task/{taskId}/status —— @RequestParam("status") |
+| `inventory.lock` | POST | `/api/inventories/{inventoryId}/lock` | POST /api/inventories/{inventoryId}/lock —— @RequestParam("quantity") |
+| `inventory.unlock` | POST | `/api/inventories/{inventoryId}/unlock` | POST /api/inventories/{inventoryId}/unlock —— @RequestParam("quantity") |
+| `message.markAllRead` | PUT | `/api/messages/read-all` | PUT /api/messages/read-all —— @RequestParam Long receiverId（未写 value，取形参名） |
+| `profile.avatarUpload` | POST | `/api/profile/avatar` | POST /api/profile/avatar —— consumes=MULTIPART_FORM_DATA_VALUE 且 @RequestParam("file") MultipartFile；与 file.upload 同属「必须 multipart」一类，本方法在 Web 侧尚未实现 |
+| `tag.bind` | POST | `/api/tag/{tagId}/bind` | POST /api/tag/{tagId}/bind —— @RequestParam("productId") |
+
+> 这份清单**不是手抄的**：契约生成器直接扫服务端控制器的 `@RequestParam`，漏登记一条就构建失败（`pnpm check:contract`）。
+
+## 6. 迁移进度（机械统计）
+
+| 口径 | 数量 |
+| --- | --- |
+| 旧屏总数 | 29 |
+| ├ 已迁（依赖的桥方法全部已登记） | 18 |
+| ├ 部分迁（新屏在了，但还有方法没接） | 0 |
+| ├ 待迁（一个方法都没接） | 7 |
+| └ 无对应物（壳能力 / 被取代） | 4 |
+| 旧路由已覆盖 | 14 / 19 |
+| 已登记屏（registry 条目数） | 25 |
+
+✓ 每一块旧屏都在 `LEGACY_SCREEN_MAP` 里有归宿（含"无对应物"的说明），无遗漏。

@@ -53,7 +53,7 @@ export function App(): React.ReactElement {
           <div className="w-auth__card">
             <div className="w-auth__brand">慧仓智控 · WiseDepot</div>
             <div className="w-state">
-              <span>正在连接本地桥…</span>
+              <span>正在启动…</span>
             </div>
           </div>
         </div>
@@ -62,20 +62,25 @@ export function App(): React.ReactElement {
   }
 
   if (state.phase === 'failed') {
+    // 用户看到的必须是"该怎么办"，不是"哪里坏了"。
+    // 架构细节（引导文件、宿主进程、mock 回退）只对开发者有意义，因此只进 DEV 分支。
+    const dev = import.meta.env.DEV;
     return (
       <div className="w-root w-root--stack">
         <div className="w-auth">
           <div className="w-auth__card">
-            <div className="w-auth__brand">本地桥不可用</div>
+            <div className="w-auth__brand">慧仓智控 · WiseDepot</div>
             <div className="w-state w-state--error">
-              <span>{state.message}</span>
+              <span>应用未能启动。</span>
             </div>
             <div className="w-state">
-              <span>
-                正常情况下宿主进程会提供 /__bridge.json。桌面与手机的宿主进程属 W2 交付；
-                开发态请用 pnpm dev（会自动回退到 mock 桥）。
-              </span>
+              <span>请完全退出后重新打开；若仍然如此，请联系管理员。</span>
             </div>
+            {dev ? (
+              <div className="w-state">
+                <span>{`dev: ${state.message}（开发态由 pnpm dev 提供宿主或回退到 mock）`}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

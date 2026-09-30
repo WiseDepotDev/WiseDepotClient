@@ -3,7 +3,7 @@
 > 规范来源：旧仓已拍板的视觉方向「**工业仓储控制台**」——高对比、大触控、低动效、机器数据等宽
 > （`docs/standards/APP-UI优化计划.md` §二 目标 1）。
 > 取值来源：全部取自 `packages/tokens`（由归档的 Compose 主题导出），**本规范不新造任何数值**。
-> 落地实现：`packages/patterns`；门禁：`pnpm check:css`（禁止 hex 与字面量尺寸）。
+> 落地实现：`packages/patterns`；门禁：`pnpm check:css`（CSS 禁止 hex 与字面量尺寸）+ `pnpm check:ui`（TSX 禁止内联取值与开发黑话文案）。
 
 ---
 
@@ -195,7 +195,7 @@
 
 ## 8. 反例清单（评审时逐条对照）
 
-1. 组件里写 `#2F6BFF` 或 `12px` → 门禁直接拦（`pnpm check:css`）；
+1. 组件里写 `#2F6BFF` 或 `12px` → 门禁直接拦（CSS 走 `pnpm check:css`，TSX 内联走 `pnpm check:ui`）；
 2. 一屏里出现两种卡片圆角、两种列表行高；
 3. 用阴影表达层级（列表项加 `box-shadow`）；
 4. 卡片套卡片；
@@ -215,5 +215,6 @@
 | 2 骨架 | `packages/patterns` 的 `AppBar`/`Sidebar`/`Page`/`MasterDetail`/`ActionBar` | 外壳渲染用例 |
 | 3.5 四态 | `packages/patterns` 的 `LoadingState`/`EmptyState`/`ErrorState`/`ListStateHost` | 渲染用例 |
 | 4 排版 | `--w-type-*` | `check-css-vars` |
-| 5 色彩 | `--w-color-*` / `--w-state-*` / `--w-fill-*` | `check-css-vars` |
+| 5 色彩 | `--w-color-*` / `--w-state-*` / `--w-fill-*` | `check-css-vars` + `check-ui-language`（TSX 内联） |
+| 6 文案 | 业务语言、不出现方法 id / 里程碑编号 / 协议名 | `check-ui-language`（比对 167 个桥方法 id + 8 条黑话规则） |
 | 7 动效 | `--w-motion-*` | 代码评审 |
