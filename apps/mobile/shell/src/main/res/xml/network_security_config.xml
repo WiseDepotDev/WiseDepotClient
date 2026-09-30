@@ -1,16 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  明文流量策略（W2 实测口径）：
+  明文流量策略。
 
-  - 默认**禁止**明文（base-config false）；
-  - 只对两类主机开口：
-      1. 127.0.0.1 —— 桥的 WebSocket（`ws://127.0.0.1:临时端口`）走本地回环，
-         这是进程内通信，不出设备；
-      2. 业务机 —— 当前后端还是 HTTP，桥的 OkHttp 也要受这份策略约束，
-         所以后端主机必须显式登记，否则表现为"请求发不出去"且没有明显报错。
+  **默认禁止**（base-config false），只对确实需要的主机开口。这不是形式主义：
+  这个壳对外只连两类地址，多开一个就是多一条外泄通道。
 
-  后端上 TLS 之后，把第二个 domain 删掉即可（这是这份文件存在的意义：
-  让"哪天能关掉明文"变成一处改动，而不是全仓 grep）。
+  当前开口的三类：
+
+  1. 127.0.0.1 / localhost —— 桥的 WebSocket。**桌面与真机走的就是这条**：
+     桥绑 127.0.0.1，页面连 127.0.0.1。安全上下文里这一条是回环，不出设备。
+
+  2. 169.254.73.153 —— **仅 WSA 需要**。WSA 把发往 127.0.0.1 的包从 loopback0
+     那条点对点链路送出去（好让 Windows 宿主能访问 Android 服务），导致 VM 内部
+     连不上自己监听的端口；因此桥改绑 loopback0 这一头的地址（见 BridgeHostResolver）。
+     代价是：这个地址必须在这里显式登记，否则 WebSocket 会被明文策略拦掉
+     （实测报错 `net::ERR_CLEARTEXT_NOT_PERMITTED`，而且**只**在页面控制台里可见，
+     logcat 里查不到 —— 这类问题排查成本极高）。
+
+     真机不需要这一条；将来 WSA 换地址或弃用时删掉即可。
+
+  3. 10.0.0.7 / 10.0.0.4 —— 业务机。当前后端仍是 HTTP，桥的 OkHttp 也受这份策略约束。
+     后端上 TLS 之后删掉这一条，这是这份文件存在的意义：
+     让"哪天能关掉明文"变成一处改动，而不是全仓 grep。
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -22,6 +33,11 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- 仅 WSA：loopback0 的点对点地址（桥在 WSA 上绑这里，见 BridgeHostResolver） -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">169.254.73.153</domain>
     </domain-config>
 
     <!-- 业务机（10.0.0.7 / 10.0.0.4）：仅在后端仍为 HTTP 期间保留 -->
