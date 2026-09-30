@@ -41,7 +41,7 @@ const JARGON = [
     [/令牌/, '「令牌」是开发术语，用户看不懂'],
     [/\bW[5-9]\b|\bW1[0-2]\b/, '「W5–W7」是内部里程碑编号'],
     [/待迁|未迁入|尚未实现|开发中(?!的)/, '「待迁 / 尚未实现」等于告诉用户功能没做完'],
-    [/\bbridge\b|桥接层|本地桥/, '「bridge / 本地桥」是架构术语'],
+    [/\bbridge\b|桥接层|本地桥|本机桥|宿主进程/, '「bridge / 本地桥 / 宿主进程」是架构术语'],
     [/\bWebSocket\b|\bws:\/\//i, '「WebSocket / ws://」是协议术语'],
     [/\bundefined\b|\bNaN\b|\bnull\b/, '未取到值时不该把 JS 字面量渲染给用户'],
     [/\bHTTP\s?\d{3}\b|\b[A-Z]{3,}-\d{4}\b/, '错误码要翻成人话（见 shared/api.ts 的 humanize）'],
@@ -98,7 +98,25 @@ function lineAt(text, offset) {
 }
 
 const COPY_PROPS =
-    /\b(title|subtitle|label|placeholder|emptyText|confirmLabel|cancelLabel|message|description|hint|ariaLabel|tooltip)\s*[:=]\s*(?:\{)?\s*['"`]([^'"`]*)['"`]/g;
+    /\b(title|subtitle|label|placeholder|emptyText|confirmLabel|cancelLabel|message|description|hint|ariaLabel|tooltip|main|sub|brand|caption|note)\s*[:=]\s*(?:\{)?\s*['"`]([^'"`]*)['"`]/g;
+
+/**
+ * **绝不允许被送进"演示性属性"的标识符**。
+ *
+ * 为什么单独列出而不是靠上面的正则：`{leaf.primaryMethod}` 是 JSX **表达式**，
+ * 不是文本节点、也不是字符串字面量，上面两条通道都抓不到它 —— 于是
+ * DesktopShell 里那份 `main="占位行" sub={leaf.primaryMethod}` 的假数据
+ * 躲过了本门禁，在真机上被用户一眼看见（`#0001 占位行 device.list`）。
+ *
+ * **只查演示性属性**（值会被直接画到屏幕上的那些）。不查任意 props：
+ * `systematic` 地禁 `primaryMethod` 会误伤 `PageBody` 的
+ * `notMigrated ? <NotMigratedScreen method={leaf.primaryMethod} />` ——
+ * 那是把 id 传给组件、且只在 DEV 分支渲染，属于合法用法。
+ * 正则分不清"这个 prop 会不会被渲染"，所以把范围限制在**确定会被渲染**的那一批。
+ */
+const NEVER_RENDER = ['primaryMethod'];
+const RENDER_PROPS =
+    'main|sub|title|subtitle|label|placeholder|emptyText|confirmLabel|message|caption|note|ariaLabel|brand';
 
 const METHOD_IDS = readMethodIds();
 const files = SCAN_ROOTS.flatMap((r) => walk(path.join(CLIENT_ROOT, r)));
@@ -159,6 +177,27 @@ for (const file of files) {
             if (hit) {
                 report(rel, line, `${why}（命中「${hit[0]}」）`, value);
                 break;
+            }
+        }
+    }
+
+    for (const id of NEVER_RENDER) {
+        // (a) 作为演示性属性的表达式值：sub={leaf.primaryMethod}
+        // (b) 作为 JSX 子表达式：<Mono>{leaf.primaryMethod}</Mono>
+        const patterns = [
+            new RegExp(`\\b(?:${RENDER_PROPS})\\s*=\\s*\\{[^}]*\\b${id}\\b[^}]*\\}`, 'g'),
+            // 子表达式要求**整个表达式就是它**：`>{leaf.primaryMethod}<`。
+            // 不能放宽成"表达式里出现它"——`{leaf.primaryMethod === 'auth.login' ? … }`
+            // 是在做比较（MobileShell 就是这么用的），渲染出来的是布尔分支而不是 id。
+            new RegExp(`>\\s*\\{\\s*[\\w.]*\\b${id}\\b\\s*\\}\\s*<`, 'g'),
+        ];
+        for (const re of patterns) {
+            for (const m of text.matchAll(re)) {
+                const line = lineAt(text, m.index);
+                if (exempt(line)) {
+                    continue;
+                }
+                report(rel, line, `把内部元数据 ${id} 画到了界面上（用户看不懂，且会泄漏实现细节）`, m[0]);
             }
         }
     }

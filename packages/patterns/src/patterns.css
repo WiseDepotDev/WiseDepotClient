@@ -6,10 +6,52 @@
  *   · 同一个视觉意图只允许一种表达（见 ui-spec §0）。
  */
 
+/* ================================================================ reset */
+
+/*
+ * 最小 reset。两行都是**在真机上量出来**的，不是照抄惯例：
+ *
+ * · `box-sizing: border-box`
+ *   `.w-datarow` 同时写了 `width: 100%` 和左右 padding。content-box 下
+ *   总宽 = 容器宽 + padding，于是行比卡片宽 24px，末尾的等级标签被卡片的
+ *   `overflow: hidden` 裁掉半个字（WSA 真机截图里「严重」少了右半边）。
+ *   CDP 实测：cardClientW=431 / rowWidth=455 / trailing.right=467 > card.right=456。
+ *
+ * · `body { margin: 0 }`
+ *   浏览器默认 8px。`.w-root` 用 `100vh` 时文档因此比视口高 16px，
+ *   页面多出一条无意义的外层滚动条，四周还留一圈底色缝。
+ *   CDP 实测：root.l=8（本该是 0）、innerHeight=clientHeight=941 而文档高 957。
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
 /* ================================================================ 骨架 */
 
+/*
+ * 根高度用 `vh` 而**不是 `dvh`**。
+ *
+ * 踩过的坑：这里原先写 `height: 100dvh`。在 WSA 的自由窗口里，`dvh` 算出来的值
+ * 比 WebView 实际可视高度更大，于是最底下一条（底部 TabBar 的文字）被窗口边裁掉 ——
+ * 真机截图上「概览/库存/现场/我的」四个标签的下半截都不见了。
+ *
+ * 两端的宿主都是**没有折叠式浏览器工具栏**的 WebView / Electron：
+ * 没有"地址栏收起"这回事，`dvh` 相对 `vh` 换来的收益是零，而它带来的偏差是实的。
+ * 所以这里取确定的那一个。
+ *
+ * 注：`.w-root` 用 `100vh` 是自足的，**不需要** html/body 的百分比高度链
+ * （`body` 自带 8px margin，加 `height:100%` 反而会撑出一条页面滚动条）。
+ */
 .w-root {
-  height: 100dvh;
+  height: 100vh;
   display: flex;
   background: var(--w-color-background);
   color: var(--w-color-on-background);
@@ -563,6 +605,15 @@ button.w-datarow[aria-current="true"] {
 }
 
 .w-datarow__main { min-width: 0; flex: 1; }
+
+/*
+ * 尾随槽（等级标签、状态胶囊）**不参与收缩**。
+ * 踩过的坑：它原先只是 flex 行的裸子元素，默认 `flex-shrink: 1`；
+ * 左侧主文案一长（例如带原始时间戳），它就被压到 min-content 以下，
+ * 内容直接溢出到卡片边缘外被裁掉 —— WSA 真机截图里「严重」两个字少了右半边。
+ * 该收缩的是主文案（它有 `min-width: 0` 且能换行），不是标签。
+ */
+.w-datarow__trailing { flex: none; display: inline-flex; align-items: center; }
 
 .w-datarow__sub {
   color: var(--w-color-on-surface-variant);

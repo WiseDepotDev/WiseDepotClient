@@ -47,10 +47,17 @@
 | --- | --- | --- | --- | --- |
 | **Compact** | ≤599 | 100% − 32px | 底部 4 项 TabBar | 单列，全屏进详情 |
 | **Medium** | 600–839 | 最大 `--w-content-max-width`(720) 居中 | 左侧 Sidebar(200) | 单列，保留返回 |
-| **Expanded** | ≥840 | 最大 `calc(840 + 200)` = 1040 居中 | 左侧 Sidebar(200) | **主从双栏** |
+| **Expanded** | ≥840 | 最大 `calc(840 + 200)` = 1040 居中 | 左侧 Sidebar(200) | 单列（主从双栏**待屏提供主列表内容**） |
 
 > `1040` 不是新造的数值：它是"扩展档起点 840 + 侧栏 200"的组合，用 `calc()` 表达，
 > 这样改侧栏宽度时内容宽度自动跟随。
+>
+> **主从双栏的现实状态（2026-09 修订）**：`MasterDetail` 组件在 `packages/patterns` 里，
+> 但没有任何屏在用。W4 时桌面外壳曾拿一份 6 行写死的 `main="占位行" sub={leaf.primaryMethod}`
+> 充数 —— 真机上直接暴露两件事：是假数据，且把桥方法 id 印给了仓库操作员。
+> **假数据比空栏更糟**，已删除，Expanded 暂时与 Medium 一样走单列限宽居中。
+> 要真正启用双栏，需要先给屏定义一个 `master` 槽位（"左列放什么"是屏的业务语义，
+> 壳猜不出来）。在那之前 `MasterDetail` 只是候选组件，不是承诺的布局。
 
 ### 1.3 纵向节奏
 
@@ -84,7 +91,7 @@
 | `Content` | 左右 `screen-horizontal`；上下 `screen-vertical`；超宽居中（1.2 表） |
 | `PageHeader` | 页面标题 `headlineSmall` + 副标题 `bodySmall`（`on-surface-variant`）+ 右侧操作；**与 AppBar 同时存在时 AppBar 只放全局动作**，避免两处都放标题 |
 | `Section` | 标题 `labelMedium`（`on-surface-variant`）+ 内容；标题与内容间距 `inline-gap` |
-| `MasterDetail` | 仅 Expanded；左栏 `minmax(200, 34%)`，右栏自适应；中缝 1px `outline` |
+| `MasterDetail` | 左栏 `minmax(200, 34%)`，右栏自适应；中缝 1px `outline`。**当前无屏使用**（见 §1.2 的说明）：壳没有 master 内容，摆假数据比空着更糟 |
 | `ActionBar` | 高 56，固定在内容底部（不随滚动）；主按钮占满宽或固定 200；**表单屏必须用它**，不允许"滚到底找按钮" |
 | `TabBar` | 仅 Compact；高 56；4 项；选中用 `primary` 文字色，不加胶囊指示器 |
 

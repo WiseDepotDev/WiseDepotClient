@@ -15,7 +15,7 @@ import {
 } from '@wise/patterns';
 import type { Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from '../shared/useBridgeCall.js';
-import { humanize, asList } from '../shared/api.js';
+import { humanize, asList, shortTime } from '../shared/api.js';
 
 /**
  * 看板（overview/dashboard）。
@@ -130,7 +130,7 @@ export function DashboardScreen({ bridge }: { bridge: Bridge }): React.ReactElem
                     key={a.eventId}
                     id={`#${a.eventId}`}
                     main={a.title}
-                    sub={a.createTime}
+                    sub={shortTime(a.createTime)}
                     trailing={<LevelChip level={a.level} />}
                   />
                 ))}

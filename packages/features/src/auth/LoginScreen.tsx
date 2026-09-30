@@ -107,7 +107,7 @@ export function LoginScreen({ bridge, onSignedIn }: { bridge: Bridge; onSignedIn
           </Stack>
         </Card>
         <div className="w-state">
-          <span>登录凭证由本机桥保管，不会出现在页面里。</span>
+          <span>登录凭证由应用安全保存，不会显示在页面上。</span>
         </div>
       </div>
     </div>

@@ -4,14 +4,9 @@ import {
   AppBar,
   Chip,
   Content,
-  DataList,
-  DataRow,
-  Dot,
-  MasterDetail,
   Mono,
   NavItem,
   Page,
-  PageHeader,
   Sidebar,
   Stack,
   type WindowSize,
@@ -23,8 +18,18 @@ import { DOMAINS, type DomainId, type NavLeaf } from './navigation.js';
 /**
  * 桌面外壳（Medium / Expanded，≥600px，见 docs/ui-spec.md §2）。
  *
- * 与移动外壳的差别只有布局：侧栏展开全部页、内容列超宽居中、列表页走**主从双栏**。
+ * 与移动外壳的差别只有布局：侧栏展开全部页、内容列超宽居中。
  * 数据、方法、四态、控件全部共用同一套 patterns —— 这是"两套 UI 不是两套代码"的落点。
+ *
+ * **关于主从双栏**：W4 时这里有一个"主列表"，内容是 6 行写死的
+ * `main="占位行" sub={leaf.primaryMethod}`。它在真机上被一眼看穿两件事：
+ *   1. 是假数据（六行一模一样的「占位行」）；
+ *   2. 把桥方法 id（`device.list`）直接印给了仓库操作员 —— 正是用户明确反馈过要不得的东西。
+ * 现在 18 块屏都是真的，所以那份占位已删除。
+ *
+ * 真正的双栏要等**屏自己提供主列表内容**（列表屏的"左列"与"右列详情"是屏的业务语义，
+ * 壳猜不出来）。在那之前，Expanded 与 Medium 一样走单列限宽居中 ——
+ * 宁可少一个装饰性的空栏，也不要摆一块假数据。
  */
 export function DesktopShell({
   bridge,
@@ -37,22 +42,6 @@ export function DesktopShell({
 }): React.ReactElement {
   const [domain, setDomain] = useState<DomainId>('overview');
   const [leaf, setLeaf] = useState<NavLeaf>(DOMAINS[0]!.children[0]!);
-
-  const master = (
-    <DataList>
-      {[1, 2, 3, 4, 5, 6].map((i) => (
-        <DataRow
-          key={i}
-          id={`#${String(i).padStart(4, '0')}`}
-          main="占位行"
-          sub={leaf.primaryMethod}
-          trailing={<Dot tone={i % 3 === 0 ? 'warn' : 'ok'} />}
-          active={i === 1}
-          onSelect={() => undefined}
-        />
-      ))}
-    </DataList>
-  );
 
   return (
     <div className="w-root">
@@ -89,37 +78,16 @@ export function DesktopShell({
           actions={<Chip tone="neutral">{`${bridge.capabilities.length} 项能力`}</Chip>}
           status={<BridgeStatusChip bridge={bridge} origin={origin} />}
         />
-        {/*
-          主从双栏**只在 Expanded 出现**（ui-spec.md §1.2）。
-          Medium（600–839）是"单列 + 内容限宽 720 居中"，把双栏硬塞进这个宽度会让左栏只剩 200px、
-          右栏被压到 300px 出头 —— 两侧都不能读。这个错误在宽屏桌面上看不出来，
-          是在 WSA 那个 720px 竖屏窗口里暴露的。
-        */}
-        {size === 'expanded' ? (
-          <MasterDetail
-            master={master}
-            detail={
-              <Content size={size}>
-                <Page>
-                  {/* 页头由屏自己画（它才知道该配什么副标题与操作），壳不重复 */}
-                  <Stack>
-                    <PageBody bridge={bridge} leaf={leaf} />
-                  </Stack>
-                </Page>
-              </Content>
-            }
-          />
-        ) : (
-          <div className="w-scroll">
-            <Content size={size}>
-              <Page>
-                <Stack>
-                  <PageBody bridge={bridge} leaf={leaf} />
-                </Stack>
-              </Page>
-            </Content>
-          </div>
-        )}
+        <div className="w-scroll">
+          <Content size={size}>
+            <Page>
+              {/* 页头由屏自己画（它才知道该配什么副标题与操作），壳不重复 */}
+              <Stack>
+                <PageBody bridge={bridge} leaf={leaf} />
+              </Stack>
+            </Page>
+          </Content>
+        </div>
       </div>
     </div>
   );

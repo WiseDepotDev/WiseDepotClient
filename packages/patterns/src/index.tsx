@@ -462,7 +462,7 @@ export function DataRow({
         <span>{main}</span>
         {sub ? <span className="w-datarow__sub"> {sub}</span> : null}
       </span>
-      {trailing}
+      {trailing ? <span className="w-datarow__trailing">{trailing}</span> : null}
     </>
   );
   return onSelect ? (
