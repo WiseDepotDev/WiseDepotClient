@@ -15,6 +15,15 @@ import kotlinx.serialization.Serializable
 data class BridgeBootstrap(
     /** 桥监听的 loopback 临时端口。 */
     val port: Int,
+    /**
+     * 页面应该连的**主机地址**。
+     *
+     * 为什么要下发它、而不是让页面假设 `127.0.0.1`：只有宿主知道自己绑在哪。
+     * WSA 上必须绑 `loopback0` 的点对点地址 —— 因为 WSA 把发往 127.0.0.1 的包
+     * 从那条链路送出去（好让 Windows 宿主能访问 Android 服务），导致 VM 内部连不上自己。
+     * 把"环境假设"固化进协议，等于把某个平台的特例变成所有平台的规则。
+     */
+    val host: String = BridgeProtocol.LOOPBACK_HOST,
     /** 本次启动新生成的一次性握手 token（256-bit）。 */
     val token: String,
     /** [BridgeCapabilities.PLATFORM_DESKTOP] 或 [BridgeCapabilities.PLATFORM_MOBILE]。 */

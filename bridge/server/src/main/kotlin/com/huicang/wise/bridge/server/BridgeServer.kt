@@ -68,6 +68,12 @@ data class BridgeServerConfig(
     val burst: Int = 100,
     /** 单次 HTTP 帧上限（WebSocket 升级握手是普通 HTTP，也走这个聚合器）。 */
     val maxHttpContentLength: Int = 64 * 1024,
+    /**
+     * 绑定地址。**由宿主用 [BridgeHostResolver] 决定**，不要硬编码 127.0.0.1 ——
+     * WSA 会把发往 127.0.0.1 的包从点对点链路（`loopback0`）送出去，
+     * 导致 VM 内部连不上自己监听的端口（见 [BridgeHostResolver] 的注释）。
+     */
+    val host: String = "127.0.0.1",
     /** 传输实现；桌面用 NETTY，手机用 PLAIN_SOCKET。 */
     val transport: BridgeTransportKind = BridgeTransportKind.NETTY,
 )
@@ -116,6 +122,7 @@ class BridgeServer(
             val server =
                 PlainWebSocketServer(
                     port0 = config.port,
+                    host = config.host,
                     token = config.token,
                     allowedOrigins = config.allowedOrigins,
                     maxPerSecond = config.maxPerSecond,
@@ -162,18 +169,17 @@ class BridgeServer(
                     },
                 )
 
-        // 只绑 loopback：这条线是防"把桥暴露到局域网"的第一道，也是最有效的一道。
-        // 地址用显式 IPv4 字面量而不是 getLoopbackAddress()：后者可能给 ::1，
-        // 与引导文件里的 127.0.0.1 不一致，表现为"绑上了但客户端连不上"。
+        // 只绑指定地址（桌面/真机是 127.0.0.1，WSA 是 loopback0 的点对点地址）：
+        // 这是防"把桥暴露到局域网"的第一道，也是最有效的一道。
         val channel =
             bootstrap
-                .bind(InetSocketAddress(InetAddress.getByName(BridgeProtocol.LOOPBACK_HOST), config.port))
+                .bind(InetSocketAddress(InetAddress.getByName(config.host), config.port))
                 .sync()
                 .channel()
         serverChannel = channel
         actualPort = (channel.localAddress() as InetSocketAddress).port
         // 与纯 socket 传输同一条自检：让"端口到底有没有在监听"这件事**与传输实现无关**。
-        BridgeLog.info("[bridge] 自检：本进程回连 $actualPort -> ${LoopbackSelfTest.run(actualPort)}")
+        BridgeLog.info("[bridge] 绑定 ${config.host}:$actualPort，自检：本进程回连 -> ${LoopbackSelfTest.run(actualPort, config.host)}")
         return actualPort
     }
 

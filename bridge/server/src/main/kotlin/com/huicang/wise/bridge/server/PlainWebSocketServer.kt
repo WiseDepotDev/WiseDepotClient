@@ -46,6 +46,8 @@ import kotlin.concurrent.thread
  */
 class PlainWebSocketServer(
     private val port0: Int,
+    /** 绑定地址，由宿主用 [BridgeHostResolver] 决定（不要硬编码 127.0.0.1）。 */
+    private val host: String,
     private val token: String,
     private val allowedOrigins: Set<String>,
     private val maxPerSecond: Int,
@@ -67,9 +69,9 @@ class PlainWebSocketServer(
     fun start(): Int {
         val socket = ServerSocket()
         socket.reuseAddress = true
-        // 显式 IPv4 loopback：getLoopbackAddress() 在双栈机器上可能给 ::1，
-        // 而引导文件里写的是 127.0.0.1，两者不一致的表现是"绑上了却连不上"（W2 踩过）。
-        socket.bind(InetSocketAddress(InetAddress.getByName(BridgeProtocol.LOOPBACK_HOST), port0))
+        // 显式 IPv4 字面量而不是 getLoopbackAddress()：后者在双栈机器上可能给 ::1，
+        // 与引导文件里下发的地址不一致，表现为"绑上了却连不上"（W2 踩过）。
+        socket.bind(InetSocketAddress(InetAddress.getByName(host), port0))
         serverSocket = socket
         boundPort = socket.localPort
 
@@ -79,7 +81,7 @@ class PlainWebSocketServer(
         //   · 自检成功但外部连不上 → 跨进程可见性问题（网络命名空间/防火墙）。
         // 没有它，"端口连不上"会被一路误判成"传输实现有问题"——
         // W3 在 WSA 上先后怀疑过混合内容、CSP、Netty，最后是这条自检把方向纠正过来的。
-        BridgeLog.info("[bridge] 自检：本进程回连 $boundPort -> ${LoopbackSelfTest.run(boundPort)}")
+        BridgeLog.info("[bridge] 绑定 $host:$boundPort，自检：本进程回连 -> ${LoopbackSelfTest.run(boundPort, host)}")
 
         acceptThread =
             thread(isDaemon = true, name = "bridge-accept") {

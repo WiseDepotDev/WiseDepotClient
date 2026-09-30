@@ -26,11 +26,15 @@ const DIAG = `
     if (res.ok) {
       const boot = await res.json();
       out.port = boot.port;
+      out.host = boot.host;
       out.protocol = boot.protocol;
       out.wsResult = await new Promise((resolve) => {
         const t = setTimeout(() => resolve('timeout'), 6000);
         try {
-          const s = new WebSocket('ws://127.0.0.1:' + boot.port + '/bridge?token=' + encodeURIComponent(boot.token));
+          // 用引导下发的 host，**不要硬编码 127.0.0.1** ——
+          // WSA 上必须连 loopback0 的点对点地址，硬编码会让探测本身失败（这不是应用的问题）。
+          const host = boot.host || '127.0.0.1';
+          const s = new WebSocket('ws://' + host + ':' + boot.port + '/bridge?token=' + encodeURIComponent(boot.token));
           s.onopen = () => {
             s.send(JSON.stringify({ v: 3, type: 'req', id: 'cdp-1', method: 'bridge.ping' }));
           };

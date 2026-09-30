@@ -4,6 +4,7 @@ import com.huicang.wise.bridge.backend.InMemoryTokenStore
 import com.huicang.wise.bridge.backend.OkHttpBackend
 import com.huicang.wise.bridge.capability.PlatformPort
 import com.huicang.wise.bridge.protocol.BridgeCapabilities
+import com.huicang.wise.bridge.server.BridgeHostResolver
 import com.huicang.wise.bridge.server.BridgeServer
 import com.huicang.wise.bridge.server.BridgeServerConfig
 import com.huicang.wise.bridge.server.BridgeTransportKind
@@ -35,6 +36,8 @@ private data class Args(
     val maxPerSecond: Int,
     val accessToken: String?,
     val transport: BridgeTransportKind,
+    /** 绑定地址。桌面缺省 127.0.0.1；WSA 之类的环境需要传点对点地址（见 BridgeHostResolver）。 */
+    val host: String,
 )
 
 private fun parseArgs(argv: Array<String>): Args {
@@ -72,6 +75,8 @@ private fun parseArgs(argv: Array<String>): Args {
             } else {
                 BridgeTransportKind.NETTY
             },
+        // 不传就自动探测：桌面会得到 127.0.0.1，WSA 会得到 loopback0 的地址
+        host = map["host"]?.takeIf { it.isNotBlank() } ?: BridgeHostResolver.resolve(),
     )
 }
 
@@ -105,6 +110,7 @@ fun main(argv: Array<String>) {
                 tokens = tokens,
                 allowedOrigins = args.origins,
                 transport = args.transport,
+                host = args.host,
                 maxPerSecond = args.maxPerSecond,
             ),
         )
@@ -115,6 +121,7 @@ fun main(argv: Array<String>) {
         JsonObject(
             mapOf(
                 "v" to JsonPrimitive(1),
+                "host" to JsonPrimitive(args.host),
                 "port" to JsonPrimitive(boundPort),
                 "token" to JsonPrimitive(token),
                 "pid" to JsonPrimitive(ProcessHandle.current().pid()),

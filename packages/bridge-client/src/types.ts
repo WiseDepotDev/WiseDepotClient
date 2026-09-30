@@ -20,7 +20,13 @@ export const HANDSHAKE_PATH = '/bridge';
 
 /** 引导契约：Web 启动后读到的第一份数据，见 Kotlin 侧 `BridgeBootstrap`。 */
 export interface BridgeBootstrap {
-  /** 桥监听的 loopback 临时端口。 */
+  /**
+   * 桥监听的主机地址。**页面不该假设 127.0.0.1** ——
+   * WSA 上必须连 loopback0 的点对点地址（它把发往 127.0.0.1 的包从那条链路送出去）。
+   * 可选只是为了兼容旧宿主。
+   */
+  readonly host?: string;
+  /** 桥监听的临时端口。 */
   readonly port: number;
   /** 本次启动新生成的一次性握手 token。 */
   readonly token: string;

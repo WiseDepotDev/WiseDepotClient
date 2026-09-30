@@ -85,7 +85,7 @@ export function resolveWebAsset(root: string, urlPath: string): ResolvedAsset | 
  * 而不是 404 或空 200 —— 那会把"还没起来"和"起不来"混成一种表现。
  */
 export function bootstrapResponse(
-  handshake: { port: number; token: string; ver: string; platform: string; capabilities: string } | null,
+  handshake: { host: string; port: number; token: string; ver: string; platform: string; capabilities: string } | null,
 ): { status: number; body: string; contentType: string } {
   if (!handshake) {
     return { status: 503, body: '', contentType: 'application/json; charset=utf-8' };
@@ -94,6 +94,7 @@ export function bootstrapResponse(
     status: 200,
     contentType: 'application/json; charset=utf-8',
     body: JSON.stringify({
+      host: handshake.host,
       port: handshake.port,
       token: handshake.token,
       platform: handshake.platform,

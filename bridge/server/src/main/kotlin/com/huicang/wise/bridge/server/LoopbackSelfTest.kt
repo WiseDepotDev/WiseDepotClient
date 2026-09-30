@@ -20,10 +20,11 @@ import java.net.Socket
 object LoopbackSelfTest {
     fun run(
         port: Int,
+        host: String = BridgeProtocol.LOOPBACK_HOST,
         timeoutMs: Int = 1000,
     ): String =
         runCatching {
-            Socket().use { it.connect(InetSocketAddress(BridgeProtocol.LOOPBACK_HOST, port), timeoutMs) }
+            Socket().use { it.connect(InetSocketAddress(host, port), timeoutMs) }
             "成功"
         }.getOrElse { e ->
             "失败（${e::class.simpleName}: ${e.message}）"

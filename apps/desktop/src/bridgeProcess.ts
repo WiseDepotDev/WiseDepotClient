@@ -18,6 +18,7 @@ import { EventEmitter } from 'node:events';
 
 export interface BridgeHandshake {
   readonly v: number;
+  readonly host: string;
   readonly port: number;
   readonly token: string;
   readonly pid: number;

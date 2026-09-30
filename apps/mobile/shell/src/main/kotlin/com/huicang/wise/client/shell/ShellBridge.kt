@@ -49,6 +49,10 @@ object ShellBridge {
         }
         // 接管桥的日志出口：Android 上 stderr 不保证进 logcat，现场就抓不到桥的日志。
         com.huicang.wise.bridge.server.BridgeLog.sink = { android.util.Log.i("WiseShell", it) }
+        // WSA 会把发往 127.0.0.1 的包从 loopback0 送出去，导致 VM 内部连不上自己监听的端口；
+        // 因此绑定地址必须**探测**（桌面/真机会得到 127.0.0.1，行为完全不变）。
+        val host = com.huicang.wise.bridge.server.BridgeHostResolver.resolve()
+        android.util.Log.i("WiseShell", "桥将绑定：$host（候选：${com.huicang.wise.bridge.server.BridgeHostResolver.candidates()}）")
         val token = newToken()
         val tokens = com.huicang.wise.bridge.backend.InMemoryTokenStore()
         val instance =
@@ -60,6 +64,7 @@ object ShellBridge {
                     platform = AndroidPlatform(version),
                     tokens = tokens,
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
+                    host = host,
                     // 传输保持与桌面一致（Netty）。曾经因为"WSA 上连不上"改用过纯 socket 实现，
                     // 但启动自检证明**换传输也没用**：bind 成功、本进程回连自己都失败 ——
                     // 那是 WSA 容器的 loopback 环境问题，与传输实现无关。
@@ -69,14 +74,16 @@ object ShellBridge {
             )
         val boundPort = instance.start()
         server = instance
-        // 这一行是现场排障的锚点：端口不对/没打印 = 桥根本没起来
-        android.util.Log.i("WiseShell", "桥已启动：127.0.0.1:$boundPort，后端 ${BuildConfig.WISE_BACKEND_URL}")
+        // 这一行是现场排障的锚点：地址/端口不对或没打印 = 桥根本没起来。
+        // 地址必须打印**实际绑定的那个**（WSA 上不是 127.0.0.1），否则日志会把人带偏。
+        android.util.Log.i("WiseShell", "桥已启动：$host:$boundPort，后端 ${BuildConfig.WISE_BACKEND_URL}")
         bootstrapJson =
             BridgeCodec.json.encodeToString(
                 BridgeBootstrap.serializer(),
                 BridgeBootstrap(
                     port = boundPort,
                     token = token,
+                    host = host,
                     platform = AndroidPlatform(version).platform,
                     ver = version,
                     capabilities = AndroidPlatform(version).capabilities.sorted(),

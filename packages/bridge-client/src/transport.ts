@@ -143,7 +143,9 @@ export class WebSocketTransport implements BridgeTransport {
   private open(): Promise<void> {
     this.setState(this.attempts === 0 ? 'connecting' : 'reconnecting');
     return new Promise<void>((resolve, reject) => {
-      const url = `ws://127.0.0.1:${this.bootstrap.port}${HANDSHAKE_PATH}?token=${encodeURIComponent(this.bootstrap.token)}`;
+      // host 由宿主下发（见 BridgeBootstrap.host）；缺省回退 127.0.0.1 以兼容旧宿主。
+      const host = this.bootstrap.host ?? '127.0.0.1';
+      const url = `ws://${host}:${this.bootstrap.port}${HANDSHAKE_PATH}?token=${encodeURIComponent(this.bootstrap.token)}`;
       const socket = new WebSocket(url);
       this.socket = socket;
 
