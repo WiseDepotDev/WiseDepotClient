@@ -1,0 +1,254 @@
+/* AUTO-GENERATED FROM .archive/.../core/ui/theme/*.kt — DO NOT EDIT
+ * 生成器：WiseDepotClient/tools/gen/gen-tokens.js
+ *
+ * 1dp 在 CSS 里就是 1px（Compose 的 dp 是密度无关像素，Web 里等价物是 px 的默认缩放）。
+ * 主题切换：优先跟系统；显式设置 [data-theme="light"|"dark"] 时以显式为准。
+ */
+
+:root {
+  --w-color-background: #F5F7FB;
+  --w-color-error: #D92D20;
+  --w-color-error-container: #FEE4E2;
+  --w-color-inverse-on-surface: #F1F5F9;
+  --w-color-inverse-primary: #B2C8FF;
+  --w-color-inverse-surface: #1D2939;
+  --w-color-on-background: #101828;
+  --w-color-on-error: #FFFFFF;
+  --w-color-on-error-container: #7A271A;
+  --w-color-on-primary: #FFFFFF;
+  --w-color-on-primary-container: #133A8F;
+  --w-color-on-secondary: #FFFFFF;
+  --w-color-on-secondary-container: #3B2E86;
+  --w-color-on-surface: #101828;
+  --w-color-on-surface-variant: #667085;
+  --w-color-on-tertiary: #FFFFFF;
+  --w-color-on-tertiary-container: #7A2E0E;
+  --w-color-outline: #E4E7EC;
+  --w-color-primary: #2F6BFF;
+  --w-color-primary-container: #E4ECFF;
+  --w-color-secondary: #7A5AF8;
+  --w-color-secondary-container: #EDE9FE;
+  --w-color-surface: #FFFFFF;
+  --w-color-surface-tint: #2F6BFF;
+  --w-color-surface-variant: #EEF1F6;
+  --w-color-tertiary: #F79009;
+  --w-color-tertiary-container: #FEF0C7;
+  --w-state-grouped-background: #F9F9F9;
+  --w-state-separator-subtle: #E5E5EA;
+  --w-state-separator-strong: #D1D1D6;
+  --w-state-status-green-text: #2E7D32;
+  --w-state-status-orange-text: #BF360C;
+  --w-state-status-yellow-text: #8D6E00;
+  --w-state-status-blue-text: #1565C0;
+  --w-state-status-red-text: #C62828;
+
+  /* 状态**填充**色：只保证"作底 + 白字"的对比，不要拿来当文字色（当文字用 --w-state-*）。 */
+  --w-fill-status-green: #4CAF50;
+  --w-fill-status-red: #F44336;
+  --w-fill-status-orange: #FF9800;
+  --w-fill-status-amber: #FFA500;
+  --w-fill-status-yellow: #FFC107;
+  --w-fill-status-blue: #2196F3;
+  --w-fill-info-container-blue: #D1E4FF;
+  --w-fill-error-container: #FFDAD6;
+  --w-fill-neutral-gray: #9E9E9E;
+  --w-accent-accent-coral: #FF6B6B;
+  --w-accent-accent-teal: #4ECDC4;
+
+  /* 中性刻度（Dimens）：键名 Dp16 → --w-dp-16 */
+  --w-dp-4: 4px;
+  --w-dp-6: 6px;
+  --w-dp-8: 8px;
+  --w-dp-10: 10px;
+  --w-dp-12: 12px;
+  --w-dp-14: 14px;
+  --w-dp-16: 16px;
+  --w-dp-18: 18px;
+  --w-dp-20: 20px;
+  --w-dp-24: 24px;
+  --w-dp-28: 28px;
+  --w-dp-32: 32px;
+  --w-dp-36: 36px;
+  --w-dp-40: 40px;
+  --w-dp-48: 48px;
+  --w-dp-50: 50px;
+  --w-dp-56: 56px;
+  --w-dp-64: 64px;
+  --w-dp-72: 72px;
+  --w-dp-80: 80px;
+  --w-dp-100: 100px;
+  --w-dp-120: 120px;
+  --w-dp-140: 140px;
+  --w-dp-200: 200px;
+  --w-dp-280: 280px;
+  --w-dp-340: 340px;
+  --w-dp-480: 480px;
+  --w-dp-600: 600px;
+  --w-dp-720: 720px;
+  --w-dp-840: 840px;
+
+  /* 语义间距（Spacing） */
+  --w-space-screen-horizontal: 16px;
+  --w-space-screen-vertical: 16px;
+  --w-space-section-gap: 24px;
+  --w-space-group-gap: 16px;
+  --w-space-row-gap: 12px;
+  --w-space-inline-gap: 8px;
+  --w-space-card-padding: 16px;
+  --w-space-card-padding-compact: 12px;
+  --w-space-list-item-vertical: 12px;
+  --w-space-action-bar-height: 56px;
+  --w-space-touch-target-min: 48px;
+
+  /* 圆角（Shapes） */
+  --w-radius-extra-small: 6px;
+  --w-radius-small: 12px;
+  --w-radius-medium: 16px;
+  --w-radius-large: 20px;
+  --w-radius-extra-large: 28px;
+
+  /* 阴影刻度（Elevations：列表不用阴影，靠 1px 描边分层） */
+  --w-elevation-list: 0px;
+  --w-elevation-card: 1px;
+  --w-elevation-overlay: 6px;
+
+  /* 动效（只用于状态变化，不做装饰动画） */
+  --w-motion-fast: 150ms;
+  --w-motion-normal: 200ms;
+
+  /* 字号/行高/字距/字重 */
+  --w-type-display-large-size: 34px;
+  --w-type-display-large-line: 41px;
+  --w-type-display-large-tracking: 0.37px;
+  --w-type-display-large-weight: 700;
+  --w-type-display-medium-size: 28px;
+  --w-type-display-medium-line: 34px;
+  --w-type-display-medium-tracking: 0.36px;
+  --w-type-display-medium-weight: 700;
+  --w-type-display-small-size: 22px;
+  --w-type-display-small-line: 28px;
+  --w-type-display-small-tracking: 0.35px;
+  --w-type-display-small-weight: 700;
+  --w-type-headline-large-size: 20px;
+  --w-type-headline-large-line: 25px;
+  --w-type-headline-large-tracking: 0.38px;
+  --w-type-headline-large-weight: 600;
+  --w-type-headline-medium-size: 17px;
+  --w-type-headline-medium-line: 22px;
+  --w-type-headline-medium-tracking: -0.41px;
+  --w-type-headline-medium-weight: 600;
+  --w-type-headline-small-size: 15px;
+  --w-type-headline-small-line: 20px;
+  --w-type-headline-small-tracking: -0.24px;
+  --w-type-headline-small-weight: 600;
+  --w-type-body-large-size: 17px;
+  --w-type-body-large-line: 22px;
+  --w-type-body-large-tracking: -0.41px;
+  --w-type-body-large-weight: 400;
+  --w-type-body-medium-size: 15px;
+  --w-type-body-medium-line: 20px;
+  --w-type-body-medium-tracking: -0.24px;
+  --w-type-body-medium-weight: 400;
+  --w-type-body-small-size: 13px;
+  --w-type-body-small-line: 18px;
+  --w-type-body-small-tracking: -0.08px;
+  --w-type-body-small-weight: 400;
+  --w-type-label-large-size: 15px;
+  --w-type-label-large-line: 20px;
+  --w-type-label-large-tracking: -0.24px;
+  --w-type-label-large-weight: 500;
+  --w-type-label-medium-size: 13px;
+  --w-type-label-medium-line: 18px;
+  --w-type-label-medium-tracking: -0.08px;
+  --w-type-label-medium-weight: 500;
+  --w-type-label-small-size: 11px;
+  --w-type-label-small-line: 13px;
+  --w-type-label-small-tracking: 0.06px;
+  --w-type-label-small-weight: 500;
+}
+
+[data-theme="dark"] {
+  --w-color-background: #000000;
+  --w-color-error: #FF453A;
+  --w-color-error-container: #93000A;
+  --w-color-inverse-on-surface: #1A1C1E;
+  --w-color-inverse-primary: #0061A4;
+  --w-color-inverse-surface: #E2E2E6;
+  --w-color-on-background: #FFFFFF;
+  --w-color-on-error: #690005;
+  --w-color-on-error-container: #FFDAD6;
+  --w-color-on-primary: #003258;
+  --w-color-on-primary-container: #D1E4FF;
+  --w-color-on-secondary: #253140;
+  --w-color-on-secondary-container: #D7E3F7;
+  --w-color-on-surface: #FFFFFF;
+  --w-color-on-surface-variant: #C3C7CF;
+  --w-color-on-tertiary: #3B2948;
+  --w-color-on-tertiary-container: #F2DAFF;
+  --w-color-outline: #8E8E93;
+  --w-color-primary: #0A84FF;
+  --w-color-primary-container: #00497D;
+  --w-color-secondary: #5E5CE6;
+  --w-color-secondary-container: #3B4858;
+  --w-color-surface: #1C1C1E;
+  --w-color-surface-tint: #0A84FF;
+  --w-color-surface-variant: #2C2C2E;
+  --w-color-tertiary: #FF9F0A;
+  --w-color-tertiary-container: #523F5F;
+  --w-state-grouped-background: #000000;
+  --w-state-separator-subtle: #2C2C2E;
+  --w-state-separator-strong: #8E8E93;
+  --w-state-status-green-text: #4CAF50;
+  --w-state-status-orange-text: #FF9800;
+  --w-state-status-yellow-text: #FFC107;
+  --w-state-status-blue-text: #2196F3;
+  --w-state-status-red-text: #F44336;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --w-color-background: #000000;
+    --w-color-error: #FF453A;
+    --w-color-error-container: #93000A;
+    --w-color-inverse-on-surface: #1A1C1E;
+    --w-color-inverse-primary: #0061A4;
+    --w-color-inverse-surface: #E2E2E6;
+    --w-color-on-background: #FFFFFF;
+    --w-color-on-error: #690005;
+    --w-color-on-error-container: #FFDAD6;
+    --w-color-on-primary: #003258;
+    --w-color-on-primary-container: #D1E4FF;
+    --w-color-on-secondary: #253140;
+    --w-color-on-secondary-container: #D7E3F7;
+    --w-color-on-surface: #FFFFFF;
+    --w-color-on-surface-variant: #C3C7CF;
+    --w-color-on-tertiary: #3B2948;
+    --w-color-on-tertiary-container: #F2DAFF;
+    --w-color-outline: #8E8E93;
+    --w-color-primary: #0A84FF;
+    --w-color-primary-container: #00497D;
+    --w-color-secondary: #5E5CE6;
+    --w-color-secondary-container: #3B4858;
+    --w-color-surface: #1C1C1E;
+    --w-color-surface-tint: #0A84FF;
+    --w-color-surface-variant: #2C2C2E;
+    --w-color-tertiary: #FF9F0A;
+    --w-color-tertiary-container: #523F5F;
+    --w-state-grouped-background: #000000;
+    --w-state-separator-subtle: #2C2C2E;
+    --w-state-separator-strong: #8E8E93;
+    --w-state-status-green-text: #4CAF50;
+    --w-state-status-orange-text: #FF9800;
+    --w-state-status-yellow-text: #FFC107;
+    --w-state-status-blue-text: #2196F3;
+    --w-state-status-red-text: #F44336;
+  }
+}
+
+/* 触控与布局下界（来自旧仓 Spacing.TouchTargetMin 与三档断点） */
+:root {
+  --w-touch-target-min: 48px;
+  --w-breakpoint-compact-max: 599px;
+  --w-breakpoint-medium-max: 839px;
+  --w-content-max-width: 720px;
+}

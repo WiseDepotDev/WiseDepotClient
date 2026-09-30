@@ -9,10 +9,16 @@
   },
   "scripts": {
     "gen:contract": "node tools/gen/gen-bridge-contract.js",
+    "gen:parity": "node tools/gen/gen-feature-parity.js",
+    "gen:tokens": "node tools/gen/gen-tokens.js",
     "check:contract": "node tools/gen/gen-bridge-contract.js --check",
     "check:contract:legacy": "node tools/gen/gen-bridge-contract.js --check --verify-legacy ../.archive/wise-depot-android-refactor/core/network/src/main/java/com/huicang/wise/network/PacketTypeMap.kt",
-    "gen:parity": "node tools/gen/gen-feature-parity.js",
     "check:parity": "node tools/gen/gen-feature-parity.js --check",
-    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity"
+    "check:tokens": "node tools/gen/gen-tokens.js --check",
+    "check:css": "node tools/check/check-css-vars.js",
+    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:css",
+    "dev": "pnpm --filter @wise/web dev",
+    "build": "pnpm --filter @wise/web build",
+    "typecheck": "pnpm --filter @wise/web typecheck"
   }
 }

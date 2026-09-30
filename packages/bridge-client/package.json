@@ -1,0 +1,15 @@
+{
+  "name": "@wise/bridge-client",
+  "version": "1.0.0",
+  "private": true,
+  "description": "桥接客户端：__bridge.json 引导 + WS 传输 + 方法调用 + 事件订阅 + 开发态 mock",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@wise/contract": "workspace:*"
+  }
+}

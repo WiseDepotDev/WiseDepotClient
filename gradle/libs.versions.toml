@@ -22,9 +22,11 @@ androidxActivity = "1.9.3"
 androidxWebkit = "1.12.1"
 androidxCore = "1.15.0"
 # --- Android 编译参数（R3：minSdk 25 维持）---
-compileSdk = "35"
+# compileSdk/targetSdk 取 34：本机 SDK 只装了 android-34 与 android-36.1，
+# 且 34 与旧 APP 一致（换版本是独立决策，不该混进重构批次里）。
+compileSdk = "34"
 minSdk = "25"
-targetSdk = "35"
+targetSdk = "34"
 
 [libraries]
 # --- 桥（JVM 公共）---

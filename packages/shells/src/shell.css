@@ -1,0 +1,274 @@
+/* @wise/shells —— 外壳布局原语
+ *
+ * 纪律：**这里不允许出现 hex 或字面量尺寸**（除 0/1px/2px 这三档边框微调）。
+ * 门禁：`node tools/check/check-css-vars.js` —— 既查"引用了不存在的令牌"，
+ * 也查"绕开令牌写死取值"。旧仓用同一套思路（令牌棘轮）把 764 处 colorScheme /
+ * 709 处 Dimens 收敛住，Web 侧不重犯。
+ */
+
+.w-root {
+  height: 100dvh;
+  display: flex;
+  background: var(--w-color-background);
+  color: var(--w-color-on-background);
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- 通用条 */
+
+.w-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-row-gap);
+  padding: 0 var(--w-space-screen-horizontal);
+  min-height: var(--w-dp-56);
+  background: var(--w-color-surface);
+  border-bottom: 1px solid var(--w-color-outline);
+}
+
+.w-topbar__title {
+  font-size: var(--w-type-headline-small-size);
+  font-weight: var(--w-type-headline-small-weight);
+  line-height: var(--w-type-headline-small-line);
+}
+
+.w-topbar__spacer {
+  flex: 1;
+}
+
+.w-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  padding: 0 var(--w-space-inline-gap);
+  min-height: var(--w-dp-28);
+  border-radius: var(--w-radius-small);
+  background: var(--w-color-surface-variant);
+  color: var(--w-color-on-surface-variant);
+  font-size: var(--w-type-label-medium-size);
+  white-space: nowrap;
+}
+
+.w-chip--warn {
+  background: var(--w-color-error-container);
+  color: var(--w-color-on-error-container);
+}
+
+.w-dot {
+  width: var(--w-dp-8);
+  height: var(--w-dp-8);
+  border-radius: 50%;
+  flex: none;
+}
+
+.w-dot--ok { background: var(--w-fill-status-green); }
+.w-dot--warn { background: var(--w-fill-status-amber); }
+.w-dot--bad { background: var(--w-fill-status-red); }
+
+.w-btn {
+  min-height: var(--w-space-touch-target-min);
+  min-width: var(--w-space-touch-target-min);
+  padding: 0 var(--w-space-card-padding-compact);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-small);
+  background: var(--w-color-surface);
+  color: var(--w-color-on-surface);
+  font-size: var(--w-type-label-large-size);
+  font-weight: var(--w-type-label-large-weight);
+  cursor: pointer;
+  transition: background var(--w-motion-fast) linear;
+}
+
+.w-btn:hover { background: var(--w-color-surface-variant); }
+
+.w-btn--primary {
+  background: var(--w-color-primary);
+  color: var(--w-color-on-primary);
+  border-color: var(--w-color-primary);
+}
+
+/* ---------------------------------------------------------------- 移动外壳 */
+
+.w-mobile {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.w-mobile__content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--w-space-screen-vertical) var(--w-space-screen-horizontal);
+  -webkit-overflow-scrolling: touch;
+}
+
+.w-tabbar {
+  display: flex;
+  border-top: 1px solid var(--w-color-outline);
+  background: var(--w-color-surface);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.w-tabbar__item {
+  flex: 1;
+  min-height: var(--w-dp-56);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--w-dp-4);
+  border: none;
+  background: transparent;
+  color: var(--w-color-on-surface-variant);
+  font-size: var(--w-type-label-small-size);
+  cursor: pointer;
+}
+
+.w-tabbar__item[aria-current="true"] {
+  color: var(--w-color-primary);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- 桌面外壳 */
+
+.w-desktop {
+  display: flex;
+  width: 100%;
+}
+
+.w-sidebar {
+  width: var(--w-dp-200);
+  flex: none;
+  background: var(--w-color-surface);
+  border-right: 1px solid var(--w-color-outline);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.w-sidebar__brand {
+  padding: var(--w-space-screen-vertical) var(--w-space-screen-horizontal);
+  font-size: var(--w-type-headline-small-size);
+  font-weight: var(--w-type-headline-small-weight);
+  border-bottom: 1px solid var(--w-color-outline);
+}
+
+.w-navgroup__label {
+  padding: var(--w-space-card-padding-compact) var(--w-space-screen-horizontal) var(--w-dp-4);
+  color: var(--w-color-on-surface-variant);
+  font-size: var(--w-type-label-small-size);
+}
+
+.w-navitem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  min-height: var(--w-dp-40);
+  padding: var(--w-space-inline-gap) var(--w-space-screen-horizontal);
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--w-color-on-surface);
+  font-size: var(--w-type-body-medium-size);
+  cursor: pointer;
+}
+
+.w-navitem:hover { background: var(--w-color-surface-variant); }
+
+.w-navitem[aria-current="true"] {
+  background: var(--w-color-primary-container);
+  border-left-color: var(--w-color-primary);
+  color: var(--w-color-on-primary-container);
+  font-weight: 600;
+}
+
+.w-desktop__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.w-split {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(var(--w-dp-200), 34%) 1fr;
+  min-height: 0;
+}
+
+.w-split__pane {
+  overflow: auto;
+  padding: var(--w-space-screen-vertical) var(--w-space-screen-horizontal);
+}
+
+.w-split__pane--master {
+  border-right: 1px solid var(--w-color-outline);
+  background: var(--w-color-surface);
+}
+
+.w-listrow {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-row-gap);
+  min-height: var(--w-dp-48);
+  padding: var(--w-space-list-item-vertical) var(--w-space-card-padding-compact);
+  border-bottom: 1px solid var(--w-state-separator-subtle);
+}
+
+/* ---------------------------------------------------------------- 内容块 */
+
+.w-card {
+  background: var(--w-color-surface);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-medium);
+  padding: var(--w-space-card-padding);
+}
+
+.w-grid {
+  display: grid;
+  gap: var(--w-space-group-gap);
+  grid-template-columns: repeat(auto-fit, minmax(var(--w-dp-200), 1fr));
+}
+
+.w-kpi__value {
+  font-size: var(--w-type-display-small-size);
+  font-weight: var(--w-type-display-small-weight);
+  line-height: var(--w-type-display-small-line);
+  font-variant-numeric: tabular-nums;
+}
+
+.w-kpi__label {
+  color: var(--w-color-on-surface-variant);
+  font-size: var(--w-type-label-medium-size);
+}
+
+/* 机器可读数据（单号、条码、RFID）统一等宽——旧仓 DataMono 的 Web 对应物 */
+.w-mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.w-skeleton {
+  background: var(--w-color-surface-variant);
+  border-radius: var(--w-radius-extra-small);
+  min-height: var(--w-dp-24);
+  animation: w-pulse var(--w-motion-normal) ease-in-out infinite alternate;
+}
+
+@keyframes w-pulse {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-skeleton { animation: none; }
+  .w-btn { transition: none; }
+}
+
+.w-error {
+  border-left: 2px solid var(--w-state-status-red-text);
+  color: var(--w-state-status-red-text);
+}
+
+.w-muted { color: var(--w-color-on-surface-variant); }

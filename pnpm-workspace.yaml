@@ -2,3 +2,9 @@ packages:
   - "apps/web"
   - "apps/desktop"
   - "packages/*"
+
+# pnpm 11：允许哪些依赖跑安装脚本（其余一律忽略，这是默认安全的姿势）。
+# esbuild 需要跑 install 脚本落平台二进制；electron 首次安装需要下载运行时（W2 用）。
+allowBuilds:
+  esbuild: true
+  electron: true
