@@ -61,20 +61,20 @@ try {
     // ---- 1. 已经失败的屏：连上就重来 ----
     check(
         '错误态 + 连接打开 → 重取',
-        shouldRefetchOnOpen('open', { failed: true, pending: false }) === true,
+        shouldRefetchOnOpen('open', { failed: true, startedWhileDisconnected: false }) === true,
     );
 
-    // ---- 2. 还在飞的调用：必须重取（本轮修的正是这里） ----
+    // ---- 2. 断开时发出的调用：必须重取（本轮修的正是这里） ----
     check(
-        '仍在取数（未落地）+ 连接打开 → 重取',
-        shouldRefetchOnOpen('open', { failed: false, pending: true }) === true,
+        '断开期间发出的调用 + 连接打开 → 重取',
+        shouldRefetchOnOpen('open', { failed: false, startedWhileDisconnected: true }) === true,
         '为 false 说明"卡加载"会继续：连接已恢复，屏幕却要等原调用超时才动',
     );
 
-    // ---- 3. 已有数据、也没在取数：不要重取（防"每次重连全体风暴"） ----
+    // ---- 3. 已有数据、也没在断开时发请求：不要重取（防"每次重连全体风暴"） ----
     check(
-        '已有数据且不在取数 → 不重取',
-        shouldRefetchOnOpen('open', { failed: false, pending: false }) === false,
+        '已有数据且调用是在连接正常时发出的 → 不重取',
+        shouldRefetchOnOpen('open', { failed: false, startedWhileDisconnected: false }) === false,
         '为 true 说明每次重连都会让所有在用屏一起重新请求',
     );
 
@@ -82,15 +82,46 @@ try {
     for (const s of ['idle', 'connecting', 'reconnecting', 'closed']) {
         check(
             `${s} → 不重取`,
-            shouldRefetchOnOpen(s, { failed: true, pending: true }) === false,
+            shouldRefetchOnOpen(s, { failed: true, startedWhileDisconnected: true }) === false,
         );
     }
 
-    // ---- 5. 两种条件同时成立也只算一次恢复（同一帧只前进一次） ----
+    // ---- 5. 两种条件同时成立也只算一次恢复 ----
     check(
-        '既失败又在取数 → 仍是"要重取"（不是两次）',
-        shouldRefetchOnOpen('open', { failed: true, pending: true }) === true,
+        '既失败又在断开时发出过请求 → 仍是"要重取"（不是两次）',
+        shouldRefetchOnOpen('open', { failed: true, startedWhileDisconnected: true }) === true,
     );
+
+    /*
+     * ---- 6. 抖动不会自我放大（这条是判据选择的核心）----
+     *
+     * 反例：如果判据是"还在等就重取"，那么每次 'open' 都会重取，而重取又处在
+     * "还在等"状态 —— 连接抖动比调用返回快时，屏幕永远 settle 不了，
+     * 用户看到的是**永久骨架屏**（比原来的超时卡顿更糟）。
+     * 现在重取发出的那一次是在 open 状态下发的，所以它不会再触发下一次。
+     */
+    {
+        let nonce = 0;
+        let startedWhileDisconnected = false;
+        // 第 1 次：断开时发出 → 连接恢复 → 重取一次
+        startedWhileDisconnected = true;
+        if (shouldRefetchOnOpen('open', { failed: false, startedWhileDisconnected })) {
+            nonce += 1;
+            startedWhileDisconnected = false; // 重取是在 open 下发出的
+        }
+        // 第 2、3 次 open（抖动）：都不应再触发
+        let extra = 0;
+        for (let i = 0; i < 3; i++) {
+            if (shouldRefetchOnOpen('open', { failed: false, startedWhileDisconnected })) {
+                extra += 1;
+            }
+        }
+        check(
+            '连接反复 open 只重取一次（抖动不放大成永久骨架屏）',
+            nonce === 1 && extra === 0,
+            `nonce=${nonce} extra=${extra}`,
+        );
+    }
 } finally {
     rmSync(outDir, { recursive: true, force: true });
 }

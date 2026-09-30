@@ -56,6 +56,16 @@ export function useBridgeCall<T>(
     setLoading(true);
     setError(undefined);
 
+    /*
+     * 记下"这次调用发出去时连接是不是 open"。
+     *
+     * 断开时发出的调用绑着一条已不存在的连接（传输层的 `failPending` 根本没见过它，
+     * 因为它在发送前就失败了），它只能等满 15s 的超时 —— 连接恢复时应当直接作废重来。
+     * 而恢复后重取的那一次是在 open 状态下发出的，不会再触发下一次：**每次断线最多重取一次**，
+     * 连接抖动不会把界面放大成永久骨架屏。
+     */
+    startedWhileDisconnectedRef.current = bridge.state !== 'open';
+
     bridge
       .call<T>(method, params)
       .then((value) => {
@@ -97,12 +107,16 @@ export function useBridgeCall<T>(
    */
   const failedRef = useRef(false);
   failedRef.current = error !== undefined;
-  const pendingRef = useRef(false);
-  pendingRef.current = enabled && loading;
+  const startedWhileDisconnectedRef = useRef(false);
   useEffect(
     () =>
       bridge.onStateChange((s) => {
-        if (shouldRefetchOnOpen(s, { failed: failedRef.current, pending: pendingRef.current })) {
+        if (
+          shouldRefetchOnOpen(s, {
+            failed: failedRef.current,
+            startedWhileDisconnected: startedWhileDisconnectedRef.current,
+          })
+        ) {
           setNonce((n) => n + 1);
         }
       }),

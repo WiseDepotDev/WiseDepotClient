@@ -17,24 +17,33 @@ export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 
  * ## 为什么"还在等"也必须重取（这是"打开一直转"没修干净的那一半）
  *
  * 上一轮只处理了**错误态**：连接恢复时把已经失败的屏救回来。但真正让用户看到
- * "卡在骨架屏"的是**尚未结算**的那一类 —— 连接断掉时正在飞的那个请求已经注定失败
- * （对端没了），而它要等满 `callTimeoutMs`（15s）才会 reject。
- * 于是连接明明在 1 秒时就恢复了，屏幕却还要空转十几秒：
+ * "卡在骨架屏"的是**尚未结算**的那一类 —— 请求是在连接还没建好时发出去的，
+ * 它绑的那条连接已经不在，却要等满 `callTimeoutMs`（15s）才会 reject。
+ * 于是连接明明 1 秒就通了，屏幕还要空转十几秒：
  * 用户看到的仍然"卡加载"，只是这次有个上限。
  *
- * 所以判据是**"这次调用还没落地"**，不是"它已经失败了"：
- *   · `failed` —— 已经失败的屏，连上就重来；
- *   · `pending` —— 还在飞的调用属于一条已经不在的连接，重来一次比等它超时快得多。
+ * ## 判据为什么是"在断开时发出的"，而不是"还在等"
  *
- * ## 为什么不会变成"每次重连所有屏一起重取"
+ * 只看"还在等"会**把连接抖动放大成永久骨架屏**：连接每 open 一次就重取一次，
+ * 而每次重取又处在"还在等"状态 —— 抖动比调用返回还快时，这一屏永远 settle 不了。
  *
- * `pending` 只在**正在取数、还没有数据可看**时为真。已经在展示数据的屏
- * （最常见的情况）两样都不满足，重连时一次请求都不会发。
+ * 所以看的是**这次调用发出去时连接是不是 open**：
+ *   · 断开时发出的调用绑着一条已不存在的连接（`failPending` 根本没见过它，
+ *     因为发送前就失败了），连上就该重来；
+ *   · 连上之后重取的那一次是在 open 状态下发出的，它不会再触发下一次 ——
+ *     **每次断线最多重取一次**，抖动不会自我放大；
+ *   · 已经在展示数据的屏两样都不满足，连上时一次请求都不会发。
+ *
+ * 连上之后又断掉的那种，走的是 `failed`（传输层 `failPending` 会把它 reject 掉），
+ * 不需要 `pending` 这一路来兜。
  *
  * 这条规则被 `tools/check/check-reconnect-refetch.mjs` 钉住 —— 它是本 bug 的回归。
  */
-export function shouldRefetchOnOpen(state: ConnectionState, has: { failed: boolean; pending: boolean }): boolean {
-  return state === 'open' && (has.failed || has.pending);
+export function shouldRefetchOnOpen(
+  state: ConnectionState,
+  has: { failed: boolean; startedWhileDisconnected: boolean },
+): boolean {
+  return state === 'open' && (has.failed || has.startedWhileDisconnected);
 }
 
 /** 传输抽象。WS 是唯一生产实现；mock 只服务开发态（见 mock.ts 顶部说明）。 */
