@@ -1,0 +1,24 @@
+# 统一 LF：.editorconfig 声明的 end_of_line = lf 在 git 层也要成立，
+# 否则 Windows 上会出现"编辑器显示 LF、git 检出成 CRLF"的反复 diff。
+* text=auto eol=lf
+
+# 二进制：不做换行转换
+*.jar binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.ks binary
+*.bundle binary
+*.jsa binary
+
+# 平台脚本：各自的原生换行
+gradlew text eol=lf
+*.sh text eol=lf
+gradlew.bat text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 生成物：diff 噪音大，但仍然入库（漂移检测靠 --check，不靠肉眼）
+packages/contract/src/generated/bridgeContract.ts linguist-generated=true
+bridge/protocol/src/main/kotlin/com/huicang/wise/bridge/protocol/BridgeContract.kt linguist-generated=true
+docs/feature-parity.md linguist-generated=true

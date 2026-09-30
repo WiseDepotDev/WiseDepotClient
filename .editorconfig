@@ -1,0 +1,24 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{kt,kts}]
+indent_size = 4
+max_line_length = 160
+# Compose 约定：@Composable 函数用 PascalCase（沿用旧仓 policy，保持跨仓一致）
+ktlint_function_naming_ignore_when_annotated_with = Composable
+
+[*.{js,mjs,cjs,ts,tsx,json,jsonc,yml,yaml,md}]
+indent_size = 2
+
+[*.{xml,html,css}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

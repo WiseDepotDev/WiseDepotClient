@@ -1,0 +1,94 @@
+package com.huicang.wise.bridge.protocol
+
+/**
+ * 桥协议的**常量与边界**（协议 v3 的冻结面）。
+ *
+ * 这一层不含 Netty、不含 Android、不含网络，因此它可以在纯 JVM 单测里被穷举，
+ * 也是契约一致性测试（Kotlin 注册表 ↔ TS 客户端）的公共靶子。
+ *
+ * 见 `docs/protocol.md`。
+ */
+object BridgeProtocol {
+    /** 协议版本。任何不兼容改动都要 +1，并在 docs/protocol.md 里记变更。 */
+    const val VERSION: Int = 3
+
+    /** WebSocket 握手路径（宿主绑定在 127.0.0.1 的临时端口上）。 */
+    const val HANDSHAKE_PATH: String = "/bridge"
+
+    /** 引导文件路径：由宿主在**应用自身 origin** 上动态生成，Web 产物第一步读它。 */
+    const val BOOTSTRAP_PATH: String = "/__bridge.json"
+
+    /**
+     * 单帧上限 256KB。
+     *
+     * 超过它的数据（照片、PDF、导出件、录像）一律走带外 `file.*` / `oss.*` 方法换取
+     * 一次性 URL，用普通 HTTP 取，避免把 WS 帧撑大（背压与内存都在这里失控）。
+     */
+    const val MAX_FRAME_BYTES: Int = 256 * 1024
+
+    /** 进度类事件的最低间隔，防止上传/导出把 UI 刷爆。 */
+    const val EVENT_MIN_INTERVAL_MS: Long = 100
+}
+
+/**
+ * 桥自身的错误码。
+ *
+ * 约定：**桥只负责自己的错误**；后端返回的业务错误原样透传后端的 `RES-xxxx` 码，
+ * 文案不下发、只给 `messageKey`（沿用旧版"谁展示谁拥有"的口径）。
+ */
+object BridgeErrorCodes {
+    /** 方法不在注册表白名单内。桥**不是**通用 HTTP 透传，这是安全红线。 */
+    const val METHOD_UNKNOWN: String = "BRIDGE_METHOD_UNKNOWN"
+
+    /** 参数未通过 schema 校验。 */
+    const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"
+
+    /** 握手 token 或 Origin 校验失败。 */
+    const val UNAUTHORIZED: String = "BRIDGE_UNAUTHORIZED"
+
+    /** 帧超过 [BridgeProtocol.MAX_FRAME_BYTES]。 */
+    const val FRAME_TOO_LARGE: String = "BRIDGE_FRAME_TOO_LARGE"
+
+    /** 单连接限流命中。 */
+    const val RATE_LIMITED: String = "BRIDGE_RATE_LIMITED"
+
+    /** 后端不可达（网络层错误，非业务错误）。 */
+    const val BACKEND_UNREACHABLE: String = "BRIDGE_BACKEND_UNREACHABLE"
+
+    /** 壳内部异常（兜底，唯一入口）。 */
+    const val INTERNAL: String = "BRIDGE_INTERNAL"
+}
+
+/**
+ * 平台能力标识。
+ *
+ * 平台差异**只**表现为这些 id 在 `capabilities` 列表里出现与否；
+ * 不允许出现"桌面一套代码、手机一套代码"（架构不变式 2）。
+ */
+object BridgeCapabilities {
+    const val PLATFORM_DESKTOP: String = "desktop"
+    const val PLATFORM_MOBILE: String = "mobile"
+
+    // ---- 采集 ----
+    const val SCAN_CAMERA: String = "scan.camera"
+    const val SCAN_GUN_KEYBOARD: String = "scan.gun.keyboard"
+    const val SCAN_GUN_SERIAL: String = "scan.gun.serial"
+    const val NFC_READ: String = "nfc.read"
+    const val RFID_READER: String = "rfid.reader"
+
+    // ---- 输出 ----
+    const val PRINT_LABEL: String = "print.label"
+    const val PRINT_SYSTEM: String = "print.system"
+
+    // ---- 窗口 ----
+    const val WINDOW_CONTROL: String = "window.control"
+    const val WINDOW_MULTI: String = "window.multi"
+
+    // ---- 存储与离线 ----
+    const val FILE_DIALOG: String = "file.dialog"
+    const val SECURE_STORE: String = "storage.secure"
+    const val OFFLINE_QUEUE: String = "offline.queue"
+
+    /** 桌面与手机都具备的能力（能力表的**共同子集**，UI 可以无条件使用）。 */
+    val common: Set<String> = setOf(SECURE_STORE, OFFLINE_QUEUE, PRINT_SYSTEM)
+}

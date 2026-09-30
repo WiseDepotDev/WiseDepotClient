@@ -1,0 +1,50 @@
+# WiseDepotClient 版本目录 —— **唯一的版本来源**（STD-VER-01）。
+# 任何模块脚本只允许写 `libs.*` 别名，不得出现字面版本号。
+#
+# 说明：本目录在 W0（建仓）冻结候选版本，W2（双端桥构建）逐条实测可解析后定稿。
+# 选型理由见 docs/architecture.md §技术选型。
+
+[versions]
+# --- 语言与构建 ---
+kotlin = "2.0.21"
+agp = "8.7.3"
+# --- 桥：传输与序列化（手机与桌面共用同一份代码，故两端版本必须一致）---
+netty = "4.1.115.Final"
+# 注意：只允许引入 netty-transport / netty-handler / netty-codec-http 三个工件，
+# 禁止 http2 / tcnative / native-transport / dns-resolver（见 docs/architecture.md §Netty 最小集）
+kotlinxSerialization = "1.7.3"
+kotlinxCoroutines = "1.9.0"
+okhttp = "4.12.0"
+# --- 测试 ---
+junit = "5.11.4"
+# --- Android 壳（:apps:mobile:shell）---
+androidxActivity = "1.9.3"
+androidxWebkit = "1.12.1"
+androidxCore = "1.15.0"
+# --- Android 编译参数（R3：minSdk 25 维持）---
+compileSdk = "35"
+minSdk = "25"
+targetSdk = "35"
+
+[libraries]
+# --- 桥（JVM 公共）---
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+netty-transport = { module = "io.netty:netty-transport", version.ref = "netty" }
+netty-handler = { module = "io.netty:netty-handler", version.ref = "netty" }
+netty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
+# --- 测试 ---
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+# --- Android 壳 ---
+androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "androidxActivity" }
+androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "androidxWebkit" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
+
+plugins
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+android-application = { id = "com.android.application", version.ref = "agp" }

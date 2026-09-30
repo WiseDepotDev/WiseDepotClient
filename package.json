@@ -1,0 +1,18 @@
+{
+  "name": "wisedepot-client",
+  "private": true,
+  "version": "1.0.0",
+  "description": "慧仓智控新客户端：React Web UI + 单份 Kotlin/Netty 桥（桌面 Electron / 手机 Android 双宿主）",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "gen:contract": "node tools/gen/gen-bridge-contract.js",
+    "check:contract": "node tools/gen/gen-bridge-contract.js --check",
+    "check:contract:legacy": "node tools/gen/gen-bridge-contract.js --check --verify-legacy ../.archive/wise-depot-android-refactor/core/network/src/main/java/com/huicang/wise/network/PacketTypeMap.kt",
+    "gen:parity": "node tools/gen/gen-feature-parity.js",
+    "check:parity": "node tools/gen/gen-feature-parity.js --check",
+    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity"
+  }
+}

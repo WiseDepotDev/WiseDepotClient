@@ -1,0 +1,15 @@
+{
+  "name": "@wise/contract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "桥方法契约（生成物）：方法白名单、TS 类型、域划分。禁止手改 src/generated/**",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

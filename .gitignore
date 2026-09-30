@@ -1,0 +1,40 @@
+# ---- 构建产物 ----
+build/
+out/
+dist/
+dist-electron/
+release/
+.gradle/
+node_modules/
+.turbo/
+.vite/
+coverage/
+
+# ---- 原生运行时（jlink 产物，由 runtime/ 脚本生成，不入库）----
+runtime/build/
+
+# ---- 本地配置（含凭据，绝不入库，STD-SEC-01 / STD-SEC-06）----
+local.properties
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+
+# ---- 桥运行时的一次性握手文件 ----
+*.bridge.json
+.bridge/
+
+# ---- IDE / 系统 ----
+.idea/
+*.iml
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# ---- 临时文件 ----
+.tmp-*
+*.tmp
+*.log
+runlog/
