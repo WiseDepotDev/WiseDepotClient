@@ -260,5 +260,27 @@
   "hidden": [
     "POST /api/auth/refresh-token",
     "GET /api/health/minio"
-  ]
+  ],
+
+  "queryParams": {
+    "_comment": [
+      "服务端用 @RequestParam 取值、但 HTTP 方法是 POST/PUT/PATCH 的端点。",
+      "桥默认把「有 body 的方法」的剩余参数全塞进 JSON 信封 body，而 Spring 的 @RequestParam",
+      "只认 query string / form body —— 两者相遇，该端点必然 400，且界面上只表现为「操作没反应」。",
+      "列在这里的方法改走 query string 且**不发 body**。用户要求不改后端，所以在桥侧适配。",
+      "这份清单不是手抄的：gen-bridge-contract.js 会直接扫服务端控制器的 @RequestParam，",
+      "漏登记一条就构建失败（跑 `pnpm check:contract` 即可复现）。"
+    ],
+    "device.heartbeat": "POST /api/device/heartbeat —— @RequestParam(\"deviceCode\")",
+    "device.logUpload": "POST /api/device/logs/upload —— @RequestParam(\"deviceId\")",
+    "file.upload": "POST /api/files/upload —— @RequestParam(\"file\") @RequestParam(\"bucketName\")；元数据可走 query，但**文件本体仍需 multipart**，本方法在 Web 侧尚未实现",
+    "inspection.resultCreate": "POST /api/inspection/result —— @RequestParam 六个计数（taskId/totalItems/normalItems/abnormalItems/missingItems/extraItems）",
+    "inspection.taskProgress": "PUT /api/inspection/task/{taskId}/progress —— @RequestParam(\"progress\") @RequestParam(value=\"scannedCount\", required=false)",
+    "inspection.taskStatus": "PUT /api/inspection/task/{taskId}/status —— @RequestParam(\"status\")",
+    "inventory.lock": "POST /api/inventories/{inventoryId}/lock —— @RequestParam(\"quantity\")",
+    "inventory.unlock": "POST /api/inventories/{inventoryId}/unlock —— @RequestParam(\"quantity\")",
+    "message.markAllRead": "PUT /api/messages/read-all —— @RequestParam Long receiverId（未写 value，取形参名）",
+    "profile.avatarUpload": "POST /api/profile/avatar —— consumes=MULTIPART_FORM_DATA_VALUE 且 @RequestParam(\"file\") MultipartFile；与 file.upload 同属「必须 multipart」一类，本方法在 Web 侧尚未实现",
+    "tag.bind": "POST /api/tag/{tagId}/bind —— @RequestParam(\"productId\")"
+  }
 }

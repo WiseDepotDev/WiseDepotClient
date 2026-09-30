@@ -63,6 +63,17 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 - **桥不是通用 HTTP 透传**：不在表里的 method 一律回 `BRIDGE_METHOD_UNKNOWN`。
   理由：Web 层一旦 XSS，透传等于拿到任意后端接口（含 `/api/users`、`/api/permissions`、`/api/roles`）。
 - 参数校验：`params` 过 schema；不通过回 `BRIDGE_PARAMS_INVALID`。
+- **参数去向（`paramStyle`）**：契约里每条方法都带 `paramStyle: 'body' | 'query'`。
+  - `body`（默认）：扣掉路径参数后的剩余参数进 JSON 信封 body，URL 上不带 query；
+  - `query`：剩余参数拼进 URL query string，且**不发信封 body**（发空 `{}` 占位，
+    因为 OkHttp 不允许 POST/PUT/PATCH 不带 body）。GET/DELETE 天然是 `query`。
+  - 为什么要有这个字段：服务端有 **11 个** POST/PUT/PATCH 端点在用 `@RequestParam` 取值，
+    而 `@RequestParam` **只认 query string / form body，不认 JSON body**。桥若按 HTTP 方法
+    一刀切发 body，这些端点会永远 400，而界面上只表现为「点了没反应」。
+  - 登记在 `tools/gen/bridge-overlay.json` 的 `queryParams`（每个都要写服务端为什么只认 query）。
+    **不是手抄的**：生成器直接扫服务端控制器的 `@RequestParam`，漏登记一条就构建失败。
+  - 回归证据：`pnpm bench:querystyle`（让桥对着记录型假后端发一次，断言 URL 与 body 的形状，
+    25 项；无副作用，不碰真数据）。
 
 ## 5. 错误码
 
@@ -102,3 +113,4 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
 | v3 | W0 冻结 | 初版：四类帧、`__bridge.json` 引导、167 条方法白名单、带外大对象通道 |
+| v3 | W6/W7 | 方法表新增 `paramStyle` 字段（`body`/`query`）：11 个服务端用 `@RequestParam` 的 POST/PUT 端点改走 query。**帧格式与版本号不变**，老 Web 产物仍能跑，只是这些方法调不通 |

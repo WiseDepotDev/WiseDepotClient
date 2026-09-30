@@ -138,9 +138,32 @@ function collectRoutes() {
             const subs = m[2] === undefined ? [] : extractPaths(m[2]);
             const subList = subs.length > 0 ? subs : [''];
 
+            // 方法签名里是否用了 @RequestParam（Spring 只从 query string / form body 取它）。
+            // 从注解行往后扫到方法体的 `{` 为止；**不能**把注解行自己的 `{` 当结束符 ——
+            // 路径模板 `/task/{taskId}/status` 里就有花括号，误判会漏掉全部带路径参数的端点。
+            const tail = text.slice(m.index);
+            const lines = tail.split('\n');
+            let sig = '';
+            for (let i = 0; i < Math.min(lines.length, 30); i += 1) {
+                sig += lines[i] + '\n';
+                if (i > 0 && (/^\s*\{/.test(lines[i]) || /;\s*$/.test(lines[i]))) {
+                    break;
+                }
+            }
+            const requestParams = [...sig.matchAll(/@RequestParam\b([^)]*)\)/g)].map((p) => {
+                const named = /value\s*=\s*"([^"]+)"/.exec(p[1]) || /"([^"]+)"/.exec(p[1]);
+                return named ? named[1] : '(取形参名)';
+            });
+
             for (const base of baseList) {
                 for (const sub of subList) {
-                    routes.push({ method, path: joinPath(base, sub), packetType, conditional });
+                    routes.push({
+                        method,
+                        path: joinPath(base, sub),
+                        packetType,
+                        conditional,
+                        requestParams: requestParams.length > 0 ? requestParams : undefined,
+                    });
                 }
             }
         }
@@ -162,10 +185,14 @@ function mergeRoutes(routes) {
                 packetType: r.conditional ? 'UNKNOWN' : r.packetType,
                 primaryResolved: !r.conditional,
                 packetTypes: new Set([r.packetType]),
+                requestParams: r.requestParams,
             });
             continue;
         }
         cur.packetTypes.add(r.packetType);
+        if (r.requestParams && !cur.requestParams) {
+            cur.requestParams = r.requestParams;
+        }
         if (!r.conditional && !cur.primaryResolved) {
             cur.packetType = r.packetType;
             cur.primaryResolved = true;
@@ -234,11 +261,20 @@ function mechanicalId(route, overlay) {
 function buildContract() {
     const overlay = JSON.parse(fs.readFileSync(OVERLAY_FILE, 'utf8'));
     const hidden = new Set(overlay.hidden || []);
+    // `queryParams` 的 `_comment` 是给人看的说明，不是方法 id
+    const queryIds = Object.fromEntries(
+        Object.entries(overlay.queryParams || {}).filter(([k]) => !k.startsWith('_')),
+    );
     const all = mergeRoutes(collectRoutes());
 
     const exposed = [];
     const excluded = [];
     const ids = new Map();
+    /** `METHOD path` → 方法 id（反向检查用；`ids` 是按 id 索引的）。 */
+    const byRouteKey = new Map();
+
+    /** 有 body 的 HTTP 方法；其余（GET/DELETE）的参数本来就只能走 query string。 */
+    const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
     for (const r of all) {
         const key = `${r.method} ${r.path}`;
@@ -256,6 +292,10 @@ function buildContract() {
             packetTypes: r.packetTypes,
             curated: Boolean(alias),
             namespace: overlay.namespaces[rawNs] || camel(rawNs),
+            paramStyle: BODY_METHODS.has(r.method) && !(id in queryIds) ? 'body' : 'query',
+            queryReason: queryIds[id],
+            /** 服务端这个方法用到的 @RequestParam 名（无则 undefined）。 */
+            requestParams: r.requestParams,
         };
 
         if (ids.has(id)) {
@@ -263,6 +303,7 @@ function buildContract() {
                 '处置：在 tools/gen/bridge-overlay.json 的 aliases 里给其中一条显式命名。');
         }
         ids.set(id, entry);
+        byRouteKey.set(key, id);
 
         if (hidden.has(key)) {
             excluded.push(entry);
@@ -279,6 +320,43 @@ function buildContract() {
         if (!all.some((r) => `${r.method} ${r.path}` === key)) {
             throw new Error(`overlay.hidden 里的 "${key}" 在服务端路由中不存在（拼写错误或接口已删）。`);
         }
+    }
+
+    // queryParams 同样不许写错：拼错一个 id 就只是"这条悄悄没生效"，
+    // 而症状表现为"某个按钮点了没反应"—— 正是最难查的那种。所以宁可生成期直接失败。
+    for (const [id, reason] of Object.entries(queryIds)) {
+        const entry = ids.get(id);
+        if (!entry) {
+            throw new Error(`overlay.queryParams 里的 "${id}" 不是任何已登记的方法 id（拼写错误？）。`);
+        }
+        if (!BODY_METHODS.has(entry.httpMethod)) {
+            throw new Error(
+                `overlay.queryParams 里的 "${id}" 是 ${entry.httpMethod}，其参数本来就走 query string，无需登记。`);
+        }
+        if (!reason || typeof reason !== 'string') {
+            throw new Error(`overlay.queryParams 里的 "${id}" 缺少原因说明（写出服务端为什么只认 query）。`);
+        }
+    }
+
+    // 反向检查：服务端**有** @RequestParam 的 POST/PUT/PATCH 端点，必须全部登记。
+    // 只做正向校验的话，服务端新加一个 @RequestParam 就会悄悄多一条永远 400 的接口，
+    // 而症状只是"某个按钮点了没反应" —— 这类问题必须在这里就被拦下。
+    const missed = [];
+    for (const r of all) {
+        if (!r.requestParams || !BODY_METHODS.has(r.method)) {
+            continue;
+        }
+        const id = byRouteKey.get(`${r.method} ${r.path}`);
+        if (id && !(id in queryIds)) {
+            missed.push(`  · ${id}  (${r.method} ${r.path})  @RequestParam: ${r.requestParams.join(', ')}`);
+        }
+    }
+    if (missed.length > 0) {
+        throw new Error(
+            `服务端有 ${missed.length} 个 POST/PUT/PATCH 端点用 @RequestParam 取值，但没登记在 ` +
+            'overlay.queryParams 里。\n不登记它们会永远 400（@RequestParam 不认 JSON body），' +
+            '而界面上只表现为「点了没反应」：\n' + missed.join('\n') +
+            '\n处置：在 tools/gen/bridge-overlay.json 的 queryParams 里补上方法 id 与原因。');
     }
     // 别名表同理
     for (const key of Object.keys(overlay.aliases)) {
@@ -324,6 +402,14 @@ function renderKotlin(contract) {
     push('        SYSTEM,');
     push('    }');
     push('');
+    push('    /** 参数去哪：JSON 信封 body，还是 URL query string。 */');
+    push('    enum class ParamStyle {');
+    push('        /** 参数进 JSON 信封 body（多数 POST/PUT/PATCH）。 */');
+    push('        BODY,');
+    push('        /** 参数拼进 URL query string（GET/DELETE，以及服务端用 @RequestParam 的 POST/PUT）。 */');
+    push('        QUERY,');
+    push('    }');
+    push('');
     push('    /** 单条桥方法。 */');
     push('    data class Method(');
     push('        /** 方法 id，如 `inventory.list`。 */');
@@ -338,13 +424,15 @@ function renderKotlin(contract) {
     push('        val packetType: String,');
     push('        /** 方法名是否来自人工策展（否则为机械派生）。 */');
     push('        val curated: Boolean,');
+    push('        /** 剩余参数的去向。QUERY 的方法**不发 body**。 */');
+    push('        val paramStyle: ParamStyle,');
     push('    )');
     push('');
     push(`    /** 暴露给 Web 的方法共 ${exposed.length} 条。 */`);
     push('    val methods: List<Method> =');
     push('        listOf(');
     for (const m of exposed) {
-        push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}),`);
+        push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}, ParamStyle.${m.paramStyle.toUpperCase()}),`);
     }
     push('        )');
     push('');
@@ -363,7 +451,7 @@ function renderKotlin(contract) {
         push('    val excluded: List<Method> =');
         push('        listOf(');
         for (const m of excluded) {
-            push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}),`);
+            push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}, ParamStyle.${m.paramStyle.toUpperCase()}),`);
         }
         push('        )');
     }
@@ -392,8 +480,11 @@ function renderTs(contract) {
     push(`export const BRIDGE_DOMAINS = [${domains.map((d) => `'${d}'`).join(', ')}] as const;`);
     push('export type BridgeDomain = (typeof BRIDGE_DOMAINS)[number];');
     push('');
-    push(`export const BRIDGE_HTTP_METHODS = [${httpMethods.map((m) => `'${m}'`).join(', ')}] as const;`);
+    push('export const BRIDGE_HTTP_METHODS = [' + httpMethods.map((m) => `'${m}'`).join(', ') + '] as const;');
     push('export type BridgeHttpMethod = (typeof BRIDGE_HTTP_METHODS)[number];');
+    push('');
+    push('export const BRIDGE_PARAM_STYLES = [\'body\', \'query\'] as const;');
+    push('export type BridgeParamStyle = (typeof BRIDGE_PARAM_STYLES)[number];');
     push('');
     push('export interface BridgeMethod {');
     push('  /** 调用时使用的方法 id。 */');
@@ -405,12 +496,19 @@ function renderTs(contract) {
     push('  readonly packetType: string;');
     push('  /** 方法名是否来自人工策展（否则机械派生）。 */');
     push('  readonly curated: boolean;');
+    push('  /**');
+    push('   * 剩余参数的去向：`body` = JSON 信封 body，`query` = URL query string。');
+    push('   *');
+    push('   * `query` 的方法**不发 body**。这一项存在的唯一原因是服务端有 10 个 POST/PUT 端点在用');
+    push('   * `@RequestParam`（只认 query string），不登记就会永远 400。');
+    push('   */');
+    push('  readonly paramStyle: BridgeParamStyle;');
     push('}');
     push('');
     push(`/** 暴露给 Web 的方法共 ${exposed.length} 条。 */`);
     push('export const BRIDGE_METHODS = [');
     for (const m of exposed) {
-        push(`  { id: '${m.id}', domain: '${m.domain}', httpMethod: '${m.httpMethod}', path: '${m.path}', packetType: '${m.packetType}', curated: ${m.curated} },`);
+        push(`  { id: '${m.id}', domain: '${m.domain}', httpMethod: '${m.httpMethod}', path: '${m.path}', packetType: '${m.packetType}', curated: ${m.curated}, paramStyle: '${m.paramStyle}' },`);
     }
     push('] as const satisfies readonly BridgeMethod[];');
     push('');

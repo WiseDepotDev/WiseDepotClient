@@ -43,7 +43,10 @@ class OkHttpBackend(
                     )
 
             val rest = PathTemplate.remaining(call.pathTemplate, call.params)
-            val hasBody = call.httpMethod.uppercase() in setOf("POST", "PUT", "PATCH")
+            val wantsBody = call.httpMethod.uppercase() in setOf("POST", "PUT", "PATCH")
+            // 契约标了 QUERY 的方法：参数拼 query、**不发信封 body**。
+            // 服务端这些端点用的是 @RequestParam，只认 query string（见 BackendCall.paramStyle）。
+            val hasBody = wantsBody && call.paramStyle == ParamStyle.BODY
 
             val urlBuilder = "$base$path".toHttpUrlOrNull()?.newBuilder()
                 ?: return@withContext BackendResult.Failed(
@@ -63,10 +66,12 @@ class OkHttpBackend(
             val url = urlBuilder.build()
 
             val body =
-                if (hasBody) {
-                    Envelope.wrap(call.packetType, call.requestId, rest, clock()).toRequestBody(JSON_MEDIA)
-                } else {
-                    null
+                when {
+                    hasBody -> Envelope.wrap(call.packetType, call.requestId, rest, clock()).toRequestBody(JSON_MEDIA)
+                    // OkHttp 硬性要求 POST/PUT/PATCH 必须带 body（不带会抛 IllegalArgumentException），
+                    // 所以"参数走 query"的那些方法要发一个空 JSON 对象占位 —— 服务端没有 @RequestBody，不会去解析它。
+                    wantsBody -> EMPTY_JSON_BODY.toRequestBody(JSON_MEDIA)
+                    else -> null
                 }
 
             val requestBuilder = Request.Builder().url(url).header(Envelope.REQUEST_ID_HEADER, call.requestId)
@@ -112,6 +117,9 @@ class OkHttpBackend(
 
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+        /** POST/PUT/PATCH 但参数走 query 时的占位 body（OkHttp 不允许这几种方法不带 body）。 */
+        private const val EMPTY_JSON_BODY = "{}"
 
         /**
          * 默认客户端。超时给得比较克制：作业现场的网络抖动多，

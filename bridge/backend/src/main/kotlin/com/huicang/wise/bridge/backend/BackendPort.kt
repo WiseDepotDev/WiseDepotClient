@@ -12,7 +12,26 @@ data class BackendCall(
     /** 方法参数；路径参数按**同名键**从这里取。 */
     val params: JsonObject?,
     val requestId: String,
+    /**
+     * 剩余参数（扣掉路径参数之后）的去向。
+     *
+     * 为什么需要它：服务端有 10 个 POST/PUT 端点用 `@RequestParam` 取值，
+     * 而 `@RequestParam` **只认 query string / form body，不认 JSON body**。
+     * 按 HTTP 方法一刀切（有 body 就塞 body）会让这些端点永远 400，
+     * 界面上只表现为"点了没反应"。契约表为这些方法标 `QUERY`，
+     * `OkHttpBackend` 据此拼 query 并**不发 body**。见 `bridge-overlay.json` 的 `queryParams`。
+     */
+    val paramStyle: ParamStyle = ParamStyle.BODY,
 )
+
+/** 剩余参数的去向。与契约生成物的 `ParamStyle` 同源。 */
+enum class ParamStyle {
+    /** 参数进 JSON 信封 body。 */
+    BODY,
+
+    /** 参数拼进 URL query string，且不发 body。 */
+    QUERY,
+}
 
 /** 后端调用结果。**不抛异常**：所有失败都变成 `Failed`，让桥统一转成 err 帧。 */
 sealed interface BackendResult {

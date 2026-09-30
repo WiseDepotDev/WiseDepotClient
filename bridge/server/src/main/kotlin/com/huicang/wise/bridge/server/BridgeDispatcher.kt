@@ -4,6 +4,7 @@ import com.huicang.wise.bridge.backend.BackendCall
 import com.huicang.wise.bridge.backend.BackendErrorCodes
 import com.huicang.wise.bridge.backend.BackendPort
 import com.huicang.wise.bridge.backend.BackendResult
+import com.huicang.wise.bridge.backend.ParamStyle
 import com.huicang.wise.bridge.capability.LocalMethodPort
 import com.huicang.wise.bridge.capability.PlatformPort
 import com.huicang.wise.bridge.protocol.BridgeBuiltins
@@ -66,6 +67,10 @@ class BridgeDispatcher(
                 packetType = entry.packetType,
                 params = params as? JsonObject,
                 requestId = requestId,
+                paramStyle = when (entry.paramStyle) {
+                    BridgeContract.ParamStyle.QUERY -> ParamStyle.QUERY
+                    BridgeContract.ParamStyle.BODY -> ParamStyle.BODY
+                },
             )
 
         var result = backend.call(call)
