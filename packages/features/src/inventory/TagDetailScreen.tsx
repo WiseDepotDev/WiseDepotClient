@@ -204,11 +204,27 @@ export function TagDetailScreen({
       : productName || (productCode ? `编码 ${productCode}` : '已绑定商品（商品信息未登记）');
 
   const headerTitle = bound ? productName || '已绑定商品' : '标签详情';
-  const headerSubtitle = hasCode
-    ? bound
+  /*
+   * 副标题**不能断言"还没绑定商品"**，除非真的查到了这个标签。
+   *
+   * 踩过的坑（真机扫码验证时发现）：扫一个系统里不存在的编码，服务端明确回
+   * `RES-0004 标签不存在`，屏体也正确地画出了错误态 —— 但标题栏写着
+   * 「标签编码 X · 这个标签还没绑定商品」，**与刚拿到的结论互相矛盾**。
+   * 根因是 `bound` 在"没查到"和"查到了但没绑"两种情况下都是 false，
+   * 副标题却按"查到了但没绑"来措辞。
+   *
+   * 现在三态分开：取数中 / 取数失败 / 拿到了数据。
+   */
+  const failed = byCode.error ?? byId.error;
+  const headerSubtitle = !hasCode
+    ? '扫码或输入标签编码，查看这个标签绑定的商品'
+    : bound
       ? `标签编码 ${lookup.code} · ${boundOneLine}`
-      : `标签编码 ${lookup.code} · 这个标签还没绑定商品`
-    : '扫码或输入标签编码，查看这个标签绑定的商品';
+      : failed !== undefined
+        ? `标签编码 ${lookup.code} · 没有查到（详见下方说明）`
+        : loading
+          ? `正在查询标签编码 ${lookup.code}…`
+          : `标签编码 ${lookup.code} · 这个标签还没绑定商品`;
 
   return (
     <Stack>
