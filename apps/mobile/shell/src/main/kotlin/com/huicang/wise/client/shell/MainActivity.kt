@@ -51,7 +51,40 @@ class MainActivity : ComponentActivity() {
                 settings.setSupportMultipleWindows(false)
                 settings.cacheMode = WebSettings.LOAD_DEFAULT
                 settings.mediaPlaybackRequiresUserGesture = true
+                /*
+                 * 页面走 **https**（见 SHELL_ORIGIN），而桥是 `ws://` ——
+                 * 从 https 页面连 ws:// 会被判为混合内容并拦掉。
+                 *
+                 * 这里是**有意识**地放行：桥只监听 loopback / 点对点地址，不出本机；
+                 * 换来的是页面处于**安全上下文**——`getUserMedia`（相机扫码）只在安全上下文里可用，
+                 * 之前为了绕开混合内容把页面退成 http，等于把相机这条路堵死了。
+                 */
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 webViewClient = ShellWebViewClient(assetLoader)
+                /*
+                 * 相机扫码要过**两道**授权：网页的 `getUserMedia`（经 onPermissionRequest）
+                 * 与系统的运行时权限（CAMERA）。这里把两者串起来 ——
+                 * 缺系统权限时先弹系统弹窗，**把它挂起**，授予后再批准网页那一侧。
+                 * 不这么做的话用户点一次扫码要按两次，第二次还很容易被当成"点了没反应"。
+                 */
+                webChromeClient =
+                    object : android.webkit.WebChromeClient() {
+                        override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                            val wantsCamera =
+                                request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                            if (!wantsCamera) {
+                                // 只要不是相机（麦克风等），一律拒绝：这个壳不需要那些能力
+                                request.deny()
+                                return
+                            }
+                            if (hasCameraPermission()) {
+                                request.grant(request.resources)
+                            } else {
+                                pendingCameraRequest = request
+                                requestCameraPermission()
+                            }
+                        }
+                    }
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
             }
 
@@ -66,6 +99,44 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         webView.destroy()
         super.onDestroy()
+    }
+
+    /** 被挂起的网页相机请求：系统权限弹窗出结果后要回来批准/拒绝它。 */
+    private var pendingCameraRequest: android.webkit.PermissionRequest? = null
+
+    private fun hasCameraPermission(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun requestCameraPermission() {
+        androidx.core.app.ActivityCompat.requestPermissions(
+            this,
+            arrayOf(android.Manifest.permission.CAMERA),
+            CAMERA_PERMISSION_REQUEST,
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != CAMERA_PERMISSION_REQUEST) {
+            return
+        }
+        val request = pendingCameraRequest
+        pendingCameraRequest = null
+        if (request == null) {
+            return
+        }
+        // 用户拒了就如实拒绝网页那一侧 —— 网页的 getUserMedia 会拿到 NotAllowedError，
+        // 界面显示"没拿到相机权限"，而不是永远转圈。
+        if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            request.grant(request.resources)
+        } else {
+            request.deny()
+        }
     }
 
     /**
@@ -179,13 +250,22 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val TAG = "WiseShell"
         const val SHELL_DOMAIN = "appassets.androidplatform.net"
+        const val CAMERA_PERMISSION_REQUEST = 1001
 
         /**
-         * 页面 origin 用 **http**：桥是明文 `ws://`，页面若是 https 就会触发混合内容拦截
-         * （Chromium 只豁免 127.0.0.1 / localhost，而 WSA 上桥在 169.254.x）。
-         * 两者同为明文，才没有"混合"这回事。
+         * 页面 origin 用 **https**（安全上下文）。
+         *
+         * 这条路径改过两次，两边的代价都实测过：
+         *  · 最初 https → `ws://` 被判为混合内容拦掉，页面连不上桥；
+         *  · 于是退成 http → 页面**不再是安全上下文**，`getUserMedia` 直接不可用
+         *    （相机扫码这条路被堵死，且没有任何报错提示）；
+         *  · 现在回到 https，并**有意识地**放行混合内容（见 settings.mixedContentMode）——
+         *    桥只监听 loopback / 点对点地址，不出本机，这个交换是划算的。
+         *
+         * 实测（WSA）：`isSecureContext === true`、`navigator.mediaDevices` 可用、
+         * `enumerateDevices()` 能列出 videoinput。
          */
-        const val SHELL_ORIGIN = "http://appassets.androidplatform.net"
+        const val SHELL_ORIGIN = "https://appassets.androidplatform.net"
         const val SHELL_INDEX_URL = "$SHELL_ORIGIN/assets/web/index.html"
 
         /** 静态产物在 APK 里的前缀，与 `WebViewAssetLoader` 的默认约定一致。 */

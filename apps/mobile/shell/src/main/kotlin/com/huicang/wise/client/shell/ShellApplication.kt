@@ -17,10 +17,13 @@ class ShellApplication : Application() {
         val version =
             packageManager.getPackageInfo(packageName, 0).versionName
                 ?: Build.VERSION.RELEASE
+        // 有没有摄像头决定要不要声明 `scan.camera`：没摄像头的设备（部分工业 PDA）
+        // 照样要能装能跑，只是界面上不出现扫码入口。
+        val hasCamera = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
         // 绑端口是阻塞调用，放后台线程；WebView 在此期间加载静态资源，
         // 引导接口在桥就绪前回 503，Web 侧拿到的是明确的"尚未就绪"而不是超时。
         thread(name = "shell-bridge-start") {
-            runCatching { ShellBridge.startIfNeeded(version, filesDir) }
+            runCatching { ShellBridge.startIfNeeded(version, filesDir, hasCamera) }
                 .onFailure { e -> android.util.Log.e(TAG, "桥启动失败", e) }
         }
     }

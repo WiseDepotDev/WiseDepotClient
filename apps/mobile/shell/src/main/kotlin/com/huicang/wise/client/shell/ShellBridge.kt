@@ -60,6 +60,7 @@ object ShellBridge {
     fun startIfNeeded(
         version: String,
         filesDir: java.io.File,
+        hasCamera: Boolean = false,
     ) {
         if (server != null) {
             return
@@ -75,7 +76,9 @@ object ShellBridge {
         // 能力必须**如实**：拿不到 Keystore 就不能声明 storage.secure。
         // 声明了做不到的能力比不声明更糟 —— UI 会据此画出永远不工作的入口。
         val capabilities =
-            ANDROID_CAPABILITIES.filter { it != BridgeCapabilities.SECURE_STORE || tokens.persistent }.toSet()
+            (ANDROID_CAPABILITIES + (if (hasCamera) setOf(BridgeCapabilities.SCAN_CAMERA) else emptySet()))
+                .filter { it != BridgeCapabilities.SECURE_STORE || tokens.persistent }
+                .toSet()
         if (!tokens.persistent) {
             android.util.Log.w(
                 "WiseShell",

@@ -4,6 +4,16 @@
     <!-- 桥只在进程内监听 127.0.0.1；联网权限是给 BridgeServer 背后的 OkHttp 用的 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      相机扫码。`required="false"` 是刻意的：没有摄像头的设备（部分手持终端、工业 PDA）
+      照样要能装、能跑 —— 只是界面上不出现扫码入口。
+      能力声明与这里呼应：宿主只在真的有摄像头时才声明 `scan.camera`（见 ShellBridge）。
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <application
         android:name=".ShellApplication"
         android:allowBackup="false"
