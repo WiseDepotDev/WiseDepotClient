@@ -109,7 +109,13 @@ class BridgeCallHandler(
                 )
         }
 
-    /** 把异常的原因链打平成一行的可读文本（`A: m ← B: m ← C: m`）。 */
+    /**
+     * 把异常的原因链打平成一行的可读文本（`A: m ← B: m ← C: m`），
+     * 并附上**最深层原因的 5 帧栈**。
+     *
+     * 为什么要栈：`ExceptionInInitializerError` / `NoClassDefFoundError` 只说"某个类的静态初始化炸了"，
+     * **不说是哪个类**。没有栈就只能知道"有个正则不合法"，知道是哪一行才有得修。
+     */
     private fun describe(e: Throwable): String {
         val parts = mutableListOf<String>()
         var cur: Throwable? = e
@@ -119,7 +125,9 @@ class BridgeCallHandler(
             cur = cur.cause
             depth += 1
         }
-        return parts.joinToString(" ← ")
+        val deepest = generateSequence(e) { it.cause }.last()
+        val frames = deepest.stackTrace.take(5).joinToString(" | ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
+        return parts.joinToString(" ← ") + " @ " + frames
     }
 
     /** 供传输层复用的"未就绪"响应（纯 socket 传输在桥没起来时会用到）。 */
