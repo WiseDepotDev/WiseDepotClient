@@ -16,6 +16,7 @@ React 19 Web UI ── WS(Netty) ──► Kotlin 桥（唯一实现）── HT
 - **UI 布局与视觉规范**：[docs/ui-spec.md](./docs/ui-spec.md)
 - **W3 会话与令牌截留**：[docs/w3-session.md](./docs/w3-session.md)
 - **真后端冒烟记录**：[docs/real-smoke.md](./docs/real-smoke.md)
+- **排障清单与平台差异备忘**：[docs/troubleshooting.md](./docs/troubleshooting.md)
 - 桥协议 v3：[docs/protocol.md](./docs/protocol.md)
 - 设计令牌（导出与纪律）：[docs/tokens.md](./docs/tokens.md)
 - **W2 传输 Spike 与验收记录**：[docs/w2-spike.md](./docs/w2-spike.md)
@@ -75,7 +76,8 @@ pnpm dev                        # 开发态：无宿主时自动回退到 mock �
 | **W2-b** Electron 宿主逻辑 + Android 壳（APK 门禁）+ 移动端 Spike | ✅ 已完成（GUI 与设备项除外） |
 | **W3-a** 桥侧会话：令牌截留 / `bridge.session` / 自动续期重放 / 登出本地先行 | ✅ 已完成 |
 | **W3-b** Web 登录屏 + 会话门 | ✅ 已完成 |
-| **W3-c** 真后端冒烟（真验证码 → 真登录 → 真数据） | ✅ 已完成（真机安装待 WSA adb 开启） |
+| **W3-c** 真后端冒烟（真验证码 → 真登录 → 真数据） | ✅ 已完成 |
+| **W3-d** WSA（Android）端到端：页面→桥→真后端全链路 | ✅ 已完成 |
 | W4 primitives + patterns | ⏳ |
 | W5–W7 逐域替换 overview → inventory → field → me | ⏳ |
 | W8 设备能力下沉 | ⏳ |
