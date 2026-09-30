@@ -86,6 +86,22 @@ class MainActivity : ComponentActivity() {
         val assetsHandler = WebViewAssetLoader.AssetsPathHandler(this)
         return WebViewAssetLoader.Builder()
             .setDomain(SHELL_DOMAIN)
+            // **放行 http**，并且页面就走 http 加载（见 SHELL_ORIGIN）。
+            //
+            // 为什么不能让它走 https：页面是 https，而桥是明文 `ws://`，
+            // Chromium 会按"混合内容"拦掉 —— 它的豁免名单只覆盖 `127.0.0.1` / `localhost`，
+            // 而 WSA 上桥必须在 `169.254.73.153`（loopback0 的点对点地址）上，不在名单里。
+            //
+            // 三条路里选了这条：
+            //   · MIXED_CONTENT_ALWAYS_ALLOW —— 一行搞定，但它对**所有**不安全子资源永久放行，
+            //     等于给未来任何一次注入留门；
+            //   · 桥上 TLS（wss）—— 自签证书 + 忽略证书错误，把"本地回环"复杂化成"半个 PKI"；
+            //   · 本地产物走 http —— 页面与桥**同为明文**，压根不存在混合内容。
+            //
+            // 代价：`http://appassets.androidplatform.net` 不是安全上下文。
+            // 本项目不用任何需要安全上下文的 API（无 crypto.subtle / service worker），
+            // 一旦将来要用，这条要重新评估。
+            .setHttpAllowed(true)
             .addPathHandler(
                 "/",
                 object : WebViewAssetLoader.PathHandler {
@@ -163,7 +179,13 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val TAG = "WiseShell"
         const val SHELL_DOMAIN = "appassets.androidplatform.net"
-        const val SHELL_ORIGIN = "https://appassets.androidplatform.net"
+
+        /**
+         * 页面 origin 用 **http**：桥是明文 `ws://`，页面若是 https 就会触发混合内容拦截
+         * （Chromium 只豁免 127.0.0.1 / localhost，而 WSA 上桥在 169.254.x）。
+         * 两者同为明文，才没有"混合"这回事。
+         */
+        const val SHELL_ORIGIN = "http://appassets.androidplatform.net"
         const val SHELL_INDEX_URL = "$SHELL_ORIGIN/assets/web/index.html"
 
         /** 静态产物在 APK 里的前缀，与 `WebViewAssetLoader` 的默认约定一致。 */

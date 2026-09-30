@@ -3,8 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <!-- 无宿主时（W1 阶段的 vite dev）也不允许外部脚本；CSP 由宿主再用响应头收紧一次 -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://127.0.0.1:*; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <!--
+      CSP 的 connect-src 必须覆盖**桥的实际地址**，而那个地址是宿主运行时下发的：
+      桌面/真机是 127.0.0.1，WSA 是 loopback0 的点对点地址（如 169.254.73.153）。
+      meta 是静态的、预知不了它 —— 所以这里只做"本地产物"的底线约束（'self' + ws:），
+      精确到 host 的那一层由**宿主用响应头下发 CSP**（手机壳与桌面壳各自实现）。
+      header 与 meta 同时存在时取交集，因此 header 更严就会生效。
+
+      教训：把 host 改成运行时下发时，漏了同步改这里 —— 结果是页面被自己的 CSP 拦住，
+      而 logcat 里只有一条 CONSOLE 记录，很容易被当成"没报错"。
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
     <title>慧仓智控 WiseDepot</title>
   </head>
   <body>

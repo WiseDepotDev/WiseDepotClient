@@ -30,8 +30,19 @@ import kotlinx.serialization.json.JsonElement
 import java.net.InetAddress
 import java.net.InetSocketAddress
 
-/** 允许的 Origin。桌面用自定义协议 `app://wise`，手机用 WebViewAssetLoader 的域。 */
-val DEFAULT_ALLOWED_ORIGINS: Set<String> = setOf("app://wise", "https://appassets.androidplatform.net")
+/**
+ * 允许的 Origin。
+ *
+ * 桌面是自定义协议 `app://wise`；手机是 `appassets.androidplatform.net` ——
+ * **http 与 https 两个都留着**：页面走哪个取决于宿主，而 Origin 校验不该逼着宿主选 https
+ * （手机壳用 http，见 MainActivity 里关于混合内容的说明）。
+ */
+val DEFAULT_ALLOWED_ORIGINS: Set<String> =
+    setOf(
+        "app://wise",
+        "https://appassets.androidplatform.net",
+        "http://appassets.androidplatform.net",
+    )
 
 /**
  * 传输实现的选择。

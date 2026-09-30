@@ -18,6 +18,7 @@ import io.netty.handler.codec.http.HttpUtil
 import io.netty.handler.codec.http.HttpVersion
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame
+import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler
 import io.netty.util.CharsetUtil
 import io.netty.util.ReferenceCountUtil
 import kotlinx.coroutines.CoroutineScope
@@ -110,10 +111,27 @@ class BridgeFrameHandler(
 
     override fun channelActive(ctx: ChannelHandlerContext) {
         channels.add(ctx.channel())
-        // 连接建立 = "Web 侧真的连上来了"。这条日志是排障链的最后一环：
-        // 前面的"宿主已启动 / 引导已供给"都只说明壳和静态资源没问题。
-        BridgeLog.info("[bridge] 前端已连接：${ctx.channel().remoteAddress()}")
+        // 注意：这一行只证明 **TCP accept 成功**，不证明 WebSocket 握手完成 ——
+        // 握手响应由 WebSocketServerProtocolHandler 在更后面发。
+        // 两者要分开看，否则"连上了但卡在握手"会被误读成"一切正常"。
+        BridgeLog.info("[bridge] TCP 已连接：${ctx.channel().remoteAddress()}")
         super.channelActive(ctx)
+    }
+
+    /**
+     * WebSocket 握手完成 = **页面真的把协议谈成了**（升级响应已发出并被接受）。
+     *
+     * 这条与上面的 "TCP 已连接" 成对：只有两条都出现，才能说"前端连上了"。
+     * W3 在 WSA 上就因为只看到前者而走错过方向。
+     */
+    override fun userEventTriggered(
+        ctx: ChannelHandlerContext,
+        evt: Any,
+    ) {
+        if (evt is WebSocketServerProtocolHandler.HandshakeComplete) {
+            BridgeLog.info("[bridge] WebSocket 握手完成：${evt.requestUri()}")
+        }
+        super.userEventTriggered(ctx, evt)
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
