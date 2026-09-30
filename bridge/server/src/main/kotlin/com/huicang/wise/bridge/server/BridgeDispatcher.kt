@@ -71,6 +71,7 @@ class BridgeDispatcher(
                     BridgeContract.ParamStyle.QUERY -> ParamStyle.QUERY
                     BridgeContract.ParamStyle.BODY -> ParamStyle.BODY
                 },
+                keepPathParamsInBody = entry.keepPathParamsInBody,
             )
 
         var result = backend.call(call)

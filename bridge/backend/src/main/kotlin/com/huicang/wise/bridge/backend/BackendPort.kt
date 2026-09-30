@@ -22,6 +22,15 @@ data class BackendCall(
      * `OkHttpBackend` 据此拼 query 并**不发 body**。见 `bridge-overlay.json` 的 `queryParams`。
      */
     val paramStyle: ParamStyle = ParamStyle.BODY,
+    /**
+     * body 里是否**保留路径参数**。
+     *
+     * 默认 false：同一个值没必要发两遍。为 true 的那几条是因为服务端 DTO 把路径参数
+     * 又声明了一次并加了 `@NotNull`，而控制器里的 `request.setTaskId(taskId)` 在
+     * 参数绑定**之后**才执行 —— 救不了 `@Valid`，客户端不放进 body 就必然校验失败。
+     * 见 `bridge-overlay.json` 的 `bodyPathParams`。
+     */
+    val keepPathParamsInBody: Boolean = false,
 )
 
 /** 剩余参数的去向。与契约生成物的 `ParamStyle` 同源。 */
@@ -47,6 +56,17 @@ sealed interface BackendResult {
         val code: String,
         val messageKey: String?,
         val retryable: Boolean,
+        /**
+         * 后端**业务拒绝原因**（原样透传的一句中/英文说明），进 err 帧的 `details`。
+         *
+         * 为什么需要它：桥只给码、文案由 Web 映射是既定原则，但有些拒绝只有服务端才知道原因
+         * （实测："只能对已完成的巡检任务进行补录" 落在 `VAL-0001` 上，Web 无从映射）。
+         * Web 侧映射不到时就把这句话显示出来，总好过让用户看到「取数失败（VAL-0001）」。
+         *
+         * **只允许业务码携带**（见 [BackendErrorCodes.DETAIL_ALLOWED_PREFIXES]）：
+         * 5xx 的响应体可能含堆栈或 SQL 片段，一律不进 UI。
+         */
+        val details: String? = null,
     ) : BackendResult
 }
 
@@ -91,4 +111,32 @@ object BackendErrorCodes {
     const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"
     const val UNREACHABLE: String = "BRIDGE_BACKEND_UNREACHABLE"
     const val INTERNAL: String = "BRIDGE_INTERNAL"
+
+    /**
+     * **允许把后端原文带到界面上的错误码前缀**。
+     *
+     * 白名单而不是黑名单：5xx 的响应体可能含堆栈、SQL 片段或内部路径，
+     * 默认不放行才安全；漏掉一个业务前缀的代价只是"少了一句解释"。
+     */
+    val DETAIL_ALLOWED_PREFIXES: List<String> = listOf("RES-", "VAL-", "AUTH-", "BIZ-")
+
+    /** 详情截断长度：够放一句业务说明，放不下堆栈。 */
+    const val DETAIL_MAX_CHARS: Int = 120
+
+    /** 业务码才带详情；其余一律不带（见 [DETAIL_ALLOWED_PREFIXES]）。 */
+    fun detailFor(
+        code: String,
+        message: String?,
+    ): String? {
+        val text = message?.trim().orEmpty()
+        if (text.isEmpty()) {
+            return null
+        }
+        if (DETAIL_ALLOWED_PREFIXES.none { code.startsWith(it) }) {
+            return null
+        }
+        // 换行会让一句话变成多行，界面上的错误块按行排版，这里压平
+        val flat = text.replace(Regex("\\s+"), " ")
+        return if (flat.length <= DETAIL_MAX_CHARS) flat else flat.take(DETAIL_MAX_CHARS - 1) + "…"
+    }
 }

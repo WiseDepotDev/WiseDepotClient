@@ -6,6 +6,9 @@ import {
   DeviceDetailScreen,
   DeviceListScreen,
   InspectionResultListScreen,
+  InspectionTaskCreateScreen,
+  InspectionResultCreateScreen,
+  InspectionManualRecordScreen,
   InspectionTaskDetailScreen,
   InspectionTaskListScreen,
   InventoryListScreen,
@@ -150,6 +153,24 @@ const cases: readonly Case[] = [
     name: 'InspectionResultListScreen（巡检结果，W6-field）',
     render: () => renderToStaticMarkup(<InspectionResultListScreen bridge={fakeBridge([])} />),
     expect: ['巡检结果', 'w-pageheader', 'w-search', 'w-skeleton'],
+  },
+
+  // W8：现场域的"写"入口（此前只有看没有录）。三屏都是表单屏，
+  // 断言的共同点是：页头 + 底部动作条（ui-spec：表单屏不允许"滚到底找按钮"）。
+  {
+    name: 'InspectionTaskCreateScreen（新建巡检任务，W8-field）',
+    render: () => renderToStaticMarkup(<InspectionTaskCreateScreen bridge={fakeBridge([])} />),
+    expect: ['新建巡检任务', 'w-pageheader', 'w-bottombar'],
+  },
+  {
+    name: 'InspectionResultCreateScreen（录入巡检结果，W8-field）',
+    render: () => renderToStaticMarkup(<InspectionResultCreateScreen bridge={fakeBridge([])} />),
+    expect: ['录入巡检结果', 'w-pageheader'],
+  },
+  {
+    name: 'InspectionManualRecordScreen（手动补录，W8-field）',
+    render: () => renderToStaticMarkup(<InspectionManualRecordScreen bridge={fakeBridge([])} />),
+    expect: ['手动补录巡检明细', 'w-pageheader'],
   },
 
   // W7：me 域（消息 / 用户 / 个人资料）

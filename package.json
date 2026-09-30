@@ -29,6 +29,7 @@
     "typecheck": "pnpm --filter @wise/web typecheck",
     "bench:w3": "node tools/bench/w3-session.mjs",
     "bench:querystyle": "node tools/bench/query-param-probe.mjs",
+    "bench:inspection": "node tools/bench/real-inspection-write.mjs",
     "smoke:real": "node tools/bench/real-smoke.mjs",
     "smoke:real:admin": "node tools/bench/real-smoke.mjs --user admin",
     "desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop.ps1",

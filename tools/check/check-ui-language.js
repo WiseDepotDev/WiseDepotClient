@@ -140,17 +140,17 @@ for (const file of files) {
     // 待检查的「界面可见文本」：JSX 文本子节点 + 文案属性值
     const candidates = [];
 
-    // JSX 文本子节点：>文本<，排除花括号表达式。
+    // JSX 文本子节点：**必须真的是 `<标签>文本</标签>` 的形状**。
     //
-    // **取舍**：只收含中日韩字符的文本节点。原因是手工判定"这段 `>…<` 到底是 JSX 文本
-    // 还是 `useState<T>(undefined)` / `() => x <` 这类代码残片"需要真正的解析器，
-    // 而正则做不对，误报会把门禁变成噪音。本仓界面文案除标签按钮外全是中文，
-    // **英文文案请走下面的文案属性通道**（title / label / ariaLabel …）。
-    for (const m of text.matchAll(/>([^<>{}]+)</g)) {
-        if (!/[\u4e00-\u9fff]/.test(m[1])) {
-            continue;
-        }
-        candidates.push({ value: m[1], index: m.index + 1 });
+    // 为什么不用宽松的 `>文本<`：那样会把「两个比较运算符之间恰好夹了中文字符串」的**代码**
+    // 也当成文案。踩过一次：`useRef(new Map<string, HTMLDivElement>())` 附近的代码块
+    // 被切出一段含中文的"文本"，报了 `undefined` —— 一个纯粹的误报，
+    // 而误报会让门禁失去可信度（"反正它老报错"）。
+    //
+    // 配套取舍：只收含中日韩字符的。英文文案请走下面的文案属性通道
+    // （title / label / ariaLabel …），那里是字符串字面量，判定是确定的。
+    for (const m of text.matchAll(/<([A-Za-z][\w.]*)(?:\s[^<>]*)?>\s*([^<>{}]*[\u4e00-\u9fff][^<>{}]*?)\s*<\//g)) {
+        candidates.push({ value: m[2], index: m.index });
     }
     // 文案属性
     for (const m of text.matchAll(COPY_PROPS)) {
@@ -189,7 +189,7 @@ for (const file of files) {
             // 子表达式要求**整个表达式就是它**：`>{leaf.primaryMethod}<`。
             // 不能放宽成"表达式里出现它"——`{leaf.primaryMethod === 'auth.login' ? … }`
             // 是在做比较（MobileShell 就是这么用的），渲染出来的是布尔分支而不是 id。
-            new RegExp(`>\\s*\\{\\s*[\\w.]*\\b${id}\\b\\s*\\}\\s*<`, 'g'),
+            new RegExp(`<([A-Za-z][\\w.]*)(?:\\s[^<>]*)?>\\s*\\{\\s*[\\w.]*\\b${id}\\b\\s*\\}\\s*<\\/`, 'g'),
         ];
         for (const re of patterns) {
             for (const m of text.matchAll(re)) {

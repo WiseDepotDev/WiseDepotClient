@@ -135,6 +135,8 @@ class BridgeCallHandler(
                                 code = outcome.code,
                                 messageKey = outcome.messageKey,
                                 retryable = outcome.retryable,
+                                // 业务拒绝原因（已按白名单前缀过滤 + 截断，见 BackendErrorCodes.detailFor）
+                                details = outcome.details?.let { JsonPrimitive(it) },
                             ),
                     ),
                 )

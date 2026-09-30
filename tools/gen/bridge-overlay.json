@@ -282,5 +282,17 @@
     "message.markAllRead": "PUT /api/messages/read-all —— @RequestParam Long receiverId（未写 value，取形参名）",
     "profile.avatarUpload": "POST /api/profile/avatar —— consumes=MULTIPART_FORM_DATA_VALUE 且 @RequestParam(\"file\") MultipartFile；与 file.upload 同属「必须 multipart」一类，本方法在 Web 侧尚未实现",
     "tag.bind": "POST /api/tag/{tagId}/bind —— @RequestParam(\"productId\")"
+  },
+
+  "bodyPathParams": {
+    "_comment": [
+      "「路径参数必须同时出现在请求体里」的端点。",
+      "桥默认把路径参数从 body 里剔掉（PathTemplate.remaining），这对绝大多数端点是对的 ——",
+      "同一个值没必要发两遍。但服务端有一类 DTO 会把路径参数再声明一次并加 @NotNull：",
+      "控制器里那句 request.setTaskId(taskId) 在**参数绑定之后**才执行，救不了 @Valid 校验，",
+      "于是客户端不把值放进 body 就必然 VAL-0001（表现为「点了没反应 / 参数错误」）。",
+      "列在这里的方法：body 里**保留**路径参数。改动会同步到契约表的 keepPathParamsInBody。"
+    ],
+    "inspection.manualRecord": "POST /api/inspection/task/{taskId}/manual-record —— ManualRecordRequest.taskId 是 @NotNull，而控制器在绑定后才 setTaskId；不加就会 VAL-0001（实测）"
   }
 }

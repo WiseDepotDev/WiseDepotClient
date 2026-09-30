@@ -40,6 +40,11 @@ export function asTotal(value: unknown): number | undefined {
  *
  * **文案在 Web 侧映射**，桥只给码与 messageKey（延续旧仓"谁展示谁拥有"）。
  * 桥自己的错误看 `messageKey`；后端业务错误看 `code` 前缀。
+ *
+ * 例外：有些业务拒绝**只有服务端知道原因**（实测 `VAL-0001`
+ * "只能对已完成的巡检任务进行补录"）。桥会把这类原文放在 `details` 里
+ * （已在桥侧按白名单前缀过滤并截断），映射不到时就用它 ——
+ * 让用户看到「取数失败（VAL-0001）」等于什么都没说。
  */
 export function humanize(error: BridgeError | undefined): string {
   if (!error) {
@@ -52,11 +57,14 @@ export function humanize(error: BridgeError | undefined): string {
       return '请求超时，可重试';
     case 'bridge.reconnectGaveUp':
     case 'bridge.closed':
-      return '与本地桥的连接已断开';
+      return '与本地服务的连接已断开';
     case 'error_session_expired':
       return '登录已过期，请重新登录';
     case 'bridge.methodUnknown':
       return '该功能在当前版本尚未实现';
+    case 'bridge.paramsMissingPathParam':
+    case 'bridge.paramsInvalid':
+      return '请求参数不完整，请检查填写内容';
     default:
       break;
   }
@@ -66,7 +74,13 @@ export function humanize(error: BridgeError | undefined): string {
   if (error.code === 'HTTP-400') {
     return '请求被拒绝（可能缺少签名或参数）';
   }
-  return `取数失败（${error.code}）`;
+  if (error.code === 'BRIDGE_BACKEND_UNREACHABLE') {
+    return '后端不可达，请检查网络或服务状态';
+  }
+  if (typeof error.details === 'string' && error.details.trim().length > 0) {
+    return error.details;
+  }
+  return `操作未完成（${error.code}）`;
 }
 
 /** `2026-01-01T09:12:00` → `01-01 09:12`。列表里的时间只用来排序与粗看，不需要秒。 */

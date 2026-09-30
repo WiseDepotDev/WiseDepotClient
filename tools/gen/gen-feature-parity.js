@@ -110,7 +110,7 @@ function readBridgeMethods() {
     }
     const text = fs.readFileSync(CONTRACT_TS, 'utf8');
     const re =
-        /\{ id: '([^']+)', domain: '([^']+)', httpMethod: '([^']+)', path: '([^']+)', packetType: '([^']+)', curated: (?:true|false), paramStyle: '([^']+)' \}/g;
+        /\{ id: '([^']+)', domain: '([^']+)', httpMethod: '([^']+)', path: '([^']+)', packetType: '([^']+)', curated: (?:true|false), paramStyle: '([^']+)', keepPathParamsInBody: (?:true|false) \}/g;
     return [...text.matchAll(re)].map((m) => ({
         id: m[1],
         domain: m[2],
@@ -344,6 +344,30 @@ function render() {
     push('');
     push('> 这份清单**不是手抄的**：契约生成器直接扫服务端控制器的 ' + code('@RequestParam') +
         '，漏登记一条就构建失败（' + code('pnpm check:contract') + '）。');
+    push('');
+
+    // ---- 5.2 body 里必须同时带路径参数的方法 ----
+    const bodyPathReasons = Object.fromEntries(
+        Object.entries(overlay.bodyPathParams || {}).filter(([k]) => !k.startsWith('_')),
+    );
+    const bodyPathIds = Object.keys(bodyPathReasons);
+    push('## 5.2 body 里必须同时带路径参数的方法（' + bodyPathIds.length + ' 条）');
+    push('');
+    if (bodyPathIds.length === 0) {
+        push('（无）');
+    } else {
+        push('桥默认把路径参数从 body 里剔掉 —— 同一个值没必要发两遍。');
+        push('但下列端点的服务端 DTO 把路径参数**又声明了一次**并加了 ' + code('@NotNull') +
+            '，而控制器里的 ' + code('request.setXxx(路径参数)') + ' 在参数绑定**之后**才执行，');
+        push('救不了 ' + code('@Valid') + '：客户端不把值放进 body 就必然校验失败（表现为「参数错误」）。');
+        push('');
+        push('| 方法 id | HTTP | 路径 | 服务端为什么要求两处都带 |');
+        push('| --- | --- | --- | --- |');
+        for (const id of bodyPathIds) {
+            const m = methods.find((x) => x.id === id);
+            push(`| ${code(id)} | ${m ? m.httpMethod : '?'} | ${code(m ? m.path : '?')} | ${bodyPathReasons[id]} |`);
+        }
+    }
     push('');
 
     // ---- 6. 迁移进度（机械统计，不是人写的汇报）----

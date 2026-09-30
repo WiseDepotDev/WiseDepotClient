@@ -12,6 +12,9 @@ import { DeviceDetailScreen } from './field/DeviceDetailScreen.js';
 import { InspectionTaskListScreen } from './field/InspectionTaskListScreen.js';
 import { InspectionTaskDetailScreen } from './field/InspectionTaskDetailScreen.js';
 import { InspectionResultListScreen } from './field/InspectionResultListScreen.js';
+import { InspectionTaskCreateScreen } from './field/InspectionTaskCreateScreen.js';
+import { InspectionResultCreateScreen } from './field/InspectionResultCreateScreen.js';
+import { InspectionManualRecordScreen } from './field/InspectionManualRecordScreen.js';
 import { MessageListScreen } from './me/MessageListScreen.js';
 import { MessageDetailScreen } from './me/MessageDetailScreen.js';
 import { UserListScreen } from './me/UserListScreen.js';
@@ -59,6 +62,10 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'inspection.resultList': InspectionResultListScreen,
   'inspection.resultDetail': InspectionResultListScreen,
   'inspection.resultConfirm': InspectionResultListScreen,
+  // ---- 现场域的"写"入口（此前只有看没有录）----
+  'inspection.taskCreate': InspectionTaskCreateScreen,
+  'inspection.resultCreate': InspectionResultCreateScreen,
+  'inspection.manualRecord': InspectionManualRecordScreen,
 
   // ---- W7 me 域：消息 / 用户 / 个人资料 ----
   // 未读数不是独立目的地，它就是列表页的角标数据源 —— 指向同一屏

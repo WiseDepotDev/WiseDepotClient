@@ -265,6 +265,9 @@ function buildContract() {
     const queryIds = Object.fromEntries(
         Object.entries(overlay.queryParams || {}).filter(([k]) => !k.startsWith('_')),
     );
+    const bodyPathIds = Object.fromEntries(
+        Object.entries(overlay.bodyPathParams || {}).filter(([k]) => !k.startsWith('_')),
+    );
     const all = mergeRoutes(collectRoutes());
 
     const exposed = [];
@@ -294,6 +297,9 @@ function buildContract() {
             namespace: overlay.namespaces[rawNs] || camel(rawNs),
             paramStyle: BODY_METHODS.has(r.method) && !(id in queryIds) ? 'body' : 'query',
             queryReason: queryIds[id],
+            /** 路径参数是否要同时留在 body 里（见 overlay.bodyPathParams）。 */
+            keepPathParamsInBody: id in bodyPathIds,
+            bodyPathReason: bodyPathIds[id],
             /** 服务端这个方法用到的 @RequestParam 名（无则 undefined）。 */
             requestParams: r.requestParams,
         };
@@ -335,6 +341,25 @@ function buildContract() {
         }
         if (!reason || typeof reason !== 'string') {
             throw new Error(`overlay.queryParams 里的 "${id}" 缺少原因说明（写出服务端为什么只认 query）。`);
+        }
+    }
+
+    // bodyPathParams 同样不许写错，规则比 queryParams 更严：必须是"有 body 且真有路径参数"的方法
+    for (const [id, reason] of Object.entries(bodyPathIds)) {
+        const e = ids.get(id);
+        if (!e) {
+            throw new Error(`overlay.bodyPathParams 里的 "${id}" 不是任何已登记的方法 id（拼写错误？）。`);
+        }
+        if (!BODY_METHODS.has(e.httpMethod)) {
+            throw new Error(
+                `overlay.bodyPathParams 里的 "${id}" 是 ${e.httpMethod}，没有请求体，路径参数只能进 URL。`);
+        }
+        if (!/\{\w+\}/.test(e.path)) {
+            throw new Error(
+                `overlay.bodyPathParams 里的 "${id}" 的路径 ${e.path} 里没有路径参数，登记它没有意义。`);
+        }
+        if (!reason || typeof reason !== 'string') {
+            throw new Error(`overlay.bodyPathParams 里的 "${id}" 缺少原因说明（写出服务端为什么要求两处都带）。`);
         }
     }
 
@@ -426,13 +451,21 @@ function renderKotlin(contract) {
     push('        val curated: Boolean,');
     push('        /** 剩余参数的去向。QUERY 的方法**不发 body**。 */');
     push('        val paramStyle: ParamStyle,');
+    push('        /**');
+    push('         * 路径参数是否**同时**留在 JSON body 里。');
+    push('         *');
+    push('         * 默认 false：同一个值没必要发两遍。为 true 的那几条是因为服务端 DTO 把路径参数');
+    push('         * 又声明了一次并加了 @NotNull，而控制器里的 setXxx(pathParam) 在参数绑定**之后**才跑，');
+    push('         * 救不了 @Valid —— 客户端不放进 body 就必然校验失败。');
+    push('         */');
+    push('        val keepPathParamsInBody: Boolean,');
     push('    )');
     push('');
     push(`    /** 暴露给 Web 的方法共 ${exposed.length} 条。 */`);
     push('    val methods: List<Method> =');
     push('        listOf(');
     for (const m of exposed) {
-        push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}, ParamStyle.${m.paramStyle.toUpperCase()}),`);
+        push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}, ParamStyle.${m.paramStyle.toUpperCase()}, ${m.keepPathParamsInBody}),`);
     }
     push('        )');
     push('');
@@ -451,7 +484,7 @@ function renderKotlin(contract) {
         push('    val excluded: List<Method> =');
         push('        listOf(');
         for (const m of excluded) {
-            push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}, ParamStyle.${m.paramStyle.toUpperCase()}),`);
+            push(`            Method("${m.id}", Domain.${m.domain.toUpperCase()}, "${m.httpMethod}", "${m.path}", "${m.packetType}", ${m.curated}, ParamStyle.${m.paramStyle.toUpperCase()}, ${m.keepPathParamsInBody}),`);
         }
         push('        )');
     }
@@ -503,12 +536,18 @@ function renderTs(contract) {
     push('   * `@RequestParam`（只认 query string），不登记就会永远 400。');
     push('   */');
     push('  readonly paramStyle: BridgeParamStyle;');
+    push('  /**');
+    push('   * 路径参数是否**同时**留在 JSON body 里。默认 false。');
+    push('   * 为 true 的那几条是因为服务端 DTO 把路径参数又声明了一次并加了 @NotNull，');
+    push('   * 而控制器里的 setXxx(pathParam) 在参数绑定之后才跑，救不了 @Valid。');
+    push('   */');
+    push('  readonly keepPathParamsInBody: boolean;');
     push('}');
     push('');
     push(`/** 暴露给 Web 的方法共 ${exposed.length} 条。 */`);
     push('export const BRIDGE_METHODS = [');
     for (const m of exposed) {
-        push(`  { id: '${m.id}', domain: '${m.domain}', httpMethod: '${m.httpMethod}', path: '${m.path}', packetType: '${m.packetType}', curated: ${m.curated}, paramStyle: '${m.paramStyle}' },`);
+        push(`  { id: '${m.id}', domain: '${m.domain}', httpMethod: '${m.httpMethod}', path: '${m.path}', packetType: '${m.packetType}', curated: ${m.curated}, paramStyle: '${m.paramStyle}', keepPathParamsInBody: ${m.keepPathParamsInBody} },`);
     }
     push('] as const satisfies readonly BridgeMethod[];');
     push('');

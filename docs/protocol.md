@@ -74,6 +74,12 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
     **不是手抄的**：生成器直接扫服务端控制器的 `@RequestParam`，漏登记一条就构建失败。
   - 回归证据：`pnpm bench:querystyle`（让桥对着记录型假后端发一次，断言 URL 与 body 的形状，
     25 项；无副作用，不碰真数据）。
+- **路径参数是否同时进 body（`keepPathParamsInBody`）**：默认 `false`。
+  桥默认把路径参数从 body 里剔掉（同一个值没必要发两遍），但服务端有一类 DTO 会把路径参数
+  **再声明一次并加 `@NotNull`**，而控制器里的 `request.setTaskId(taskId)` 在参数绑定**之后**
+  才执行 —— 救不了 `@Valid`，客户端不放进 body 就必然校验失败。
+  登记在 `bridge-overlay.json` 的 `bodyPathParams`（要写清服务端为什么要求两处都带），
+  生成期校验 id 存在、方法有 body、路径里真有路径参数。见 [feature-parity.md](./feature-parity.md) §5.2。
 
 ## 5. 错误码
 
@@ -82,6 +88,19 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 `BRIDGE_FRAME_TOO_LARGE` / `BRIDGE_RATE_LIMITED` / `BRIDGE_BACKEND_UNREACHABLE` / `BRIDGE_INTERNAL`。
 
 后端错误**原样透传**后端编码（如 `RES-4010`）。
+
+**`err.details`（业务拒绝原因）**：内容由**服务端**给出，不是桥写的文案，因此不违反
+"桥不下发文案"的原则。用于那些 Web 无从映射的拒绝 —— 实测 `VAL-0001` 的原话是
+「只能对已完成的巡检任务进行补录」，让用户看到「操作未完成（VAL-0001）」等于什么都没说。
+
+约束（在桥侧强制，见 `BackendErrorCodes.detailFor`）：
+
+- **白名单前缀**才放行：`RES-` / `VAL-` / `AUTH-` / `BIZ-`。
+  5xx 的响应体可能含堆栈、SQL 片段或内部路径，**默认不放行才安全**；
+  漏掉一个业务前缀的代价只是"少了一句解释"。
+- 截断到 120 字符并压平换行。
+- Web 侧 `humanize()` 的顺序是：`messageKey` 映射 → 已知码 → `details` → 兜底码。
+  **已知码优先于 details**，保证同一类错误在界面上措辞一致。
 
 **文案不下发**：只给 `messageKey`，由 Web 侧 i18n 解析。
 这延续旧版"谁展示谁拥有"的口径（旧仓 `ApiResponseHandler` 里 401 不带文案的同一决定）。
@@ -114,3 +133,4 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 | --- | --- | --- |
 | v3 | W0 冻结 | 初版：四类帧、`__bridge.json` 引导、167 条方法白名单、带外大对象通道 |
 | v3 | W6/W7 | 方法表新增 `paramStyle` 字段（`body`/`query`）：11 个服务端用 `@RequestParam` 的 POST/PUT 端点改走 query。**帧格式与版本号不变**，老 Web 产物仍能跑，只是这些方法调不通 |
+| v3 | W8 | 方法表新增 `keepPathParamsInBody`（默认 false）；启用 `err.details` 承载服务端业务拒绝原因（白名单前缀 + 截断）。两者都是**新增可选字段**，老产物不受影响 |

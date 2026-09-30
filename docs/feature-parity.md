@@ -21,7 +21,7 @@
 | 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 待迁（需 `alert.detail`） |
 | 2 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertListScreen.kt` | 317 | overview | 已迁 · `overview/AlertListScreen.tsx` |
 | 3 | `core/ui/src/main/java/com/huicang/wise/ui/camera/CameraScanScreen.kt` | 255 | **待归类** | 壳能力（相机 + 解码在原生侧），不映射桥方法 |
-| 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 待迁（需 `inspection.taskCreate`） |
+| 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 已迁 · `field/InspectionTaskCreateScreen.tsx` |
 | 5 | `feature/dashboard/src/main/java/com/huicang/wise/ui/dashboard/DashboardScreen.kt` | 116 | overview | 已迁 · `overview/DashboardScreen.tsx` |
 | 6 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceDetailScreen.kt` | 251 | field | 已迁 · `field/DeviceDetailScreen.tsx` |
 | 7 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceListScreen.kt` | 211 | field | 已迁 · `field/DeviceListScreen.tsx` |
@@ -33,7 +33,7 @@
 | 13 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventorySearchScreen.kt` | 272 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
 | 14 | `feature/auth/src/main/java/com/huicang/wise/ui/login/LoginScreen.kt` | 273 | system（登录不在一级域内） | 已迁 · `auth/LoginScreen.tsx`（登录屏不是可导航目的地，由 App.tsx 的会话闸门直接渲染，因此不登记在屏注册表里） |
 | 15 | `app/src/main/java/com/huicang/wise/ui/main/MainScreen.kt` | 277 | **待归类** | 被 AppFrame / MobileShell / DesktopShell 取代（壳不再是一个屏） |
-| 16 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/ManualRecordScreen.kt` | 267 | **待归类** | 待迁（需 `inspection.manualRecord`） |
+| 16 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/ManualRecordScreen.kt` | 267 | **待归类** | 已迁 · `field/InspectionManualRecordScreen.tsx` |
 | 17 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageDetailScreen.kt` | 337 | me | 已迁 · `me/MessageDetailScreen.tsx` |
 | 18 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageListScreen.kt` | 396 | me | 已迁 · `me/MessageListScreen.tsx` |
 | 19 | `feature/auth/src/main/java/com/huicang/wise/ui/nfc/NfcLoginScreen.kt` | 235 | system（登录不在一级域内） | 壳能力（NFC 读取在原生侧），不映射桥方法 |
@@ -56,7 +56,7 @@
 | 2 | `alert/list` | overview | 已迁 · （未填新屏路径） |
 | 3 | `device/detail` | field | 已迁 · （未填新屏路径） |
 | 4 | `device/list` | field | 已迁 · （未填新屏路径） |
-| 5 | `inspection/create` | field | 待迁（需 `inspection.taskCreate`） |
+| 5 | `inspection/create` | field | 已迁 · （未填新屏路径） |
 | 6 | `inspection/detail` | field | 已迁 · （未填新屏路径） |
 | 7 | `inspection/list` | field | 已迁 · （未填新屏路径） |
 | 8 | `inventory/detail` | inventory | 待迁（需 `inventory.detail`） |
@@ -315,16 +315,26 @@
 
 > 这份清单**不是手抄的**：契约生成器直接扫服务端控制器的 `@RequestParam`，漏登记一条就构建失败（`pnpm check:contract`）。
 
+## 5.2 body 里必须同时带路径参数的方法（1 条）
+
+桥默认把路径参数从 body 里剔掉 —— 同一个值没必要发两遍。
+但下列端点的服务端 DTO 把路径参数**又声明了一次**并加了 `@NotNull`，而控制器里的 `request.setXxx(路径参数)` 在参数绑定**之后**才执行，
+救不了 `@Valid`：客户端不把值放进 body 就必然校验失败（表现为「参数错误」）。
+
+| 方法 id | HTTP | 路径 | 服务端为什么要求两处都带 |
+| --- | --- | --- | --- |
+| `inspection.manualRecord` | POST | `/api/inspection/task/{taskId}/manual-record` | POST /api/inspection/task/{taskId}/manual-record —— ManualRecordRequest.taskId 是 @NotNull，而控制器在绑定后才 setTaskId；不加就会 VAL-0001（实测） |
+
 ## 6. 迁移进度（机械统计）
 
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 18 |
+| ├ 已迁（依赖的桥方法全部已登记） | 20 |
 | ├ 部分迁（新屏在了，但还有方法没接） | 0 |
-| ├ 待迁（一个方法都没接） | 7 |
+| ├ 待迁（一个方法都没接） | 5 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
-| 旧路由已覆盖 | 14 / 19 |
-| 已登记屏（registry 条目数） | 25 |
+| 旧路由已覆盖 | 15 / 19 |
+| 已登记屏（registry 条目数） | 28 |
 
 ✓ 每一块旧屏都在 `LEGACY_SCREEN_MAP` 里有归宿（含"无对应物"的说明），无遗漏。

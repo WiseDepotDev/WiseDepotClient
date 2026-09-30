@@ -67,6 +67,11 @@ class OkHttpBackend(
 
             val body =
                 when {
+                    // 个别端点要求路径参数**同时**出现在 body 里（见 BackendCall.keepPathParamsInBody）：
+                    // 服务端 DTO 会把它再声明一次并加 @NotNull，而控制器里的 setter 在绑定之后才跑。
+                    hasBody && call.keepPathParamsInBody ->
+                        Envelope.wrap(call.packetType, call.requestId, call.params ?: JsonObject(emptyMap()), clock())
+                            .toRequestBody(JSON_MEDIA)
                     hasBody -> Envelope.wrap(call.packetType, call.requestId, rest, clock()).toRequestBody(JSON_MEDIA)
                     // OkHttp 硬性要求 POST/PUT/PATCH 必须带 body（不带会抛 IllegalArgumentException），
                     // 所以"参数走 query"的那些方法要发一个空 JSON 对象占位 —— 服务端没有 @RequestBody，不会去解析它。
@@ -95,7 +100,14 @@ class OkHttpBackend(
                     if (unwrapped.code == Envelope.SUCCESS_CODE) {
                         BackendResult.Ok(unwrapped.data)
                     } else {
-                        BackendResult.Failed(code = code ?: BackendErrorCodes.INTERNAL, messageKey = null, retryable = false)
+                        BackendResult.Failed(
+                            code = code ?: BackendErrorCodes.INTERNAL,
+                            messageKey = null,
+                            retryable = false,
+                            // 业务拒绝的原因只有服务端知道（例：「只能对已完成的巡检任务进行补录」）。
+                            // 白名单前缀 + 截断，见 BackendErrorCodes.detailFor。
+                            details = BackendErrorCodes.detailFor(code ?: "", unwrapped.message),
+                        )
                     }
                 }
             } catch (e: IOException) {
@@ -112,7 +124,12 @@ class OkHttpBackend(
         val code = unwrapped?.let { it.errorCode ?: it.code } ?: "HTTP-$status"
         val messageKey = if (status == 401) "error_session_expired" else null
         val retryable = status >= 500
-        return BackendResult.Failed(code = code, messageKey = messageKey, retryable = retryable)
+        return BackendResult.Failed(
+            code = code,
+            messageKey = messageKey,
+            retryable = retryable,
+            details = BackendErrorCodes.detailFor(code, unwrapped?.message),
+        )
     }
 
     companion object {

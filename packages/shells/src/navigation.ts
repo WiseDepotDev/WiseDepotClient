@@ -55,6 +55,11 @@ export const DOMAINS: readonly NavDomain[] = [
     short: '现场',
     children: [
       { id: 'inspections', label: '巡检任务', primaryMethod: 'inspection.taskPage' },
+      // 现场域的"写"入口。旧 APP 把建任务/补录藏在列表页的浮动按钮里，
+      // 新架构里**每个屏就是一条导航项**（壳不知道屏内还有什么），所以显式列出来。
+      { id: 'inspection-create', label: '新建巡检', primaryMethod: 'inspection.taskCreate' },
+      { id: 'inspection-result', label: '录入结果', primaryMethod: 'inspection.resultCreate' },
+      { id: 'inspection-manual', label: '手动补录', primaryMethod: 'inspection.manualRecord' },
       { id: 'devices', label: '设备管理', primaryMethod: 'device.list' },
     ],
   },

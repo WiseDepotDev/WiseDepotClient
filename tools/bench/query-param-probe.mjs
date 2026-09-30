@@ -40,8 +40,18 @@ const ENV_FILE = path.join(WORKSPACE_ROOT, 'deploy', '.env.local');
 function readMethods() {
     const text = fs.readFileSync(CONTRACT_TS, 'utf8');
     const re =
-        /\{ id: '([^']+)', domain: '[^']+', httpMethod: '([^']+)', path: '([^']+)', packetType: '[^']+', curated: (?:true|false), paramStyle: '([^']+)' \}/g;
-    return [...text.matchAll(re)].map((m) => ({ id: m[1], httpMethod: m[2], path: m[3], paramStyle: m[4] }));
+        /\{ id: '([^']+)', domain: '[^']+', httpMethod: '([^']+)', path: '([^']+)', packetType: '[^']+', curated: (?:true|false), paramStyle: '([^']+)', keepPathParamsInBody: (?:true|false) \}/g;
+    const methods = [...text.matchAll(re)].map((m) => ({ id: m[1], httpMethod: m[2], path: m[3], paramStyle: m[4] }));
+    // **解析不到就直接失败，不要退化成"0 个用例全部通过"。**
+    // 踩过：给契约条目加了一个字段，这里的正则对不上，于是扫描结果为空，
+    // 脚本照样打印 "OK: 0 项全部通过" —— 一个什么都没验证的绿灯，比红灯危险得多。
+    if (methods.length === 0) {
+        throw new Error(
+            `没有从契约生成物里解析出任何方法（正则与条目格式不匹配？）：${CONTRACT_TS}\n` +
+            '条目形如 { id: …, domain: …, httpMethod: …, path: …, packetType: …, curated: …, paramStyle: …, keepPathParamsInBody: … }',
+        );
+    }
+    return methods;
 }
 
 const results = [];
@@ -226,6 +236,15 @@ async function main() {
         .slice(0, 3);
 
     console.log(`=== 参数去向探测（契约 query 风格 ${queryMethods.length} 条 / 对照 body 风格 ${bodyMethods.length} 条）===`);
+    // 契约里 query 风格的方法**必须**有一批（11 个 @RequestParam 端点）。
+    // 数量掉到 0 说明选法或契约变了，不能让脚本继续跑成一个空绿灯。
+    if (queryMethods.length === 0 || bodyMethods.length === 0) {
+        console.error(
+            `✗ 探测对象为空（query=${queryMethods.length} body=${bodyMethods.length}）：` +
+            '要么契约里没有 query 风格方法，要么解析逻辑失效了。不继续。',
+        );
+        process.exit(1);
+    }
     const rec = await startRecorder();
     const { child, ws } = await startBridge(`http://127.0.0.1:${rec.port}`);
 
