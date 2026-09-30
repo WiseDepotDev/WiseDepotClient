@@ -43,7 +43,7 @@
 | 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 待迁（需 `stockOrder.create`） |
 | 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 待迁（需 `stockOrder.detail`） |
 | 25 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderListScreen.kt` | 252 | inventory | 已迁 · `inventory/StockOrderListScreen.tsx` |
-| 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 待迁（需 `tag.detail`） |
+| 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 已迁 · `inventory/TagDetailScreen.tsx` |
 | 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 已迁 · `inventory/TagListScreen.tsx` |
 | 28 | `feature/user/src/main/java/com/huicang/wise/ui/user/UserManagementScreen.kt` | 219 | me | 已迁 · `me/UserListScreen.tsx` |
 | 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 已迁 · `inventory/WarehouseListScreen.tsx` |
@@ -330,11 +330,11 @@
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 20 |
+| ├ 已迁（依赖的桥方法全部已登记） | 21 |
 | ├ 部分迁（新屏在了，但还有方法没接） | 0 |
-| ├ 待迁（一个方法都没接） | 5 |
+| ├ 待迁（一个方法都没接） | 4 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
 | 旧路由已覆盖 | 15 / 19 |
-| 已登记屏（registry 条目数） | 28 |
+| 已登记屏（registry 条目数） | 30 |
 
 ✓ 每一块旧屏都在 `LEGACY_SCREEN_MAP` 里有归宿（含"无对应物"的说明），无遗漏。

@@ -99,6 +99,14 @@ object BridgeCapabilities {
     const val SECURE_STORE: String = "storage.secure"
     const val OFFLINE_QUEUE: String = "offline.queue"
 
-    /** 桌面与手机都具备的能力（能力表的**共同子集**，UI 可以无条件使用）。 */
-    val common: Set<String> = setOf(SECURE_STORE, OFFLINE_QUEUE, PRINT_SYSTEM)
+    /**
+     * 桌面与手机都具备的能力（能力表的**共同子集**，UI 可以无条件使用）。
+     *
+     * 这里曾经写着 `{storage.secure, offline.queue, print.system}` —— **三项里两项是假的**：
+     * 两个壳都没实现离线队列，也没实现系统打印，`common` 却替它们打了包票。
+     * "常量声称有、实际没有"比不声明更糟：UI 会据此画出永远不工作的入口。
+     *
+     * 现在的口径：**只列两个壳都真的声明了的能力**。加新项之前先改两个壳的声明。
+     */
+    val common: Set<String> = setOf(SECURE_STORE, SCAN_GUN_KEYBOARD)
 }

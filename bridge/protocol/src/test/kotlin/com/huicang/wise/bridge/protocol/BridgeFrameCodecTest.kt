@@ -76,6 +76,10 @@ class BridgeFrameCodecTest {
     fun `共同能力集必须是手机与桌面都能满足的子集`() {
         // 这条断言的意义：UI 可以无条件使用 common 里的能力，
         // 因此任何人往 common 里塞平台专属能力时，测试会先炸。
-        assertEquals(setOf(BridgeCapabilities.SECURE_STORE, BridgeCapabilities.OFFLINE_QUEUE, BridgeCapabilities.PRINT_SYSTEM), BridgeCapabilities.common)
+        //
+        // 曾经这里断言的是 `{storage.secure, offline.queue, print.system}` ——
+        // 而两个壳一项都没实现后两个。断言"常量等于某个值"挡不住**常量本身在说谎**，
+        // 所以这里改成对齐两个壳的真实声明（见 ShellBridge.kt 与 desktop 的 --capabilities）。
+        assertEquals(setOf(BridgeCapabilities.SECURE_STORE, BridgeCapabilities.SCAN_GUN_KEYBOARD), BridgeCapabilities.common)
     }
 }

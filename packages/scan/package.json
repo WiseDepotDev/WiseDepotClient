@@ -1,0 +1,18 @@
+{
+  "name": "@wise/scan",
+  "version": "1.0.0",
+  "private": true,
+  "description": "键盘式扫码枪输入：把「快速连打 + 结束符」的键盘流识别成一次扫码",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0"
+  }
+}

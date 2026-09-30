@@ -45,6 +45,7 @@ export const DOMAINS: readonly NavDomain[] = [
       { id: 'inventory', label: '库存查询', primaryMethod: 'inventory.list' },
       { id: 'products', label: '商品管理', primaryMethod: 'product.list' },
       { id: 'tags', label: '标签管理', primaryMethod: 'tag.list' },
+      { id: 'tag-detail', label: '标签详情', primaryMethod: 'tag.detail' },
       { id: 'stock-orders', label: '出入库单', primaryMethod: 'stockOrder.list' },
       { id: 'warehouses', label: '仓库管理', primaryMethod: 'warehouse.list' },
     ],
@@ -85,3 +86,22 @@ export function domainById(id: DomainId): NavDomain {
 
 /** 登录不在一级域内（system 域），单独给一个初始目的地。 */
 export const LOGIN_ROUTE = { id: 'login', label: '登录', primaryMethod: 'auth.login' } as const;
+
+/**
+ * **扫码的落点**：扫到一个标签编码之后要跳到哪一屏。
+ *
+ * 单独写成常量而不是散在壳里写死字符串：这是"扫码到底去哪"这个产品决策的
+ * 唯一出处，改落点只改这里一处（两个壳都引用它）。
+ */
+export const SCAN_TARGET_METHOD = 'tag.detail';
+
+/** 按桥方法 id 找导航项（找不到返回 undefined，调用方自己决定兜底）。 */
+export function findLeafByMethod(method: string): { domain: DomainId; leaf: NavLeaf } | undefined {
+  for (const d of DOMAINS) {
+    const leaf = d.children.find((c) => c.primaryMethod === method);
+    if (leaf) {
+      return { domain: d.id, leaf };
+    }
+  }
+  return undefined;
+}

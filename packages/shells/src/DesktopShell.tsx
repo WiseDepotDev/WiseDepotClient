@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Bridge } from '@wise/bridge-client';
+import { Capability } from '@wise/bridge-client';
+import { useScanGun } from '@wise/scan';
+import type { ScreenParams } from '@wise/features';
 import {
   AppBar,
   Chip,
@@ -13,7 +16,7 @@ import {
 } from '@wise/patterns';
 import { BridgeStatusChip } from './BridgeStatusChip.js';
 import { PageBody } from './PageBody.js';
-import { DOMAINS, type DomainId, type NavLeaf } from './navigation.js';
+import { DOMAINS, SCAN_TARGET_METHOD, findLeafByMethod, type DomainId, type NavLeaf } from './navigation.js';
 
 /**
  * 桌面外壳（Medium / Expanded，≥600px，见 docs/ui-spec.md §2）。
@@ -42,6 +45,20 @@ export function DesktopShell({
 }): React.ReactElement {
   const [domain, setDomain] = useState<DomainId>('overview');
   const [leaf, setLeaf] = useState<NavLeaf>(DOMAINS[0]!.children[0]!);
+  const [params, setParams] = useState<ScreenParams | undefined>(undefined);
+
+  /** 扫码枪扫到东西 → 跳到标签详情并带上编码（与移动外壳同一套落点）。 */
+  const onScan = useCallback((code: string) => {
+    const target = findLeafByMethod(SCAN_TARGET_METHOD);
+    if (!target) {
+      return;
+    }
+    setDomain(target.domain);
+    setLeaf(target.leaf);
+    setParams({ code });
+  }, []);
+
+  useScanGun({ enabled: bridge.supports(Capability.SCAN_GUN_KEYBOARD), onScan });
 
   return (
     <div className="w-root">
@@ -61,11 +78,23 @@ export function DesktopShell({
               onClick={() => {
                 setDomain(d.id);
                 setLeaf(d.children[0]!);
+                setParams(undefined);
               }}
             />
             {d.id === domain
               ? d.children.map((c) => (
-                  <NavItem key={c.id} label={c.label} child active={c.id === leaf.id} onClick={() => setLeaf(c)} />
+                  <NavItem
+                    key={c.id}
+                    label={c.label}
+                    child
+                    active={c.id === leaf.id}
+                    onClick={() => {
+                      setLeaf(c);
+                      // 换目的地就丢掉上一屏的参数，否则"扫码 → 手点别的页"会把
+                      // 上一个编码带进新屏（详情屏会按旧编码再查一次）。
+                      setParams(undefined);
+                    }}
+                  />
                 ))
               : null}
           </div>
@@ -83,7 +112,8 @@ export function DesktopShell({
             <Page>
               {/* 页头由屏自己画（它才知道该配什么副标题与操作），壳不重复 */}
               <Stack>
-                <PageBody bridge={bridge} leaf={leaf} />
+                {/* `key` 让"换目的地"或"扫到另一个码"时屏重新挂载（同组件复用会带着上一份 state） */}
+                <PageBody key={`${leaf.id}:${params?.code ?? ''}`} bridge={bridge} leaf={leaf} params={params} />
               </Stack>
             </Page>
           </Content>

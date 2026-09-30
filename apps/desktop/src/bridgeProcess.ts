@@ -132,6 +132,10 @@ export class BridgeProcess extends EventEmitter {
       backendUrl,
       '--ver',
       version,
+      // 能力表由**宿主**声明，而不是让桥猜一个默认值 ——
+      // 声明错了 UI 就会画出永远不工作的入口（见 BridgeCapabilities.common 的注释）。
+      '--capabilities',
+      'storage.secure,scan.gun.keyboard',
       ...extraArgs,
     ];
 

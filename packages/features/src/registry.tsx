@@ -7,6 +7,7 @@ import { ProductListScreen } from './inventory/ProductListScreen.js';
 import { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 import { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
 import { TagListScreen } from './inventory/TagListScreen.js';
+import { TagDetailScreen } from './inventory/TagDetailScreen.js';
 import { DeviceListScreen } from './field/DeviceListScreen.js';
 import { DeviceDetailScreen } from './field/DeviceDetailScreen.js';
 import { InspectionTaskListScreen } from './field/InspectionTaskListScreen.js';
@@ -21,6 +22,22 @@ import { UserListScreen } from './me/UserListScreen.js';
 import { ProfileScreen } from './me/ProfileScreen.js';
 
 /**
+ * 屏参数：壳 → 屏的**只读字符串袋**。
+ *
+ * 为什么需要它：屏原先只接收 `bridge`，于是"带着一个具体对象进屏"这件事做不到 ——
+ * 扫码枪扫到一个标签编码，却没有任何办法把它交给标签详情屏，
+ * 用户只能看着一个空白的详情屏再手输一遍。
+ *
+ * 刻意做成"扁平的字符串袋"而不是强类型路由：本仓还没有路由层，
+ * 引入它要连带解决深链、返回栈、参数序列化，那是另一件事。
+ * 一个只有字符串的袋子够用，而且**加了新参数不需要动任何已有屏**
+ * （屏签名里的 `screenParams` 是可选的，老屏照旧只声明 `bridge`）。
+ */
+export interface ScreenParams {
+  readonly [key: string]: string | undefined;
+}
+
+/**
  * 屏注册表：**桥方法 id → 屏组件**。
  *
  * 为什么用注册表而不是在壳里写 `if/switch`：
@@ -29,7 +46,10 @@ import { ProfileScreen } from './me/ProfileScreen.js';
  *  · 没登记的方法自动落到"待迁入"占位，`docs/feature-parity.md` 的清单与它一一对应，
  *    漏迁会以"占位屏"的形式显式存在，而不是悄悄消失。
  */
-export type ScreenComponent = (props: { bridge: Bridge }) => React.ReactElement;
+export type ScreenComponent = (props: {
+  bridge: Bridge;
+  screenParams?: ScreenParams | undefined;
+}) => React.ReactElement;
 
 const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'dashboard.summary': DashboardScreen,
@@ -46,6 +66,10 @@ const REGISTRY: Readonly<Record<string, ScreenComponent>> = {
   'stockOrder.list': StockOrderListScreen,
   // 标签：本域唯一带批量操作与验证码的屏
   'tag.list': TagListScreen,
+  // 标签详情：**扫码枪的落点**（扫到的编码经 screenParams.code 送进来）。
+  // 两种查询入口在同一屏上，所以两条都指向它。
+  'tag.detail': TagDetailScreen,
+  'tag.byCode': TagDetailScreen,
 
   // ---- W6 field 域：设备与巡检 ----
   // 设备列表是现场作业的入口；详情复用同一屏的取数（点行内联展开），故两条都指向它

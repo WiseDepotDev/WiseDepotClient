@@ -5,6 +5,7 @@ export { ProductListScreen } from './inventory/ProductListScreen.js';
 export { WarehouseListScreen } from './inventory/WarehouseListScreen.js';
 export { StockOrderListScreen } from './inventory/StockOrderListScreen.js';
 export { TagListScreen } from './inventory/TagListScreen.js';
+export { TagDetailScreen } from './inventory/TagDetailScreen.js';
 export { DeviceListScreen } from './field/DeviceListScreen.js';
 export { DeviceDetailScreen } from './field/DeviceDetailScreen.js';
 export { InspectionTaskListScreen } from './field/InspectionTaskListScreen.js';
@@ -24,6 +25,7 @@ export {
   NotMigratedScreen,
   MIGRATED_METHODS,
   type ScreenComponent,
+  type ScreenParams,
 } from './registry.js';
 
 export { useBridgeCall, type CallState } from './shared/useBridgeCall.js';

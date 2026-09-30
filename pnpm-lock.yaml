@@ -122,6 +122,16 @@ importers:
         specifier: ^19.1.0
         version: 19.3.0
 
+  packages/scan:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.3.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.3.0
+
   packages/shells:
     dependencies:
       '@wise/bridge-client':
@@ -136,6 +146,9 @@ importers:
       '@wise/patterns':
         specifier: workspace:*
         version: link:../patterns
+      '@wise/scan':
+        specifier: workspace:*
+        version: link:../scan
       '@wise/tokens':
         specifier: workspace:*
         version: link:../tokens

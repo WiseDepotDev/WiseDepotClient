@@ -13,6 +13,7 @@
     "@wise/bridge-client": "workspace:*",
     "@wise/contract": "workspace:*",
     "@wise/patterns": "workspace:*",
+    "@wise/scan": "workspace:*",
     "@wise/tokens": "workspace:*",
     "@wise/features": "workspace:*"
   },

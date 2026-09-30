@@ -19,7 +19,13 @@ import java.util.Base64
  */
 class AndroidPlatform(
     override val version: String,
-    override val capabilities: Set<String> = setOf(BridgeCapabilities.SECURE_STORE),
+    override val capabilities: Set<String> =
+        setOf(
+            BridgeCapabilities.SECURE_STORE,
+            // 键盘式扫码枪：它就是一只 USB HID 键盘，字符直接进 WebView 的 keydown 流，
+            // 因此这一项**不需要任何原生代码**（识别逻辑在 @wise/scan，两端共用）。
+            BridgeCapabilities.SCAN_GUN_KEYBOARD,
+        ),
 ) : PlatformPort {
     override val platform: String = BridgeCapabilities.PLATFORM_MOBILE
 }

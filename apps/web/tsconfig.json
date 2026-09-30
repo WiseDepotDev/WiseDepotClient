@@ -6,5 +6,16 @@
     "noEmit": true,
     "allowImportingTsExtensions": false
   },
-  "include": ["src", "vite.config.ts"]
+  /*
+   * `include` 必须显式列出 packages/*\/src。
+   *
+   * 为什么：`pnpm typecheck` 原先只跑这里的 `include: ["src"]`，
+   * 而 `src` 是通过 import 传递地拉到 `packages/*` 的 —— 也就是说
+   * **只覆盖"被 apps/web 引用到的闭包"**。一个新建但还没接线的屏
+   * （比如忘了在 registry 里登记）**完全不在类型检查范围内**，
+   * 带着类型错误也能让 `pnpm typecheck` 报 0 错误。踩到过一次。
+   *
+   * 显式 include 之后，闭包不再是判据：文件存在就会被检查。
+   */
+  "include": ["src", "vite.config.ts", "../../packages/*/src"]
 }

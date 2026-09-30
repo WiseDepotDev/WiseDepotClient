@@ -19,6 +19,7 @@ import {
   ProfileScreen,
   StockOrderListScreen,
   TagListScreen,
+  TagDetailScreen,
   UserListScreen,
   WarehouseListScreen,
 } from '@wise/features';
@@ -122,6 +123,22 @@ const cases: readonly Case[] = [
     name: 'TagListScreen（标签管理，W5-inventory）',
     render: () => renderToStaticMarkup(<TagListScreen bridge={fakeBridge([])} />),
     expect: ['标签管理', 'w-pageheader', 'w-search', 'w-skeleton', 'w-bottombar', '批量绑定', '批量解绑', '标签列表'],
+  },
+
+  // W9：扫码枪的落点。两种入口共屏：
+  //   · 不带参数 → 查询入口 + 空态（**不该**是骨架：没目标时不取数）
+  //   · 带 screenParams.code → 首帧就按这个码取数（扫码进来的路径）
+  {
+    name: 'TagDetailScreen（标签详情，无参数 → 查询入口）',
+    render: () => renderToStaticMarkup(<TagDetailScreen bridge={fakeBridge([])} />),
+    expect: ['标签详情', '查询标签', 'w-pageheader', 'w-search', 'w-state'],
+  },
+  {
+    name: 'TagDetailScreen（带 screenParams.code → 首帧按码取数）',
+    render: () =>
+      renderToStaticMarkup(<TagDetailScreen bridge={fakeBridge([])} screenParams={{ code: 'TAG-PROBE-1' }} />),
+    // 有目标时应当落到加载态（骨架），而不是查询空态
+    expect: ['w-pageheader', 'w-skeleton'],
   },
 
   // W6：field 域（设备 / 巡检）。列表屏必须同时具备页头、搜索、四态宿主；
