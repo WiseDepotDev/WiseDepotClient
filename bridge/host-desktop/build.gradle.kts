@@ -15,10 +15,6 @@ plugins {
     application
 }
 
-kotlin {
-    jvmToolchain(17)
-}
-
 dependencies {
     implementation(project(":bridge:protocol"))
     implementation(project(":bridge:backend"))

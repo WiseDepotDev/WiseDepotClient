@@ -38,12 +38,18 @@ pnpm check                      # = check:contract + check:contract:legacy + che
 pnpm gen:contract               # 重新生成 Kotlin 注册表 + TS 类型
 pnpm gen:parity                 # 重新生成功能对照清单
 
-# 桥的纯 JVM 侧（不碰 Android 工具链）
-./gradlew :bridge:protocol:test -Pwise.skipAndroid
+# 桥的纯 JVM 侧（不碰 Android 工具链；已实测可跑）
+.\gradlew.bat :bridge:protocol:test "-Pwise.skipAndroid"
+.\gradlew.bat :bridge:host-desktop:build "-Pwise.skipAndroid"
 
-# 手机壳（需要 Android SDK，路径写在未入库的 local.properties）
-./gradlew :apps:mobile:shell:assembleDebug
+# 手机壳（需要 Android SDK，路径写在未入库的 local.properties）—— W2 首次构建
+.\gradlew.bat :apps:mobile:shell:assembleDebug
 ```
+
+> PowerShell 里 `-Pwise.skipAndroid` 必须加引号，否则会被 PowerShell 拆成 `.skipAndroid` 任务名。
+>
+> 本机 JDK 只有 21（无 17），因此**不使用 `jvmToolchain`**：改用"当前 JDK 编译 + 产出 Java 17 字节码"
+> （见根 `build.gradle.kts` 的 subprojects 约定），效果对 Android 消费方等价且不引入工具链下载依赖。
 
 版本号只在 `gradle/libs.versions.toml` 一处（STD-VER-01）；模块脚本里出现字面版本号即违规。
 
@@ -60,5 +66,14 @@ pnpm gen:parity                 # 重新生成功能对照清单
 | W8 设备能力下沉 | ⏳ |
 | W9 收口与出包 | ⏳ |
 
-W0 的验收证据：`pnpm check` 全绿，且 `check:contract:legacy` 报告
-**旧仓 169 个端点 / 新桥 169 个端点、packet_type 逐条一致**。
+W0 的验收证据：
+
+| 证据 | 命令 | 结果 |
+| --- | --- | --- |
+| 契约无漂移 | `pnpm check:contract` | 167 条暴露方法 + 2 条不暴露，生成物与控制器一致 |
+| 与旧 APP 契约一致 | `pnpm check:contract:legacy` | 旧仓 169 端点 / 新桥 169 端点，端点集合一致、`packet_type` 逐条一致 |
+| 功能清单同步 | `pnpm check:parity` | 旧 29 屏 / 19 路由 → 四域 + 167 方法，与归档区一致 |
+| 协议层可编译可测 | `gradlew :bridge:protocol:test` | `BridgeFrameCodecTest` **5 tests / 0 failures / 0 errors** |
+| 全部桥模块可构建 | `gradlew :bridge:host-desktop:build :bridge:server:build` | BUILD SUCCESSFUL（Netty / OkHttp / kotlinx.serialization 均解析成功） |
+
+尚未验证（属 W2，已定阈值）：Android 壳编译、Netty 在 Android 上的 dex/启动/内存/APK 增量门禁。

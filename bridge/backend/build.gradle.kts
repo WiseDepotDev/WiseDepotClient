@@ -9,10 +9,6 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-kotlin {
-    jvmToolchain(17)
-}
-
 dependencies {
     api(project(":bridge:protocol"))
     implementation(libs.okhttp)

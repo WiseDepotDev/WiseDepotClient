@@ -7,7 +7,7 @@
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -43,6 +43,14 @@ android {
             // Netty 靠它做版本探测；R8 阶段另有 keep 规则，这里先保证不被打包剥离
             pickFirsts += setOf("META-INF/io.netty.versions.properties", "META-INF/INDEX.LIST")
         }
+    }
+}
+
+// Android 模块不走根脚本的 subprojects 约定（那个只作用于 kotlin.jvm），
+// 因此这里显式声明字节码目标，与桥模块的 Java 17 对齐。
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
