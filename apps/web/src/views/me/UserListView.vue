@@ -4,7 +4,7 @@ import { ElButton, ElInput } from 'element-plus';
 import { Search } from '@element-plus/icons-vue';
 import type { BridgeErrorLike } from '@wise/stores';
 import { asList, asTotal, humanize, roleLabel, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip, type StatusTone } from '@wise/ui';
+import { ActionDock, ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip, type StatusTone } from '@wise/ui';
 import CaptchaField from '../../components/CaptchaField.vue';
 import { useCaptcha } from '../../components/useCaptcha';
 
@@ -454,7 +454,8 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
     <PageHeader title="用户管理" :note="pageNote">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="refresh">刷新</ElButton>
-        <ElButton size="large" type="primary" @click="toggleCreate">{{ creating ? '收起' : '新增' }}</ElButton>
+        <!-- 桌面档留在页头；手机档移到底部动作条 -->
+        <ElButton class="w-hide-compact" size="large" type="primary" @click="toggleCreate">{{ creating ? '收起' : '新增' }}</ElButton>
       </template>
     </PageHeader>
 
@@ -695,6 +696,12 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
       </p>
       <p v-if="deleteError" class="w-me-user-list__error" role="alert">{{ deleteError }}</p>
     </ConfirmDialog>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="toggleCreate">
+        {{ creating ? '收起建号表单' : '新增账号' }}
+      </ElButton>
+    </ActionDock>
   </div>
 </template>
 

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElSwitch } from 'element-plus';
 import { asList, asTotal, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { ConfirmDialog, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef } from '@wise/ui';
+import { ActionDock, ConfirmDialog, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef } from '@wise/ui';
 
 /**
  * 巡检计划（`inspection.planList` + `planCreate` / `planUpdate` / `planDelete`）。
@@ -190,7 +190,8 @@ async function confirmDelete(): Promise<void> {
     <PageHeader title="巡检计划" :note="total !== undefined ? `共 ${total} 条计划` : '排好盘点计划，现场才能建任务'">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
-        <ElButton size="large" type="primary" @click="openCreate">新建计划</ElButton>
+        <!-- 桌面档留在页头；手机档移到底部动作条 -->
+        <ElButton class="w-hide-compact" size="large" type="primary" @click="openCreate">新建计划</ElButton>
       </template>
     </PageHeader>
 
@@ -220,6 +221,12 @@ async function confirmDelete(): Promise<void> {
         </ResponsiveDataView>
       </StateHost>
     </SectionBlock>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="openCreate">
+        新建计划
+      </ElButton>
+    </ActionDock>
 
     <ElDialog
       :model-value="dialogOpen"

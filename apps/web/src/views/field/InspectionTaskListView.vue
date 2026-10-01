@@ -5,6 +5,7 @@ import { ElButton, ElInput } from 'element-plus';
 import { Search } from '@element-plus/icons-vue';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
 import {
+  ActionDock,
   PageHeader,
   PaginationBar,
   ResponsiveDataView,
@@ -214,7 +215,8 @@ function onPageChange(page: number): void {
     <PageHeader title="巡检任务" :note="note">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
-        <ElButton size="large" type="primary" @click="goCreate">新建巡检</ElButton>
+        <!-- 桌面档留在页头；手机档移到底部动作条 -->
+        <ElButton class="w-hide-compact" size="large" type="primary" @click="goCreate">新建巡检</ElButton>
       </template>
     </PageHeader>
 
@@ -275,6 +277,12 @@ function onPageChange(page: number): void {
       />
       <p class="w-inspection-list__count">{{ `本页 ${rows.length} 个任务` }}</p>
     </SectionBlock>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="goCreate">
+        新建巡检
+      </ElButton>
+    </ActionDock>
   </div>
 </template>
 

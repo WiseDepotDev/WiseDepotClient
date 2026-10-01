@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton, ElCheckbox, ElDialog, ElInput, ElOption, ElSelect } from 'element-plus';
 import { asList, asTotal, humanize, useMutation, useNavStore, useResource, useResourceCacheStore } from '@wise/stores';
-import { PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef } from '@wise/ui';
+import { ActionDock, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef } from '@wise/ui';
 import CaptchaField from '../../components/CaptchaField.vue';
 import { useCaptcha } from '../../components/useCaptcha';
 
@@ -252,15 +252,27 @@ function openDetail(row: TagRow): void {
     <PageHeader title="标签管理" :note="total !== undefined ? `共 ${total} 个标签` : '条码 / RFID / NFC 标签'">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
-        <ElButton size="large" @click="openCreate">新建标签</ElButton>
-        <ElButton size="large" :disabled="selected.length === 0" @click="openBatch('unbind')">
+        <!-- 桌面档留在页头；手机档移到底部动作条 -->
+        <ElButton class="w-hide-compact" size="large" @click="openCreate">新建标签</ElButton>
+        <!--
+          批量动作**没选中就不渲染**（原来是"渲染但禁用"）。
+          在手机档尤其重要：没选中时页头因此整块不占位（`:has()` 那条规则），
+          选中之后它才出现 —— 这正是"不可用的按钮不得渲染"的落点。
+        -->
+        <ElButton v-if="selected.length > 0" size="large" @click="openBatch('unbind')">
           批量解绑（{{ selected.length }}）
         </ElButton>
-        <ElButton size="large" type="primary" :disabled="selected.length === 0" @click="openBatch('bind')">
+        <ElButton v-if="selected.length > 0" size="large" type="primary" @click="openBatch('bind')">
           批量绑定（{{ selected.length }}）
         </ElButton>
       </template>
     </PageHeader>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="openCreate">
+        新建标签
+      </ElButton>
+    </ActionDock>
 
     <p v-if="notice && batch === undefined" class="w-inv-notice" role="status">{{ notice }}</p>
     <p v-if="actionError && batch === undefined" class="w-inv-error" role="alert">{{ actionError }}</p>

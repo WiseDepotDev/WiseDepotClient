@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton } from 'element-plus';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
-import { FilterBar, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
+import { ActionDock, FilterBar, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
 import { orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './stockOrderState.js';
 
 /**
@@ -139,7 +139,8 @@ const typeHint = computed(() => rows.value.filter((r) => orderTypeOf(r) === 'unk
     <PageHeader title="出入库单" :note="total !== undefined ? `共 ${total} 张单据` : '按状态筛选与查看明细'">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
-        <ElButton size="large" type="primary" @click="goCreate">新建出入库单</ElButton>
+        <!-- 桌面档留在页头；手机档移到底部动作条 -->
+        <ElButton class="w-hide-compact" size="large" type="primary" @click="goCreate">新建出入库单</ElButton>
       </template>
     </PageHeader>
 
@@ -174,6 +175,12 @@ const typeHint = computed(() => rows.value.filter((r) => orderTypeOf(r) === 'unk
         />
       </StateHost>
     </SectionBlock>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="goCreate">
+        新建出入库单
+      </ElButton>
+    </ActionDock>
   </div>
 </template>
 

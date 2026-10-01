@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus';
 import { asList, asTotal, humanize, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { ConfirmDialog, PageHeader, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
+import { ActionDock, ConfirmDialog, PageHeader, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
 
 /**
  * 仓库管理（`warehouse.list` + `warehouse.create` / `warehouse.update` / `warehouse.delete`）。
@@ -149,7 +149,8 @@ async function confirmDelete(): Promise<void> {
     <PageHeader title="仓库管理" :note="total !== undefined ? `共 ${total} 个仓库` : '维护仓库主数据'">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
-        <ElButton size="large" type="primary" @click="openCreate">新增仓库</ElButton>
+        <!-- 桌面档留在页头；手机档移到底部动作条 -->
+        <ElButton class="w-hide-compact" size="large" type="primary" @click="openCreate">新增仓库</ElButton>
       </template>
     </PageHeader>
 
@@ -179,6 +180,12 @@ async function confirmDelete(): Promise<void> {
         </ResponsiveDataView>
       </StateHost>
     </SectionBlock>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="openCreate">
+        新增仓库
+      </ElButton>
+    </ActionDock>
 
     <ElDialog :model-value="dialogOpen" :title="dialogTitle" width="var(--w-size-dialog-max-width)" append-to-body @update:model-value="(v: boolean) => (v ? (dialogOpen = true) : closeDialog())">
       <ElForm label-position="top">

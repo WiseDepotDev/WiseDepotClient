@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus';
 import { asList, asTotal, humanize, shortTime, useMutation, useNavStore, useResource, useResourceCacheStore } from '@wise/stores';
-import { ConfirmDialog, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
+import { ActionDock, ConfirmDialog, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
 
 /**
  * 商品管理（`product.list` + `product.create` / `product.update` / `product.delete`）。
@@ -145,7 +145,8 @@ async function confirmDelete(): Promise<void> {
     <PageHeader title="商品管理" :note="total !== undefined ? `共 ${total} 个商品` : '维护商品主数据'">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
-        <ElButton size="large" type="primary" @click="openCreate">新增商品</ElButton>
+        <!-- 桌面档留在页头；手机档移到底部动作条（见文件末尾的 ActionDock） -->
+        <ElButton class="w-hide-compact" size="large" type="primary" @click="openCreate">新增商品</ElButton>
       </template>
     </PageHeader>
 
@@ -195,6 +196,12 @@ async function confirmDelete(): Promise<void> {
         />
       </StateHost>
     </SectionBlock>
+
+    <ActionDock>
+      <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="openCreate">
+        新增商品
+      </ElButton>
+    </ActionDock>
 
     <ElDialog :model-value="dialogOpen" :title="dialogTitle" width="var(--w-size-dialog-max-width)" append-to-body @update:model-value="(v: boolean) => (v ? (dialogOpen = true) : closeDialog())">
       <ElForm label-position="top">

@@ -524,6 +524,23 @@
 }
 
 /*
+ * 手机档：动作坞**固定在底栏上方**，而不是"内容够长才粘住"。
+ *
+ * 为什么不能用 sticky：sticky 只在元素本来要滚出视口时才粘住 ——
+ * 内容短的时候（列表只有 3 条）它就停在文档流末尾，看起来像"页面中间孤零零一个按钮"，
+ * 而主操作恰恰要在**任何时候**都够得着。所以手机档用 fixed，并由
+ * `.w-page:has(.w-actiondock)` 在页面底部留出等高的空白，避免盖住内容。
+ */
+@media (max-width: 599px) {
+  .w-actiondock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--w-space-tabbar-height) + env(safe-area-inset-bottom, 0));
+  }
+}
+
+/*
  * 手机档给页面**底部留出动作坞的高度**。
  *
  * 为什么必须留：`.w-actiondock` 是 sticky，粘住之后它就浮在内容之上 ——
@@ -548,6 +565,24 @@
     background: transparent;
     border-top: none;
   }
+}
+
+/*
+ * 「只在手机档出现」的动作。
+ *
+ * 页头那个「新建 XX」在窄屏会独占一行（48px 的触控目标不能再小），而它其实是**主操作** ——
+ * 主操作在手机上应该待在拇指够得到的底部，页头留给标题与图标动作。
+ * 桌面档相反：页头够显眼，底部条反而要滚到底才看见，所以两边各留一个、用这个类互斥。
+ */
+@media (min-width: 600px) {
+  .w-show-compact-only {
+    display: none;
+  }
+}
+
+/* 底部动作条里的主操作占满宽度：不用瞄准边角 */
+.w-actiondock__block {
+  flex: 1 1 auto;
 }
 
 /* ---------- 四态 ---------- */
