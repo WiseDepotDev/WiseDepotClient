@@ -1250,6 +1250,91 @@ const reasons = await cdp.evaluate(
 check('没有明细的单据不能提交', noItemSubmit.disabled === true);
 check('并且写明原因（需要先登记明细）', /还没有明细/.test(reasons), reasons.slice(0, 40));
 
+/*
+ * ---- 明细增删：规则模块里早就写好、界面之前没接的那条 ----
+ *
+ * `canEditItems`（只有待处理 / 已驳回可增删）与服务端 `addItem/removeItem` 的两道闸门逐字一致。
+ * 这里在**待审批**的 8001 上验"能加能删"，在**待审核**的 8002 上验"没有入口且写明原因"。
+ */
+await cdp.evaluate(`(location.hash = '#/inventory/stock-orders/8001')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText.includes('IN-20260101-0900') ? true : null`, 20_000, 200);
+const itemsBefore = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, { awaitPromise: false });
+const editToolbar = await cdp.evaluate(
+  `({
+     hasAdd: [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === '添加明细'),
+     hasTagInput: !!document.querySelector('.w-order__tag input'),
+   })`,
+  { awaitPromise: false },
+);
+check('待审批单据有「添加明细」入口（规则允许）', editToolbar.hasAdd === true && editToolbar.hasTagInput === true, JSON.stringify(editToolbar));
+
+await clearCalls();
+await cdp.evaluate(
+  `(() => {
+     const input = document.querySelector('.w-order__tag input');
+     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
+     setter.call(input, '3');
+     input.dispatchEvent(new Event('input', { bubbles: true }));
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(300);
+await clickByText('添加明细');
+await sleep(1000);
+const itemAddCalls = await callsWithPrefix('stockOrder.addItem');
+check(
+  '添加真的调用了 stockOrder.addItem（只发 tagId，商品由标签带出）',
+  itemAddCalls.includes('stockOrder.addItem') && itemAddCalls.includes('"tagId":3') && !itemAddCalls.includes('productName'),
+  itemAddCalls,
+);
+const itemsAfterAdd = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, { awaitPromise: false });
+check('明细真的多了一条', itemsAfterAdd === itemsBefore + 1, `${itemsBefore} → ${itemsAfterAdd}`);
+const addNotice = await text('.w-order-notice');
+check('添加后给出"商品按标签带出、项数加一"的说法', /明细已添加/.test(addNotice), addNotice.slice(0, 30));
+
+// 移除刚才加的那条（tag 3 未绑定商品，行文本里就是"未绑定商品"）
+await clearCalls();
+const removeHit = await cdp.evaluate(
+  `(() => {
+     const rows = [...document.querySelectorAll('.el-table__body tbody tr.el-table__row')];
+     // 别用 includes('3') 找行：数字 3 可能出现在数量/货位里，匹配到别的行就什么都不会发生（踩过一次）
+     const row = rows.find((r) => r.innerText.includes('未绑定商品')) ?? rows[rows.length - 1];
+     const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '移除');
+     if (!btn) return false;
+     btn.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(1000);
+const removeCalls = await callsWithPrefix('stockOrder.removeItem');
+check(
+  '移除真的调用了 stockOrder.removeItem（按 tagId 精确移除）',
+  removeHit === true && removeCalls.includes('stockOrder.removeItem') && removeCalls.includes('"tagId":3'),
+  `${removeHit} / ${removeCalls}`,
+);
+const itemsAfterRemove = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, { awaitPromise: false });
+check('移除后明细回到原来的条数（项数同步）', itemsAfterRemove === itemsBefore, `${itemsAfterAdd} → ${itemsAfterRemove}`);
+
+// 待审核的那张（8002）：没有增删入口，并写明原因（服务端原话）
+await cdp.evaluate(`(location.hash = '#/inventory/stock-orders/8002')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText.includes('OUT-20260102-1000') ? true : null`, 20_000, 200);
+const submittedEdit = await cdp.evaluate(
+  `({
+     hasAdd: [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === '添加明细'),
+     hasRemove: [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === '移除'),
+     reason: [...document.querySelectorAll('.w-order-reason')].map((n) => n.innerText.trim()).join(' | '),
+   })`,
+  { awaitPromise: false },
+);
+check('待审核单据没有增删入口（规则不允许）', submittedEdit.hasAdd === false && submittedEdit.hasRemove === false, JSON.stringify(submittedEdit).slice(0, 80));
+check(
+  '并且写明"只有待处理或已驳回可以增删明细"（与偶服务端同一句）',
+  /只有待处理或已驳回的单据可以增删明细/.test(submittedEdit.reason),
+  submittedEdit.reason.slice(0, 60),
+);
+
 // 待审核的那张（8002）：撤回 + 审核通过都可点；审核通过后全部不可点
 await cdp.evaluate(`(location.hash = '#/inventory/stock-orders/8002')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText.includes('OUT-20260102-1000') ? true : null`, 20_000, 200);

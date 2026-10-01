@@ -202,6 +202,49 @@ try {
     check('再查列表是新值（写真的落到数据上了）', reread?.warehouseName === '华东中心仓（新）' && reread?.address === '', JSON.stringify(reread ?? {}).slice(0, 140));
     check('新建仓库带上了描述字段（DTO 里本来就有，之前界面没维护）', call(mock, 'warehouse.create', { warehouseName: '临时仓', warehouseCode: 'TMP-9', description: '临时' }).ok === true && call(mock, 'warehouse.list', {}).value.rows[0]?.description === '临时', 'description 没被写入');
   }
+
+  // ---- 7. 单据明细增删：状态闸门 + 只从标签取商品 + 项数同步 ----
+  {
+    const mock = new DomainMock();
+    /*
+     * 用 **tagId 3**：8001 的种子明细里已经有 tag 1（`items: [{tagId: 1, …}]`），
+     * 拿 tag 1 测"加一条再删一条"会变成"加重复项、删掉其中一条"，断言会自相矛盾（第一次写就是这么错的）。
+     */
+    const FREE_TAG = 3;
+    // 8001 待审批（PENDING=0）→ 允许；8002 待审核（SUBMITTED=4）→ 拒绝
+    const allowed = call(mock, 'stockOrder.addItem', { orderId: 8001, tagId: FREE_TAG });
+    check('待审批单据可以添加明细', allowed.ok === true, JSON.stringify(allowed).slice(0, 120));
+    check('返回的是整张单据（服务端回 StockOrderDTO）', allowed.value?.orderId === 8001, JSON.stringify(allowed.value ?? {}).slice(0, 80));
+    const order = call(mock, 'stockOrder.detail', { orderId: 8001 }).value;
+    check('明细真的多了一条', order.items.some((x) => x.tagId === FREE_TAG), JSON.stringify(order.items).slice(0, 140));
+
+    const denied = call(mock, 'stockOrder.addItem', { orderId: 8002, tagId: FREE_TAG });
+    check(
+      '已提交（待审核）的单据**不能**加明细，且带服务端原话',
+      denied.ok === false && denied.code === 'VAL-0001' && denied.details.includes('只有待处理或已驳回的单据可以添加明细'),
+      JSON.stringify(denied).slice(0, 160),
+    );
+    const deniedRemove = call(mock, 'stockOrder.removeItem', { orderId: 8002, tagId: FREE_TAG });
+    check('同理不能删明细', deniedRemove.ok === false && deniedRemove.details.includes('可以删除明细'), deniedRemove.details);
+
+    const noOrder = call(mock, 'stockOrder.addItem', { orderId: 99999, tagId: FREE_TAG });
+    check('单据不存在 → RES-0004「出入库单不存在」', noOrder.ok === false && noOrder.code === 'RES-0004' && noOrder.details.includes('出入库单不存在'));
+    const noTag = call(mock, 'stockOrder.addItem', { orderId: 8001, tagId: 99999 });
+    check('标签不存在 → RES-0004「标签不存在」', noTag.ok === false && noTag.code === 'RES-0004' && noTag.details.includes('标签不存在'));
+
+    const before = call(mock, 'stockOrder.detail', { orderId: 8001 }).value.totalItems;
+    const removed = call(mock, 'stockOrder.removeItem', { orderId: 8001, tagId: FREE_TAG });
+    check('待审批单据可以移除明细', removed.ok === true, JSON.stringify(removed).slice(0, 120));
+    const after = call(mock, 'stockOrder.detail', { orderId: 8001 }).value;
+    check(
+      '移除后明细不见了，且项数同步减一（服务端就是这么做的）',
+      !after.items.some((x) => x.tagId === FREE_TAG) && after.totalItems === before - 1,
+      `totalItems ${before} → ${after.totalItems}`,
+    );
+    const removeGhost = call(mock, 'stockOrder.removeItem', { orderId: 8001, tagId: FREE_TAG });
+    check('再删同一条 → RES-0004「明细不存在」', removeGhost.ok === false && removeGhost.details.includes('明细不存在'));
+    check('种子那条 tag 1 没被误删', call(mock, 'stockOrder.detail', { orderId: 8001 }).value.items.some((x) => x.tagId === 1));
+  }
 } catch (error) {
   console.error(`✗ 护栏执行失败：${error?.stack ?? error}`);
   process.exit(1);

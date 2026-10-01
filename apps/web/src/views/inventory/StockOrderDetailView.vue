@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import { ElButton, ElDialog, ElInput } from 'element-plus';
 import { asList, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
 import { ActionDock, KeyValuePanel, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef, type KeyValueItem } from '@wise/ui';
-import { canAudit, canSubmit, canWithdraw, orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './stockOrderState.js';
+import { canAudit, canEditItems, canSubmit, canWithdraw, orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './stockOrderState.js';
 
 /**
  * 单据详情（`stockOrder.detail` + `submit` / `withdraw` / `audit`）。
@@ -154,9 +154,75 @@ const notice = ref<string | undefined>(undefined);
 const submitMutation = useMutation('stockOrder.submit');
 const withdrawMutation = useMutation('stockOrder.withdraw');
 const auditMutation = useMutation('stockOrder.audit');
+const addItemMutation = useMutation('stockOrder.addItem');
+const removeItemMutation = useMutation('stockOrder.removeItem');
 const busy = computed(
-  () => submitMutation.pending.value || withdrawMutation.pending.value || auditMutation.pending.value,
+  () =>
+    submitMutation.pending.value ||
+    withdrawMutation.pending.value ||
+    auditMutation.pending.value ||
+    addItemMutation.pending.value ||
+    removeItemMutation.pending.value,
 );
+
+/* ------------------------------------------------------------------ 明细增删
+ *
+ * 这条规则**早就在状态模块里写好了**（`canEditItems`：只有待处理 / 已驳回可增删），
+ * 而且与服务端 `InOutApplicationService#addItem/removeItem` 的两道闸门逐字一致 ——
+ * 之前只是界面没接，等于"规则存在、界面不存在"。这里把它接上，并用同一份判据做展示。
+ */
+const canDoEditItems = computed(() => canEditItems(order.value));
+const tagInput = ref('');
+const itemError = ref<string | undefined>(undefined);
+const itemNotice = ref<string | undefined>(undefined);
+
+/**
+ * 添加明细：**只发 `tagId`**。
+ *
+ * 服务端只从标签取 `productId`（`detail.setProductId(tag.getProductId())`），
+ * `productName` / `quantity` / `locationCode` 这些字段它根本不读 ——
+ * 所以界面**不让用户填商品**：填了不会被采纳，反而让人以为"是我指定的商品"。
+ * 每加一个标签，服务端把 `totalItems` 加一（一件实物 = 一条明细）。
+ */
+async function addItem(): Promise<void> {
+  const id = orderId.value;
+  if (id === undefined) {
+    return;
+  }
+  itemError.value = undefined;
+  itemNotice.value = undefined;
+  const tagId = Number(tagInput.value.trim());
+  if (!Number.isInteger(tagId) || tagId <= 0) {
+    itemError.value = '标签 ID 要填大于 0 的整数：明细是按贴在实物上的标签逐件记的。';
+    return;
+  }
+  try {
+    await addItemMutation.run({ orderId: id, tagId });
+    tagInput.value = '';
+    itemNotice.value = '明细已添加：商品信息按标签的绑定关系自动带出，项数加一。';
+    cache.invalidate('stockOrder');
+    reload();
+  } catch (e) {
+    itemError.value = humanize(e as never);
+  }
+}
+
+async function removeItem(tagId: number | undefined): Promise<void> {
+  const id = orderId.value;
+  if (id === undefined || tagId === undefined) {
+    return;
+  }
+  itemError.value = undefined;
+  itemNotice.value = undefined;
+  try {
+    await removeItemMutation.run({ orderId: id, tagId });
+    itemNotice.value = '明细已移除，单据的明细项数同步减一。';
+    cache.invalidate('stockOrder');
+    reload();
+  } catch (e) {
+    itemError.value = humanize(e as never);
+  }
+}
 
 const actionTitle = computed(() => {
   switch (pending.value) {
@@ -229,6 +295,9 @@ async function confirm(): Promise<void> {
 watch(orderId, () => {
   notice.value = undefined;
   actionError.value = undefined;
+  itemNotice.value = undefined;
+  itemError.value = undefined;
+  tagInput.value = '';
   close();
 });
 </script>
@@ -268,8 +337,38 @@ watch(orderId, () => {
             :columns="itemColumns"
             :rows="items"
             :row-key="(r: StockOrderItem) => String(r.tagId ?? `${r.productCode}-${r.locationCode}`)"
-          />
+          >
+            <template #actions="{ row }">
+              <ElButton
+                v-if="canDoEditItems && row.tagId !== undefined"
+                size="small"
+                type="danger"
+                text
+                @click="removeItem(row.tagId)"
+              >
+                移除
+              </ElButton>
+            </template>
+          </ResponsiveDataView>
         </StateHost>
+
+        <!-- 明细维护：只在服务端允许的状态下出现；不允许时把原因说清楚（同一句服务端原话） -->
+        <div v-if="canDoEditItems" class="w-toolbar">
+          <ElInput
+            v-model="tagInput"
+            size="large"
+            class="w-order__tag"
+            placeholder="标签 ID（扫描或手输）"
+            @keydown.enter="addItem"
+          />
+          <ElButton size="large" type="primary" :disabled="busy" @click="addItem">添加明细</ElButton>
+          <span class="w-order-hint">商品信息按标签的绑定关系自动带出，不用手填。</span>
+        </div>
+        <p v-else class="w-order-reason">
+          {{ `只有待处理或已驳回的单据可以增删明细；这张单据当前是「${orderStatusText(order)}」。` }}
+        </p>
+        <p v-if="itemError" class="w-order-error" role="alert">{{ itemError }}</p>
+        <p v-if="itemNotice" class="w-order-notice" role="status">{{ itemNotice }}</p>
       </SectionBlock>
 
       <SectionBlock title="可以做的操作">

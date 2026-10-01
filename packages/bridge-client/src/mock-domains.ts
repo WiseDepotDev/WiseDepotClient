@@ -757,8 +757,57 @@ export class DomainMock {
         this.orders.push(created);
         return created as T;
       }
-      case 'stockOrder.submit': {
-        const row = this.orders.find((o) => o.orderId === id('orderId'));
+      /**
+       * 明细增删。两道闸门逐字照抄服务端 `InOutApplicationService#addItem/removeItem`：
+       *  1. 单据必须存在（「出入库单不存在」）；
+       *  2. 状态必须是 **PENDING(0) 或 REJECTED(5)**（「只有待处理或已驳回的单据可以添加/删除明细」）。
+       * 另外两点也照抄：
+       *  · 添加时**只从标签取商品**（`detail.setProductId(tag.getProductId())`）——
+       *    请求里的 `productName` / `quantity` / `locationCode` 服务端根本不读，界面也就别让用户填；
+       *  · 加一件 `totalItems + 1`、删一件 `totalItems - 1`（明细按标签逐件记）。
+       */
+      case 'stockOrder.addItem': {
+        const order = this.orders.find((o) => o.orderId === id('orderId'));
+        if (!order) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '出入库单不存在' });
+        }
+        if (order.orderStatus !== 0 && order.orderStatus !== 5) {
+          throw new BridgeError({ code: 'VAL-0001', messageKey: 'error.validation', details: '只有待处理或已驳回的单据可以添加明细' });
+        }
+        const tagId = id('tagId');
+        const tag = this.tags.find((t) => t.tagId === tagId);
+        if (!tag) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '标签不存在' });
+        }
+        order.items.push({
+          tagId: tag.tagId,
+          productId: tag.productId ?? 0,
+          productName: tag.productName ?? '未绑定商品',
+          productCode: tag.productCode ?? '',
+          quantity: 1,
+          locationCode: '',
+        });
+        order.totalItems += 1;
+        return order as T;
+      }
+      case 'stockOrder.removeItem': {
+        const order = this.orders.find((o) => o.orderId === id('orderId'));
+        if (!order) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '出入库单不存在' });
+        }
+        if (order.orderStatus !== 0 && order.orderStatus !== 5) {
+          throw new BridgeError({ code: 'VAL-0001', messageKey: 'error.validation', details: '只有待处理或已驳回的单据可以删除明细' });
+        }
+        const tagId = id('tagId');
+        const index = order.items.findIndex((x) => x.tagId === tagId);
+        if (index < 0) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '明细不存在' });
+        }
+        order.items.splice(index, 1);
+        order.totalItems -= 1;
+        return {} as T;
+      }
+      case 'stockOrder.submit': {        const row = this.orders.find((o) => o.orderId === id('orderId'));
         if (!row) {
           throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '单据不存在' });
         }
