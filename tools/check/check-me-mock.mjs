@@ -180,7 +180,7 @@ try {
   {
     const mock = new MeMock();
     const detail = call(mock, 'user.detail', { userId: 1 });
-    check('用户详情含侧栏要读的字段（nickname/role）', detail.ok && detail.value?.nickname === '现场操作员' && detail.value?.role === 'OPERATOR', JSON.stringify(detail.value ?? {}).slice(0, 100));
+    check('用户详情含侧栏要读的字段（nickname/role）', detail.ok && detail.value?.nickname === '现场操作员' && detail.value?.role === 'USER', JSON.stringify(detail.value ?? {}).slice(0, 100));
     const ghost = call(mock, 'user.detail', { userId: 999 });
     check('用户不存在 → RES-0004「用户不存在」', ghost.ok === false && ghost.code === 'RES-0004' && ghost.details.includes('用户不存在'));
 
@@ -267,9 +267,44 @@ try {
   // ---- 10. 不管不属于自己的方法（别把没实现的方法假装实现了） ----
   {
     const mock = new MeMock();
-    check('user.current 有侧栏要读的字段', mock.call('user.current', {})?.userId === 1 && mock.call('user.current', {})?.role === 'OPERATOR');
+    check('user.current 有侧栏要读的字段', mock.call('user.current', {})?.userId === 1 && mock.call('user.current', {})?.role === 'USER');
     check('React 屏没用的写方法不归它管（交给别的 mock / 如实报未知）', mock.call('user.update', {}) === undefined && mock.call('profile.avatarUpload', {}) === undefined && mock.call('user.assignRoles', {}) === undefined);
     check('库存域的方法仍然不管', mock.call('inventory.list', {}) === undefined);
+  }
+
+  // ---- 11. 角色词表必须与服务端**产出的那两个码**一致 ----
+  //
+  // 服务端只产出 ADMIN / USER（`RoleMapper`：管理员→ADMIN，操作员/访客/其它→USER），
+  // 而种子角色有三个名字（`DataInitializer`：1 管理员 / 2 操作员 / 3 访客）—— 也就是说 USER 是**有损**的。
+  // 假桥若自己发明 OPERATOR / VIEWER，开发态显示的就是服务端永远不下发的词，
+  // 到真机上换成另一个词，而这类偏差在开发态**看不出来**。这条护栏就是钉住它。
+  {
+    const mock = new MeMock();
+    const SERVER_CODES = ['ADMIN', 'USER'];
+    const users = mock.call('user.list', { page: 1, size: 50 }).items;
+    const badUser = users.filter((u) => !SERVER_CODES.includes(String(u.role)));
+    check(
+      '假桥里的用户角色码只能是服务端会产出的 ADMIN / USER',
+      users.length > 0 && badUser.length === 0,
+      `非法=${badUser.map((u) => `${u.username}:${u.role}`).join(',')}`,
+    );
+
+    const roles = call(mock, 'user.roles', { userId: 1 }).value;
+    const badRole = roles.filter((r) => !SERVER_CODES.includes(String(r.roleCode)));
+    check(
+      '角色目录的 roleCode 同样只能有 ADMIN / USER（两个中文角色名共用一个码是有意的）',
+      roles.length > 0 && badRole.length === 0,
+      `非法=${badRole.map((r) => `${r.name}:${r.roleCode}`).join(',')}`,
+    );
+
+    check(
+      '同一用户的两个角色（操作员 / 访客）都落在 USER 上——这是服务端 RoleMapper 的有损压缩，不是假桥的错',
+      roles.length === 2 &&
+        roles.every((r) => r.roleCode === 'USER') &&
+        roles.some((r) => r.name === '操作员') &&
+        roles.some((r) => r.name === '访客'),
+      JSON.stringify(roles),
+    );
   }
 } catch (error) {
   console.error(`✗ 护栏执行失败：${error?.stack ?? error}`);

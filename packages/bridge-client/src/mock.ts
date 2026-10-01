@@ -398,6 +398,6 @@ const FIXTURES: Record<string, unknown> = {
     ],
     total: 3,
   },
-  'user.current': { userId: 1, username: 'operator', nickname: '现场操作员', role: 'OPERATOR' },
+  'user.current': { userId: 1, username: 'operator', nickname: '现场操作员', role: 'USER' },
   'message.unreadCount': 4,
 };

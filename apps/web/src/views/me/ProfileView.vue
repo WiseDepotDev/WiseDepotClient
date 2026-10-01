@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { ElButton, ElInput } from 'element-plus';
 import type { BridgeErrorLike } from '@wise/stores';
-import { humanize, shortTime, useMutation, useResource } from '@wise/stores';
+import { humanize, roleLabel, shortTime, useMutation, useResource } from '@wise/stores';
 import { ConfirmDialog, PageHeader, SectionBlock, StateHost } from '@wise/ui';
 
 /**
@@ -91,19 +91,9 @@ function genderLabel(gender: number | undefined): string {
   }
 }
 
-/** 角色码 → 业务叫法；认不出的码原样显示（与用户管理屏同一份口径）。 */
-function roleLabel(role: string | null | undefined): string {
-  switch (role) {
-    case 'ADMIN':
-      return '管理员';
-    case 'USER':
-      return '普通用户';
-    case null:
-    case undefined:
-      return '未指派角色';
-    default:
-      return role;
-  }
+/** 角色码 → 业务叫法。实现与账号块、用户管理共用一份（`@wise/stores` 的 `roleLabel`）。 */
+function roleTextOf(role: string | null | undefined): string {
+  return roleLabel(role) ?? '未指派角色';
 }
 
 /** 明细里那句"能不能登录"的说法：与 React 版逐字相同。 */
@@ -398,7 +388,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
               <span class="w-mono">{{ me.data.value?.username ?? '未记录' }}</span>
             </dd>
             <dt class="w-me-profile__kvlabel">角色</dt>
-            <dd class="w-me-profile__kvvalue">{{ roleLabel(me.data.value?.role) }}</dd>
+            <dd class="w-me-profile__kvvalue">{{ roleTextOf(me.data.value?.role) }}</dd>
             <dt class="w-me-profile__kvlabel">账号状态</dt>
             <dd class="w-me-profile__kvvalue">{{ loginText(me.data.value?.enabled) }}</dd>
             <dt class="w-me-profile__kvlabel">创建时间</dt>

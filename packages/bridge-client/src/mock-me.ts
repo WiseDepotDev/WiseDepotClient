@@ -178,7 +178,7 @@ export class MeMock {
       nfcId: '04A1B2C3',
       createdAt: '2026-01-01T09:00:00',
       updatedAt: '2026-01-06T09:00:00',
-      role: 'OPERATOR',
+      role: 'USER',
     },
     {
       userId: 2,
@@ -190,7 +190,7 @@ export class MeMock {
       nfcId: '04A1B2C4',
       createdAt: '2026-01-01T09:10:00',
       updatedAt: '2026-01-05T09:10:00',
-      role: 'OPERATOR',
+      role: 'USER',
     },
     {
       userId: 3,
@@ -214,7 +214,7 @@ export class MeMock {
       nfcId: '',
       createdAt: '2026-01-02T09:00:00',
       updatedAt: '2026-01-04T09:00:00',
-      role: 'OPERATOR',
+      role: 'USER',
     },
     {
       userId: 5,
@@ -226,7 +226,7 @@ export class MeMock {
       nfcId: '',
       createdAt: '2026-01-03T09:00:00',
       updatedAt: '2026-01-03T09:00:00',
-      role: 'VIEWER',
+      role: 'USER',
     },
     {
       userId: 6,
@@ -238,14 +238,20 @@ export class MeMock {
       nfcId: '',
       createdAt: '2026-01-04T09:00:00',
       updatedAt: '2026-01-04T09:00:00',
-      role: 'VIEWER',
+      role: 'USER',
     },
   ];
 
   private readonly roleCatalog: RoleRow[] = [
-    { roleId: 1, name: '系统管理员', roleCode: 'ADMIN', description: '全部权限' },
-    { roleId: 2, name: '现场操作员', roleCode: 'OPERATOR', description: '盘点、出入库与巡检操作' },
-    { roleId: 3, name: '只读访客', roleCode: 'VIEWER', description: '只能查看，不能改动' },
+    // 与服务端种子数据逐字一致（`DataInitializer#createRoleIfNotExist`：1 管理员 / 2 操作员 / 3 访客）。
+    //
+    // **roleCode 允许重复，这是忠实的**：服务端 `RoleMapper` 把「操作员」和「访客」**都压成 `USER`**，
+    // 所以只存在 `ADMIN` / `USER` 两个码。假桥若自己发明 `OPERATOR` / `VIEWER`，
+    // 开发态就会显示服务端永远不会下发的词，而真机上显示的是另一个 —— 这类"假桥比真后端聪明"的
+    // 偏差在别处已经付过学费（见 `inventory.search` 那一轮）。
+    { roleId: 1, name: '管理员', roleCode: 'ADMIN', description: '系统管理员，拥有所有权限' },
+    { roleId: 2, name: '操作员', roleCode: 'USER', description: '普通操作员' },
+    { roleId: 3, name: '访客', roleCode: 'USER', description: '访客' },
   ];
 
   /** userId → roleId[]。用户 1 与 3 各多一个角色，好让"角色列表"不是恒定一行。 */
@@ -448,7 +454,7 @@ export class MeMock {
           nfcId: String(p['nfcId'] ?? ''),
           createdAt: nowIso(),
           updatedAt: nowIso(),
-          role: String(p['role'] ?? 'VIEWER'),
+          role: String(p['role'] ?? 'USER'),
         };
         this.nextUserId += 1;
         this.users.unshift(created);

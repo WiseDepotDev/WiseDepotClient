@@ -16,16 +16,37 @@ export interface CurrentUser {
   readonly role?: string;
 }
 
-/** 角色码 → 业务叫法；**认不出的码原样显示**（它是服务端下发的数据，不是我们的文案）。 */
-function roleLabel(role: string | undefined): string {
+/**
+ * 角色码 → 业务叫法。**这是全仓唯一一份**（此前有三份拷贝：账号块、用户管理、个人设置）。
+ *
+ * ## 为什么写这两个词，以及为什么不再自己发明第三个
+ *
+ * 服务端**只下发角色码，不下发中文名**（`UserDTO.role` = `RoleDTO.roleCode`，
+ * 见 `UserApplicationService#toUserDTO`：`dto.setRole(roles.get(0).getRoleCode())`），
+ * 而码只有两个取值（`RoleMapper`）：`ADMIN` / `USER`。
+ *
+ * 关键事实：**`USER` 是有损的** —— 服务端种子角色有三个（`DataInitializer`：
+ * `1 管理员` / `2 操作员` / `3 访客`），但 `RoleMapper` 把「操作员」和「访客」**都压成 `USER`**。
+ * 所以一个 `role === 'USER'` 的账号，真实角色可能是操作员、也可能是访客，**客户端无从分辨**。
+ *
+ * 因此这里不给 `USER` 编一个具体职务（写「访客」会把操作员说成访客；写「操作员」会把访客说成操作员），
+ * 只给一个**不会指错**的中性说法。要问"这个人到底是操作员还是访客"，
+ * 得读 `user.roles`（`RoleDTO.name`，服务端下发的原名）——用户详情屏就是这么做的。
+ *
+ * 认不出的码**原样显示**：它是服务端下发的数据，不是我们的文案。
+ * 没有角色（`null`/`undefined`/空串）返回 `null`，由调用方按自己的语境给空态措辞
+ * （账号块说「职位未登记」、用户管理说「未指派角色」）—— 事实是同一个，措辞可以不同。
+ */
+export function roleLabel(role: string | null | undefined): string | null {
   switch (role) {
     case 'ADMIN':
       return '管理员';
     case 'USER':
       return '普通用户';
+    case null:
     case undefined:
     case '':
-      return '职位未登记';
+      return null;
     default:
       return role;
   }
@@ -78,7 +99,7 @@ export function useCurrentAccount(): CurrentAccount {
    */
   const roleText = computed(() => {
     if (data.value !== undefined) {
-      return roleLabel(data.value.role);
+      return roleLabel(data.value.role) ?? '职位未登记';
     }
     if (loading.value) {
       return '读取中';

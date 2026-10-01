@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { ElButton, ElInput } from 'element-plus';
 import type { BridgeErrorLike } from '@wise/stores';
-import { asList, asTotal, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
+import { asList, asTotal, humanize, roleLabel, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
 import { ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip, type StatusTone } from '@wise/ui';
 import CaptchaField from '../../components/CaptchaField.vue';
 import { useCaptcha } from '../../components/useCaptcha';
@@ -89,22 +89,9 @@ function textOf(value: string | null | undefined): string {
   return value ?? '';
 }
 
-/**
- * 角色码 → 业务叫法；认不出的码**原样显示**（它是服务端下发的数据，不是我们的文案）。
- * 与个人设置屏同一份口径。
- */
-function roleLabel(role: string | null | undefined): string {
-  switch (role) {
-    case 'ADMIN':
-      return '管理员';
-    case 'USER':
-      return '普通用户';
-    case null:
-    case undefined:
-      return '未指派角色';
-    default:
-      return role;
-  }
+/** 角色码 → 业务叫法。实现与账号块共用一份（`@wise/stores` 的 `roleLabel`）。 */
+function roleTextOf(role: string | null | undefined): string {
+  return roleLabel(role) ?? '未指派角色';
 }
 
 /** 账号状态芯片：三态（已启用 / 已停用 / 状态未知），语气与 React 版一致。 */
@@ -346,7 +333,7 @@ const detailItems = computed(() => {
     { key: 'username', label: '账号', value: u?.username ?? `编号 ${selected.value ?? ''}`, mono: true },
     { key: 'nickname', label: '姓名', value: u?.nickname ?? '未填写' },
     { key: 'email', label: '邮箱', value: u?.email ?? '未填写' },
-    { key: 'role', label: '角色', value: roleLabel(u?.role) },
+    { key: 'role', label: '角色', value: roleTextOf(u?.role) },
     { key: 'enabled', label: '账号状态', value: loginText(u?.enabled) },
     { key: 'createdAt', label: '创建时间', value: shortTime(u?.createdAt) || '时间未记录', mono: true },
   ];
@@ -560,7 +547,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
               <span class="w-me-user-list__main">{{ row.nickname ?? '未填写姓名' }}</span>
               <span class="w-me-user-list__sub">
                 <span class="w-mono">{{ textOf(row.username) || '账号未登记' }}</span>
-                <span class="w-me-user-list__muted"> · {{ roleLabel(row.role) }}</span>
+                <span class="w-me-user-list__muted"> · {{ roleTextOf(row.role) }}</span>
                 <span v-if="row.email" class="w-me-user-list__muted"> · {{ row.email }}</span>
                 <span v-if="row.createdAt" class="w-mono"> · {{ shortTime(row.createdAt) || '时间未记录' }}</span>
               </span>

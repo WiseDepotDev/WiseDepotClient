@@ -1176,3 +1176,78 @@ createApp → use(pinia) → attach(桥) → startProbe → await session.init()
 | 双端冒烟 | `pnpm check:web-smoke` | **227/227**（原 217 + 空库自证 8 条 + 图标 1 条 + 账号同源 1 条） |
 | 真机 | WSA 冷启动 | 重打包 `assembleDebug` + `adb install -r` 后应用正常启动、桥连到真后端；<br>**"恢复态账号名"这一条没能在 WSA 上截到图**（WSA 前台被抢 + WebView 恢复滚动位置），<br>该性质由冒烟里的"首页账号名 == 侧栏账号名"两条断言守住 |
 
+## V6 之后 · 第四轮：角色词表收口（2026-10-03）
+
+### 一、先纠正上一轮自己记错的一条
+
+上一轮我写「服务端自己的映射是 `USER` → 访客，客户端说'普通用户'与它不一致」——
+**这条结论错了，是查得不彻底**。把 `mapRoleCodeToName` 的调用点读到底才发现：
+
+```
+UserApplicationService#updateRole(userId, roleCode)
+  → String roleName = mapRoleCodeToName(roleCode);      // ADMIN→"管理员"，USER→"访客"
+  → roleRepository.findByName(roleName)                 // 拿着这个名字去库里查角色
+```
+
+它是**写路径**（把客户端传来的码翻成数据库里的 `Role.name` 再去查），**不是显示口径**。
+而服务端的**显示口径根本不下发中文名**：`UserDTO` 只有 `role` 一个字符串，
+值是 `roles.get(0).getRoleCode()`（`toUserDTO`）—— 也就是只有 `ADMIN` / `USER` 两个码。
+所以"客户端说'普通用户'与服务端口径不一致"这个前提不成立。**先下结论再去找证据，就会得到这种结论。**
+
+### 二、把有损性摆到台面上：`USER` 到底是什么
+
+| 事实 | 依据 |
+| --- | --- |
+| 种子角色是**三个中文名** | `DataInitializer:240-242` → `1 管理员 / 2 操作员 / 3 访客` |
+| 但读出来的码只有**两个** | `RoleMapper#mapRoleNameToCode`：管理员→`ADMIN`；操作员 / 访客 / 其它 → `USER` |
+| 写路径把 `USER` 落到**"访客"**角色 | `UserApplicationService#mapRoleCodeToName`：`USER` → `"访客"` |
+
+所以 `role === 'USER'` 的账号，真实角色可能是操作员、也可能是访客，**客户端无从分辨**。
+任何具体词都会指错一半：写"访客"会把操作员说成访客，写"操作员"会把访客说成操作员。
+
+因此收口后的 `roleLabel` 保留中性说法 **"普通用户"**（不指错），并把这段有损性写进函数注释；
+要看"这个人到底是操作员还是访客"，得读 `user.roles` 的 `RoleDTO.name`（服务端下发的原名）——
+用户详情屏本来就是这么做的（角色 chips 直接显示 `role.name`）。
+
+### 三、三份拷贝收成一份
+
+`roleLabel` 原先在**三个文件**里各写一份（`stores/account.ts`、`me/UserListView.vue`、`me/ProfileView.vue`，
+后两处注释还写着"与另一屏同一份口径"——**靠注释维持的一致不是一致**）。
+现在只留 `@wise/stores` 里那一份，签名 `roleLabel(role): string | null`：
+
+- 有角色 → `管理员` / `普通用户` / 认不出的码原样显示；
+- 没有角色 → 返回 `null`，**空态措辞留给调用方**（账号块说「职位未登记」、用户管理说「未指派角色」）
+  —— 事实是同一个，语境不同措辞可以不同，不该为统一措辞而让某一处读起来别扭。
+
+### 四、假桥的词表也要对齐（否则开发态教的词是真机不会说的）
+
+假桥原先的角色码是 **`OPERATOR` / `VIEWER`** —— 服务端**永远不会产出**这两个码。
+后果是开发态侧栏显示裸码 `OPERATOR`，而真机显示"管理员/普通用户"：**同一屏两套词表，开发态看不出来**。
+
+收口内容：
+
+| 位置 | 改动 |
+| --- | --- |
+| `mock-me.ts` 用户表 6 条 | `OPERATOR` / `VIEWER` → `USER`（admin 仍是 `ADMIN`） |
+| `mock-me.ts` 角色目录 | 与服务端种子**逐字一致**：`1 管理员 / 2 操作员 / 3 访客`，后两个 `roleCode` **都是 `USER`** |
+| `mock-me.ts` `user.create` 默认角色 | `'VIEWER'` → `'USER'`（服务端 `RoleMapper` 对 null 也回 `USER`） |
+| `mock.ts` 静态 `user.current` | `role: 'OPERATOR'` → `'USER'` |
+
+新增 **3 条护栏**（`check:me-mock`，72 → 75 用例）钉住它，且第一条直接对着"假桥要比真后端老实"这件事：
+
+1. 假桥里的用户角色码只能是 `ADMIN` / `USER`；
+2. 角色目录的 `roleCode` 同样只能是这两个（**两个中文角色名共用一个码是有意的**）；
+3. 同一用户的两个角色（操作员 / 访客）都落在 `USER` 上 —— 这是服务端 `RoleMapper` 的有损压缩，不是假桥的错。
+
+> 护栏 3 的写法有点特别：它断言的不是"数据好看"，而是**"这份数据忠实于服务端的有损行为"**。
+> 如果哪天有人把假桥改成"一个角色一个码"，这条会红 —— 那时应该改的是注释与判断，不是悄悄放过。
+
+### 本轮验收证据（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **25 条全绿**（`check:me-mock` 现 75 用例） |
+| 类型 | `pnpm typecheck` | exit 0，0 错误 |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **96.0KB gzip**、66 chunk 全 ≤130KB |
+| 双端冒烟 | `pnpm check:web-smoke` | **227/227**（侧栏账号区实测 `{"name":"现场操作员","role":"普通用户"}` —— 不再是裸码 `OPERATOR`） |
+
