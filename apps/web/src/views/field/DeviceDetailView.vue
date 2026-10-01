@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElButton } from 'element-plus';
 import { humanize, shortTime, useResource } from '@wise/stores';
-import { ActionDock, KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
+import { KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
 import type { KeyValueItem } from '@wise/ui';
 
 /**
@@ -168,9 +168,6 @@ const paramItems = computed<KeyValueItem[]>(() => {
       </SectionBlock>
     </StateHost>
 
-    <ActionDock>
-      <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
-    </ActionDock>
   </div>
 </template>
 

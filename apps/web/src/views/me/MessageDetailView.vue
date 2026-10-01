@@ -3,7 +3,7 @@ import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElButton } from 'element-plus';
 import { humanize, shortTime, useMutation, useResource } from '@wise/stores';
-import { ActionDock, KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip, type KeyValueItem } from '@wise/ui';
+import { KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip, type KeyValueItem } from '@wise/ui';
 
 /**
  * 消息详情（`message.detail` 域）。
@@ -216,10 +216,6 @@ const emptyText = computed(() =>
         </StateHost>
       </div>
     </SectionBlock>
-
-    <ActionDock>
-      <ElButton size="large" :loading="detail.loading.value" @click="detail.reload">刷新</ElButton>
-    </ActionDock>
   </div>
 </template>
 

@@ -388,6 +388,23 @@
   border-top: 1px solid var(--w-color-outline);
 }
 
+/*
+ * 手机档给页面**底部留出动作坞的高度**。
+ *
+ * 为什么必须留：`.w-actiondock` 是 sticky，粘住之后它就浮在内容之上 ——
+ * **滚到底也照样压住最后一个内容块**。实测（对照 `check:web-smoke` 里那条
+ * "滚到底时最后一个内容块不被动作坞遮住"）：修之前巡检详情滚到底时
+ * 「结果与补录」的两个按钮只露出顶部一点，三个屏都被压住同一段高度 ——
+ * 与"再滚一下就能看见"无关（已经滚到底了）。
+ *
+ * 桌面档不需要：那时动作坞是 static，就在页头/页尾，不浮。
+ */
+@media (max-width: 599px) {
+  .w-page:has(.w-actiondock) {
+    padding-bottom: calc(var(--w-space-action-bar-height) + var(--w-space-screen-v));
+  }
+}
+
 @media (min-width: 600px) {
   .w-actiondock {
     position: static;

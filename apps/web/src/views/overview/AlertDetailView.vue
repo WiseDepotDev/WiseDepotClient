@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router';
 import { ElButton, ElInput } from 'element-plus';
 import { asList, humanize, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
 import {
-  ActionDock,
   ConfirmDialog,
   KeyValuePanel,
   PageHeader,
@@ -267,9 +266,6 @@ watch(eventId, () => {
       </SectionBlock>
     </StateHost>
 
-    <ActionDock>
-      <ElButton size="large" :loading="detail.loading.value" @click="reloadAll">刷新</ElButton>
-    </ActionDock>
 
     <ConfirmDialog
       :show="pendingKind !== undefined"

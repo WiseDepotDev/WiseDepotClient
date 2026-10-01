@@ -118,15 +118,35 @@ function goDomain(id: DomainId): void {
   }
 }
 
+/**
+ * 返回 = **回上一屏**。
+ *
+ * 判据用 `history.state.back`（vue-router 4 自己维护的"上一屏 fullPath"）——
+ * 它比 `window.history.length` 可靠：后者在有登录页的 SPA 里**永远 > 1**，
+ * 于是"有没有上一屏"这个问题会被恒定回答成"有"。
+ *
+ * 原先这里是：详情屏才 `back()`，否则 push **当前域的第一个叶子**。那有两个毛病：
+ *   1. 按钮叫"返回"，做的却是"跳到域首屏"；
+ *   2. 已经在域首屏时（例如"库存查询"）push 到自己 —— 点返回**什么都不发生**。
+ * 手机上确实需要一个"回应用中心"的入口，所以没有上一屏时兜底去首页。
+ */
+function hasHistoryBack(): string | null {
+  const state = router.options.history.state as { back?: string | null } | null;
+  return state?.back ?? null;
+}
+
+const canGoBack = computed(() => {
+  // 显式依赖路由：`history.state` 不是响应式的，不读 route 的话导航后不会重算
+  void route.fullPath;
+  return hasHistoryBack() !== null || route.name !== 'home';
+});
+
 function goBack(): void {
-  if (isDetail.value && window.history.length > 1) {
+  if (hasHistoryBack() !== null) {
     router.back();
     return;
   }
-  const first = domain.value.children[0];
-  if (first) {
-    void router.push(first.path);
-  }
+  void router.push({ name: 'home' });
 }
 
 // ---- 扫码 ----
@@ -230,7 +250,12 @@ onBeforeUnmount(() => {
       </header>
 
       <header v-if="isCompact" class="w-contextheader">
-        <ElButton v-if="isDetail || domain.children.length > 0" text size="small" @click="goBack">返回</ElButton>
+        <!--
+          「返回」的显示条件必须**有意义**：原先写的是 `isDetail || domain.children.length > 0`，
+          而每个域都有 ≥2 个子项 ⇒ 第二个条件恒真 ⇒ 按钮在手机上无条件出现，
+          同时 `goBack()` 在非详情屏做的是"跳到域首屏"。现在条件如实表达"有没有上一屏可回"。
+        -->
+        <ElButton v-if="canGoBack" text size="small" @click="goBack">返回</ElButton>
         <!--
           手机上这里显示**所属域**（库存 / 现场 / 我的…），不是页名。
           为什么：每一屏自己的页头（`PageHeader`）已经写着页名了，情景头再写一遍
@@ -242,7 +267,12 @@ onBeforeUnmount(() => {
         <BridgeStatusChip compact />
       </header>
 
-      <div v-if="isCompact && useSegmented" class="w-toolbar w-segment">
+      <!--
+        分段控件只在**叶子屏**（同域内换页）出现。详情屏也画一个的话，
+        `activeMethod` 由 `leafHit` 算、而详情路由取不到叶子 ⇒ **三个分段一个都不高亮**，
+        看起来像"当前在哪个页面"坏了。
+      -->
+      <div v-if="isCompact && useSegmented && !isDetail" class="w-toolbar w-segment">
         <ElButton
           v-for="c in domain.children"
           :key="c.id"

@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElButton, ElDialog, ElInput } from 'element-plus';
 import { asList, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { ActionDock, KeyValuePanel, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef, type KeyValueItem } from '@wise/ui';
+import { KeyValuePanel, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef, type KeyValueItem } from '@wise/ui';
 import { canAudit, canEditItems, canSubmit, canWithdraw, orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './stockOrderState.js';
 
 /**
@@ -402,9 +402,6 @@ watch(orderId, () => {
       </SectionBlock>
     </StateHost>
 
-    <ActionDock>
-      <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
-    </ActionDock>
 
     <ElDialog
       :model-value="pending !== undefined"

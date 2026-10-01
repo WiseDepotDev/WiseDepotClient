@@ -579,6 +579,68 @@ check('手机底栏 4 项', mobile.tabItems === 4, `items=${mobile.tabItems}`);
 check('断点切换不丢当前路由', mobile.hash === '#/inventory/inventory', mobile.hash);
 check('叶子 >4 的域改用抽屉入口（不做横向滚动）', mobile.drawerButton === true);
 
+/*
+ * 手机壳两处"恒真条件"的回归护栏（都是在真机上才看得见的缺陷）。
+ *
+ * 1. 分段控件原先的条件是 `isCompact && useSegmented`，**缺 `!isDetail`** ——
+ *    概览域(2 项)与管理域(3 项)的详情屏照样画一排分段，而 `activeMethod` 由叶子算、
+ *    详情路由取不到叶子 ⇒ **三个分段一个都不高亮**，看起来像"当前在哪一页"坏了。
+ * 2. 「返回」原先的条件是 `isDetail || domain.children.length > 0`，每个域都有 ≥2 子项 ⇒
+ *    第二个条件恒真 ⇒ 按钮无条件渲染，而它做的事在非详情屏是"跳到域首屏"（按钮名叫返回）。
+ */
+await cdp.evaluate(`(location.hash = '#/overview/alerts/9001')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title') ? true : null`, 20_000, 200);
+await sleep(600);
+const detailChrome = await cdp.evaluate(
+  `({
+     segment: document.querySelectorAll('.w-segment').length,
+     hasBack: [...document.querySelectorAll('.w-contextheader button')].some((b) => b.innerText.trim() === '返回'),
+   })`,
+  { awaitPromise: false },
+);
+check('手机档：详情屏不画分段控件（画了会三个都不高亮）', detailChrome.segment === 0, `segment=${detailChrome.segment}`);
+check('手机档：详情屏有「返回」', detailChrome.hasBack === true);
+
+/*
+ * 动作坞**滚到底也压住内容**的回归护栏。
+ *
+ * `.w-actiondock` 是 sticky（贴在底栏上方），粘住之后它就浮在内容之上 ——
+ * 实测过：巡检详情滚到底时「结果与补录」的两个按钮只露出顶部一点，三个屏都被压住同一段高度。
+ * 修法是给 `.w-page` 在手机档留出坞的高度（`ui.css`），这条断言盯着它别被改回去。
+ */
+await cdp.evaluate(`(location.hash = '#/field/inspections/501')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-actiondock') ? true : null`, 20_000, 200);
+await sleep(800);
+await cdp.evaluate(
+  `(() => {
+     const c = document.querySelector('.w-content');
+     if (c) c.scrollTop = c.scrollHeight;
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(300);
+const dockFit = await cdp.evaluate(
+  `(() => {
+     const c = document.querySelector('.w-content');
+     const dock = document.querySelector('.w-actiondock');
+     if (!c || !dock) return null;
+     const blocks = [...c.querySelectorAll('.w-section, .w-card')];
+     const last = blocks[blocks.length - 1];
+     if (!last) return null;
+     return {
+       lastBottom: Math.round(last.getBoundingClientRect().bottom),
+       dockTop: Math.round(dock.getBoundingClientRect().top),
+     };
+   })()`,
+  { awaitPromise: false },
+);
+check(
+  '手机档：滚到底时最后一个内容块不被动作坞遮住',
+  dockFit !== null && dockFit.lastBottom <= dockFit.dockTop,
+  JSON.stringify(dockFit),
+);
+
 // 扫码三分支之③兜底：模拟扫码枪快速连打 + Enter
 await cdp.evaluate(`(document.activeElement instanceof HTMLElement && document.activeElement.blur())`, {
   awaitPromise: false,
