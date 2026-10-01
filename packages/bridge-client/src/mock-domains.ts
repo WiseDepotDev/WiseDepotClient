@@ -124,11 +124,23 @@ interface InspectionTask {
   updateTime: string;
 }
 
+/**
+ * 巡检计划。字段**严格对齐服务端 `InspectionPlanDTO`**：
+ * `planId / planName / deviceId / cronExpression / enabled / createTime / updateTime`。
+ *
+ * 注意：这里早先写成过 `{ warehouseId, warehouseName }` —— 那是**编的**（服务端 DTO 里没有这两项），
+ * 当时只有"新建巡检"拿它当选项列表、没暴露出来。V6 之后要接计划管理屏，必须先把这个形状改对，
+ * 否则界面会去找一个服务端根本不返回的字段。
+ * `enabled` 在服务端是 `status`（1 启用 / 其它停用），DTO 出口统一成布尔。
+ */
 interface InspectionPlan {
   planId: number;
   planName: string;
-  warehouseId: number;
-  warehouseName: string;
+  deviceId?: number | undefined;
+  cronExpression: string;
+  enabled: boolean;
+  createTime: string;
+  updateTime: string;
 }
 
 /** 盘点差异行：`status` 为 `NORMAL` / `MISSING` / `EXTRA`，`DIFF` 表示数量对不上但标签还在。 */
@@ -308,9 +320,34 @@ export class DomainMock {
    * 否则"点了开始按钮状态还是待开始"这种断链在 mock 下永远看不出来。
    */
   private readonly inspectionPlans: InspectionPlan[] = [
-    { planId: 1, planName: '华东中心仓日常盘点', warehouseId: 1, warehouseName: '华东中心仓' },
-    { planId: 2, planName: '华南备件仓月度盘点', warehouseId: 2, warehouseName: '华南备件仓' },
-    { planId: 3, planName: 'A 区货架专项核查', warehouseId: 1, warehouseName: '华东中心仓' },
+    {
+      planId: 1,
+      planName: '华东中心仓日常盘点',
+      deviceId: 3,
+      cronExpression: '0 0 8 * * ?',
+      enabled: true,
+      createTime: '2026-01-01T08:00:00',
+      updateTime: '2026-01-06T08:00:00',
+    },
+    {
+      planId: 2,
+      planName: '华南备件仓月度盘点',
+      deviceId: 1,
+      cronExpression: '0 0 9 1 * ?',
+      enabled: true,
+      createTime: '2026-01-02T08:00:00',
+      updateTime: '2026-01-05T08:00:00',
+    },
+    {
+      planId: 3,
+      planName: 'A 区货架专项核查',
+      deviceId: 2,
+      cronExpression: '',
+      // 停用一条：让列表能同时验到两种状态
+      enabled: false,
+      createTime: '2026-01-03T08:00:00',
+      updateTime: '2026-01-04T08:00:00',
+    },
   ];
 
   private readonly inspectionTasks: InspectionTask[] = [
@@ -876,8 +913,77 @@ export class DomainMock {
       }
 
       // ---- 巡检（现场域）----
-      case 'inspection.planList':
-        return this.page(this.inspectionPlans, params) as T;
+      /**
+       * 计划列表。服务端控制器还接受 `planType` / `warehouseId` 两个过滤参数，
+       * 但 `InspectionPlanDTO` 里**没有**这两个字段 —— 假桥不去发明它们，只认 `enabled`。
+       */
+      case 'inspection.planList': {
+        const enabled = p['enabled'];
+        const rows =
+          typeof enabled === 'boolean' ? this.inspectionPlans.filter((x) => x.enabled === enabled) : this.inspectionPlans;
+        return this.page(rows, params) as T;
+      }
+      case 'inspection.planDetail': {
+        const row = this.inspectionPlans.find((x) => x.planId === id('planId'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '巡检计划不存在' });
+        }
+        return row as T;
+      }
+      /**
+       * 新建计划。服务端**只校验一件事**：计划名不能重复（`巡检计划名称已存在`）；
+       * 建出来的计划一律 `status=1`（启用）。假桥照抄，不额外发明"名称必填"之类的服务端没有的规则
+       * （界面侧仍然必填 —— 那是界面自己的口径，不是服务端的）。
+       */
+      case 'inspection.planCreate': {
+        const planName = String(p['planName'] ?? '');
+        if (this.inspectionPlans.some((x) => x.planName === planName)) {
+          throw new BridgeError({ code: 'VAL-0001', messageKey: 'error.validation', details: '巡检计划名称已存在' });
+        }
+        const created: InspectionPlan = {
+          planId: this.next(),
+          planName,
+          deviceId: id('deviceId'),
+          cronExpression: String(p['cronExpression'] ?? ''),
+          enabled: true,
+          createTime: nowIso(),
+          updateTime: nowIso(),
+        };
+        this.inspectionPlans.unshift(created);
+        return created as T;
+      }
+      /**
+       * 更新计划：`planName` / `deviceId` / `cronExpression` 都是 **`!= null` 才写**，
+       * `enabled` 映射到服务端的 `status`（1 启用 / 0 停用）。计划不存在 →「巡检计划不存在」。
+       */
+      case 'inspection.planUpdate': {
+        const row = this.inspectionPlans.find((x) => x.planId === id('planId'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '巡检计划不存在' });
+        }
+        if (p['planName'] !== undefined && p['planName'] !== null) {
+          row.planName = String(p['planName']);
+        }
+        if (p['deviceId'] !== undefined && p['deviceId'] !== null) {
+          row.deviceId = id('deviceId');
+        }
+        if (p['cronExpression'] !== undefined && p['cronExpression'] !== null) {
+          row.cronExpression = String(p['cronExpression']);
+        }
+        if (typeof p['enabled'] === 'boolean') {
+          row.enabled = p['enabled'];
+        }
+        row.updateTime = nowIso();
+        return { ...row } as T;
+      }
+      case 'inspection.planDelete': {
+        const index = this.inspectionPlans.findIndex((x) => x.planId === id('planId'));
+        if (index < 0) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '巡检计划不存在' });
+        }
+        this.inspectionPlans.splice(index, 1);
+        return {} as T;
+      }
       case 'inspection.taskPage':
         return this.page(this.inspectionTasks, params) as T;
       case 'inspection.taskDetail': {

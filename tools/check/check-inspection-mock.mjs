@@ -258,6 +258,48 @@ try {
     check('计划选项可读', rowsOf(plans.value).length === 3, `rows=${rowsOf(plans.value).length}`);
     check('不属于巡检域的方法仍然回 undefined（交给别的 mock）', mock.call('inventory.list', {}) !== undefined && mock.call('nope.nope', {}) === undefined);
   }
+
+  // ---- 11. 巡检计划 CRUD：形状对齐服务端 DTO + 名称唯一 + != null 更新 ----
+  {
+    const mock = new DomainMock();
+    const list = call(mock, 'inspection.planList', {});
+    const first = rowsOf(list.value)[0];
+    check(
+      '计划字段与服务端 InspectionPlanDTO 对齐（planName/deviceId/cronExpression/enabled）',
+      first?.planName === '华东中心仓日常盘点' && first?.deviceId === 3 && first?.cronExpression === '0 0 8 * * ?' && first?.enabled === true,
+      JSON.stringify(first ?? {}).slice(0, 160),
+    );
+    check(
+      '**没有编造 warehouseId/warehouseName**（早先假桥里就有这两个不存在的字段）',
+      first?.warehouseId === undefined && first?.warehouseName === undefined,
+      JSON.stringify(first ?? {}).slice(0, 160),
+    );
+    check('停用状态能表达出来（列表里有一条 enabled=false）', rowsOf(list.value).some((x) => x.enabled === false));
+
+    const ghost = call(mock, 'inspection.planDetail', { planId: 9999 });
+    check('查不存在的计划 → RES-0004「巡检计划不存在」', ghost.ok === false && ghost.code === 'RES-0004' && ghost.details.includes('巡检计划不存在'));
+
+    const dup = call(mock, 'inspection.planCreate', { planName: '华东中心仓日常盘点' });
+    check('计划名重复 → 拒绝，且带服务端原话', dup.ok === false && dup.details.includes('巡检计划名称已存在'), dup.details);
+
+    const created = call(mock, 'inspection.planCreate', { planName: '冒烟新计划', deviceId: 2, cronExpression: '0 0 7 * * ?' });
+    check('新建计划成功并回 planId', created.ok && typeof created.value?.planId === 'number', JSON.stringify(created).slice(0, 120));
+    check('**新建的计划一律启用**（服务端 `status=1`，不看请求）', created.value?.enabled === true, `enabled=${created.value?.enabled}`);
+    check('新计划出现在列表最前面', rowsOf(call(mock, 'inspection.planList', {}).value)[0]?.planId === created.value?.planId);
+
+    const renamed = call(mock, 'inspection.planUpdate', { planId: 1, planName: '华东日常盘点（改）' });
+    check('只改名字：其它字段保持原值（`!= null` 才写）', renamed.value?.planName === '华东日常盘点（改）' && renamed.value?.deviceId === 3 && renamed.value?.cronExpression === '0 0 8 * * ?', JSON.stringify(renamed.value ?? {}).slice(0, 160));
+    const disabled = call(mock, 'inspection.planUpdate', { planId: 1, enabled: false });
+    check('能停用（enabled → 服务端的 status）', disabled.value?.enabled === false, `enabled=${disabled.value?.enabled}`);
+    const ghostUpdate = call(mock, 'inspection.planUpdate', { planId: 9999, planName: 'x' });
+    check('更新不存在的计划 → RES-0004', ghostUpdate.ok === false && ghostUpdate.code === 'RES-0004');
+
+    const beforeCount = rowsOf(call(mock, 'inspection.planList', {}).value).length;
+    const removed = call(mock, 'inspection.planDelete', { planId: created.value.planId });
+    check('删除计划成功', removed.ok === true);
+    check('列表少了一条', rowsOf(call(mock, 'inspection.planList', {}).value).length === beforeCount - 1);
+    check('删不存在的计划 → RES-0004', call(mock, 'inspection.planDelete', { planId: created.value.planId }).ok === false);
+  }
 } catch (error) {
   console.error(`✗ 假桥护栏执行失败：${error?.stack ?? error}`);
   process.exit(1);

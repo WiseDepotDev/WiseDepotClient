@@ -103,6 +103,45 @@ const server = await createServer({
 await server.listen();
 console.log(`    dev server: ${server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${PORT}/`}`);
 
+/*
+ * **在浏览器连上之前，让 Vite 把所有屏模块转换完、依赖预打包完。**
+ *
+ * 为什么必须这么做：Vite 在"第一次遇到某个依赖"时才做预打包，并在完成后**整页 reload**。
+ * 本仓路由是懒加载的，于是冷启动（清过 `node_modules/.vite`）时这个过程会被推到**断言跑到一半**：
+ * 页面自己刷新 → 内存里的 mock 会话丢掉 → 后面所有断言都停在 `#/login`。
+ *
+ * 之前靠"用 hash 把每条路由走一遍"来预热，冷缓存下**压不住**：29 条路由 + 一堆 Element Plus 组件，
+ * 350ms 的间隔走一趟走不完，补优化仍会在后面触发（实测：冷启动时 5/6 阶段之后连片失败）。
+ * `server.warmupRequest()` 是 Vite 给这件事准备的正式入口：按 URL 预转换模块（含依赖扫描），
+ * 不经过浏览器、不产生 reload。
+ */
+{
+  const { readdirSync } = await import('node:fs');
+  const viewsDir = resolve(webRoot, 'src', 'views');
+  const modules = ['/src/main.ts', '/src/App.vue'];
+  const walk = (dir, prefix) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, `${prefix}/${entry.name}`);
+      } else if (entry.name.endsWith('.vue') || entry.name.endsWith('.ts')) {
+        modules.push(`/src/views${prefix}/${entry.name}`);
+      }
+    }
+  };
+  walk(viewsDir, '');
+  try {
+    // `warmupRequest` 收的是**单个 url**（传数组会在内部炸 `url.replace is not a function`）
+    for (const url of modules) {
+      await server.warmupRequest(url);
+    }
+    console.log(`    已预热 ${modules.length} 个模块（避免跑到一半因依赖预打包整页 reload）`);
+  } catch (e) {
+    // 预热失败不该让整轮冒烟挂掉：后面还有逐条走路由的兜底预热
+    console.log(`    ⚠ 模块预热失败（继续跑，可能首次会慢一些）：${e?.message ?? e}`);
+  }
+}
+
 console.log('2/4 启动无头 Chrome 并连 CDP…');
 const chrome = await launchChrome({ port: 9334 });
 const cdp = await Cdp.connect(chrome.wsUrl);
@@ -334,6 +373,7 @@ await ensureSignedIn();
     '#/inventory/stock-orders/new',
     '#/inventory/stock-orders/8001',
     '#/field/devices',
+    '#/field/inspection-plans',
     '#/field/inspections',
     '#/field/inspections/new',
     '#/field/inspections/results',
@@ -1473,6 +1513,88 @@ check(
   /没有找到编号/.test(notFoundState.errText ?? ''),
   JSON.stringify(notFoundState),
 );
+
+// ---- 巡检计划（现场域）：计划 CRUD —— 没有它，现场没法自己排计划 ----
+await cdp.evaluate(`(location.hash = '#/field/inspection-plans')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '巡检计划' ? true : null`, 20_000, 200);
+await waitRows(3);
+check('巡检计划列表 3 条', (await rowsNow()) === 3, `rows=${await rowsNow()}`);
+const planChips = await cdp.evaluate(
+  `[...document.querySelectorAll('.el-table__body .w-chip')].map((n) => n.innerText.trim())`,
+  { awaitPromise: false },
+);
+check('启用/停用两种状态都能显示', planChips.includes('启用中') && planChips.includes('已停用'), planChips.join('/'));
+const planFirstRowText = await text('.el-table__body tbody tr.el-table__row');
+const planTableText = await text('.el-table__body');
+check(
+  '执行设备解析成设备名（不是裸序号）',
+  /读头 04/.test(planFirstRowText),
+  planFirstRowText.slice(0, 60),
+);
+check(
+  '定时表达式为空时说"手动触发"（不画一个空单元格）',
+  /手动触发/.test(planTableText),
+  planTableText.slice(0, 80),
+);
+
+await clearCalls();
+await clickByText('新建计划');
+await sleep(500);
+await fillDialogInputs(['冒烟计划', '2', '0 0 7 * * ?']);
+await sleep(200);
+await clickByText('创建');
+await sleep(1000);
+const planCreateCalls = await callsWithPrefix('inspection.planCreate');
+check('新建计划真的调用了 inspection.planCreate', planCreateCalls.includes('inspection.planCreate'), planCreateCalls);
+check('新建后列表多一条', (await rowsNow()) === 4, `rows=${await rowsNow()}`);
+const planFirstRow = await text('.el-table__body tbody tr.el-table__row');
+check('新计划出现在首位，并显示执行设备', /冒烟计划/.test(planFirstRow) && /搬运机器人 02/.test(planFirstRow), planFirstRow.slice(0, 60));
+
+await clearCalls();
+const planEditOpened = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '编辑');
+     if (!btn) return false;
+     btn.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(500);
+check('计划行内「编辑」能打开弹窗', planEditOpened === true);
+const planDialog = await cdp.evaluate(
+  `(() => {
+     const dialog = [...document.querySelectorAll('.el-dialog')].reverse().find((d) => d.offsetParent !== null);
+     return {
+       title: dialog?.querySelector('.el-dialog__title')?.innerText.trim() ?? '',
+       values: [...(dialog?.querySelectorAll('input') ?? [])].slice(0, 3).map((i) => i.value),
+     };
+   })()`,
+  { awaitPromise: false },
+);
+check('编辑弹窗标题正确且预填当前值', planDialog.title === '编辑巡检计划' && planDialog.values[0] === '冒烟计划' && planDialog.values[2] === '0 0 7 * * ?', JSON.stringify(planDialog).slice(0, 120));
+await fillDialogInputs(['冒烟计划', '2', '0 0 6 * * ?']);
+await sleep(200);
+await clickByText('保存');
+await sleep(1000);
+const planUpdateCalls = await callsWithPrefix('inspection.planUpdate');
+check('保存真的调用了 inspection.planUpdate', planUpdateCalls.includes('inspection.planUpdate'), planUpdateCalls);
+check('列表显示新的定时表达式', /0 0 6 \* \* \?/.test(await text('.el-table__body tbody tr.el-table__row')), (await text('.el-table__body tbody tr.el-table__row')).slice(0, 60));
+
+await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '删除');
+     btn?.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(400);
+await clickByText('删除');
+await sleep(900);
+check('删除计划后列表回到 3 条', (await rowsNow()) === 3, `rows=${await rowsNow()}`);
 
 // ---- 巡检任务（现场域）：状态归一化 + 「开始执行」真的把任务推进 ----
 await cdp.evaluate(`(location.hash = '#/field/inspections')`, { awaitPromise: false });

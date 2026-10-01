@@ -37,7 +37,8 @@ export const SCREEN_REGISTRY: Readonly<Record<string, () => Promise<unknown>>> =
   'device.list': () => import('./field/DeviceListView.vue'),
   'device.detail': () => import('./field/DeviceDetailView.vue'),
   'device.byCode': () => import('./field/DeviceDetailView.vue'),
-  // 巡检：列表 / 详情 / 新建 / 结果列表 / 录入结果 / 手动补录
+  // 巡检：计划 / 列表 / 详情 / 新建 / 结果列表 / 录入结果 / 手动补录
+  'inspection.planList': () => import('./field/InspectionPlanListView.vue'),
   'inspection.taskPage': () => import('./field/InspectionTaskListView.vue'),
   'inspection.taskDetail': () => import('./field/InspectionTaskDetailView.vue'),
   'inspection.taskCreate': () => import('./field/InspectionTaskCreateView.vue'),

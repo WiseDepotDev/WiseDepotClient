@@ -83,6 +83,13 @@ export const DOMAINS: readonly NavDomain[] = [
     short: '现场',
     children: [
       {
+        id: 'inspection-plans',
+        label: '巡检计划',
+        short: '计划',
+        primaryMethod: 'inspection.planList',
+        path: '/field/inspection-plans',
+      },
+      {
         id: 'inspections',
         label: '巡检任务',
         short: '巡检',
