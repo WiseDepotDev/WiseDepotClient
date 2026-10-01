@@ -1124,6 +1124,17 @@ await waitFor(`document.querySelector('.w-page-header__title')?.innerText.includ
 const inventoryDetailTitle = await text('.w-page-header__title');
 check('库存详情按序号直达', /工业级 RFID 标签/.test(inventoryDetailTitle), inventoryDetailTitle);
 
+/*
+ * "这里为什么没有改数量的输入框"必须写在界面上。
+ *
+ * 2026-10-03 查实：库存只能由出入库单流转产生（`InOutApplicationService#processInventory`），
+ * 而 `inventory.create` 在真后端上固定 400（实体 `@NotNull` + 服务层从不 setWarehouseId，
+ * 见 `tools/bench/inventory-tag-probe.mjs`）。所以"改库存数"不是没做，是**不该做**——
+ * 界面缺一个操作时用户会当成功能没做完，得把来由说出来。
+ */
+const inventoryHint = await text('.w-inv-hint');
+check('库存详情说明"数量来自出入库单、这里不能直接改"', /出入库单/.test(inventoryHint) && /不能直接改/.test(inventoryHint), inventoryHint.slice(0, 60));
+
 await clickByText('锁定');
 await sleep(400);
 await clickByText('确认锁定');

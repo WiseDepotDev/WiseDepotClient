@@ -168,6 +168,13 @@ async function confirm(): Promise<void> {
       <SectionBlock title="库存信息">
         <div class="w-card">
           <KeyValuePanel :items="infoItems" />
+          <!--
+            把"为什么这里没有改数量的输入框"写出来。
+            界面上缺一个操作，用户会当成功能没做完；说明来由才不会被误读成缺陷。
+          -->
+          <p class="w-inv-hint">
+            库存数量由出入库单流转产生，这里不能直接改动。下面两个动作只调整「已锁定」的预留量：锁定让可用量减少、解锁让它回来，库存总量不变。
+          </p>
         </div>
       </SectionBlock>
     </StateHost>

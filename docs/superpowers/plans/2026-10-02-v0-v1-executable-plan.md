@@ -1344,3 +1344,43 @@ UserApplicationService#updateRole(userId, roleCode)
 | 双端冒烟 | `pnpm check:web-smoke` | **227/227** |
 | 真后端探针 | `node tools/bench/inventory-tag-probe.mjs --write` | 16 项通过、1 项**如实失败**（`inventory.create` 不可用）；探针数据已删净 |
 
+### 七、库存域的 create / update / delete：**先取证，再判定不提供**（不是没做）
+
+这三条是清单里点名的，所以要给的是证据链，而不是态度。
+
+**1. `inventory.create` 是做不到，不是不想做。** 2026-10-03 真后端实测：
+
+```
+不带 warehouseId  → HTTP 400 VAL-0001 请求参数校验失败: 仓库ID不能为空
+带上 warehouseId  → HTTP 400 同样一句      ← 关键：传了也没用
+```
+
+根因：实体 `Inventory.java:20` 上有 `@NotNull(message = "仓库ID不能为空")`（JPA 的 bean validation 在
+persist 时触发），而 `InventoryApplicationService#createInventory:254-259` **从不** `entity.setWarehouseId(...)`。
+**这个接口无论传什么参数都建不出库存。**
+
+> 这同时解开了上一轮那个谜：库存表 0 条**不是"没人录"，是录不进去**。
+> 也印证了"先取证再下结论"——只看"用户没录数据"会把一个后端缺陷记成运营问题。
+
+**2. 库存的唯一正规来源是出入库单。** 全仓 `inventoryRepository.save/delete` 只有两处来源：
+`InOutApplicationService:360,379`（`processInventory`，单据流转）+ `InventoryApplicationService` 的
+create/update/lock/unlock。
+
+**3. 而"不提供直接改库存数"本屏早就写成了设计纪律**（`InventoryDetailView.vue:14-16` 原文）：
+
+> 摆一个"改数量"的输入框等于绕过单据，是错的。
+
+所以结论：库存域**只保留查询 + 锁定/解锁**，`create` / `update` / `delete` 都不进界面。
+`inventory.delete` 同理 —— 删库存等于绕过单据造成账实不符，而且真后端是硬删、无软删、无幂等。
+
+**但这一轮不是"什么都没做"**，交付的是"把路指对"：
+
+| 改动 | 为什么 |
+| --- | --- |
+| 库存列表空态改指「出入库单」 | 原先写的是「前往「商品管理」新增商品后再入库」—— 商品管理里**没有"入库"这个动作**，用户去了会发现无路可走。库存的唯一来源是单据，文案必须指向那条路 |
+| 库存详情加一句常驻说明 | 界面缺一个操作时用户会当成功能没做完：「库存数量由出入库单流转产生，这里不能直接改动。下面两个动作只调整「已锁定」的预留量…」 |
+| 冒烟 +1 条 | 钉住上面那句说明真的渲染出来（**228/228**） |
+
+> **真机上走不通的部分如实记下**：本机库里没有库存行（因为 create 坏了），所以
+> 库存详情 / 锁定这一路**只在假桥下验证过** —— 真机路径要等库存真的产生出来才走得通。
+

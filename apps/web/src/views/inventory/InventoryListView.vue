@@ -157,7 +157,17 @@ const emptyText = computed(() => {
   if (filter.value !== 'all') {
     return '没有符合条件的库存记录，试试切回「全部」。';
   }
-  return '暂无库存数据。请点击右上角刷新，或前往「商品管理」新增商品后再入库。';
+  /*
+   * 空库必须指对路。
+   *
+   * 原先写的是"前往「商品管理」新增商品后再入库"——**两个问题**：
+   *   1. 商品管理里没有"入库"这个动作，用户去了会发现无路可走；
+   *   2. 库存的真正来源是**出入库单流转**（`InOutApplicationService#processInventory`），
+   *      而 `inventory.create` 在真后端上根本建不出来（2026-10-03 实测固定 400
+   *      「仓库ID不能为空」：实体 `Inventory.java:20` 是 `@NotNull`，而服务层从不 `setWarehouseId`）。
+   * 所以这里只能指向唯一走得通的那条路。
+   */
+  return '还没有库存记录。库存由出入库单执行后自动记账 —— 去「出入库单」新建一张单并提交审核，完成后这里会出现对应记录。';
 });
 
 function onFilter(next: Record<string, string>): void {
