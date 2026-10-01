@@ -1,6 +1,26 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, type Component } from 'vue';
 import { useRouter } from 'vue-router';
+import {
+  Bell,
+  Box,
+  Calendar,
+  ChatDotRound,
+  CirclePlus,
+  Cpu,
+  DocumentAdd,
+  Edit,
+  EditPen,
+  Goods,
+  Grid,
+  List,
+  Odometer,
+  OfficeBuilding,
+  PriceTag,
+  Setting,
+  Tickets,
+  User,
+} from '@element-plus/icons-vue';
 import { DOMAINS, type NavLeaf } from '@wise/layouts';
 import { useBridgeStore, useSessionStore } from '@wise/stores';
 import { PageHeader, SectionBlock, StatusChip, type StatusTone } from '@wise/ui';
@@ -37,6 +57,7 @@ const LEAF_NOTES: Readonly<Record<string, string>> = {
   'product.list': '商品主数据：新增、编辑、删除',
   'tag.list': '标签的绑定与解绑；批量操作需要验证码',
   'stockOrder.list': '出入库单的提交、撤回与审核；单内可增删明细',
+  'stockOrder.create': '新建一张出入库单：选仓库、加明细，再提交审核',
   'warehouse.list': '仓库主数据：新增、编辑、删除',
   'inspection.planList': '排巡检计划：执行设备、定时表达式、启用或停用',
   'inspection.taskPage': '巡检任务的进度与结果入口；可开始、结束、改进度',
@@ -49,6 +70,35 @@ const LEAF_NOTES: Readonly<Record<string, string>> = {
   'profile.get': '账号信息、联系方式与安全设置',
 };
 
+/**
+ * 每个功能一个图标，用来**扫一眼分辨**，而不是当装饰。
+ *
+ * 键与 `LEAF_NOTES` 同源（`primaryMethod`），所以标签改名时图标不会跟着漂；
+ * 一个叶子有说明却没图标（或反过来）在类型层面看不出来，因此两处都按同一张叶子的
+ * `primaryMethod` 取，缺省分别退回 `Grid` 与域名 —— 宁可少说/普通，也不要空一块。
+ *
+ * 图形只从 Element Plus 自带那套里挑，不自造：多一套图标就多一份要维护的资产。
+ */
+const LEAF_ICONS: Readonly<Record<string, Component>> = {
+  'dashboard.summary': Odometer,
+  'alert.list': Bell,
+  'inventory.list': Box,
+  'product.list': Goods,
+  'tag.list': PriceTag,
+  'stockOrder.list': Tickets,
+  'stockOrder.create': DocumentAdd,
+  'warehouse.list': OfficeBuilding,
+  'inspection.planList': Calendar,
+  'inspection.taskPage': List,
+  'inspection.taskCreate': CirclePlus,
+  'inspection.resultCreate': EditPen,
+  'inspection.manualRecord': Edit,
+  'device.list': Cpu,
+  'message.list': ChatDotRound,
+  'user.list': User,
+  'profile.get': Setting,
+};
+
 /** 分组：域 → 它的一级功能。顺序就是侧栏顺序，不另排。 */
 const groups = computed(() =>
   DOMAINS.map((domain) => ({
@@ -58,6 +108,7 @@ const groups = computed(() =>
       method: leaf.primaryMethod,
       label: leaf.label,
       path: leaf.path,
+      icon: LEAF_ICONS[leaf.primaryMethod] ?? Grid,
       note: LEAF_NOTES[leaf.primaryMethod] ?? `${domain.label}域的功能`,
     })),
   })),
@@ -107,8 +158,13 @@ function open(path: string): void {
       <ul class="w-home__grid">
         <li v-for="leaf in group.leaves" :key="leaf.method">
           <button type="button" class="w-home__entry" @click="open(leaf.path)">
-            <span class="w-home__entry-name">{{ leaf.label }}</span>
-            <span class="w-home__entry-note">{{ leaf.note }}</span>
+            <span class="w-home__entry-icon" aria-hidden="true">
+              <component :is="leaf.icon" />
+            </span>
+            <span class="w-home__entry-text">
+              <span class="w-home__entry-name">{{ leaf.label }}</span>
+              <span class="w-home__entry-note">{{ leaf.note }}</span>
+            </span>
           </button>
         </li>
       </ul>
@@ -140,11 +196,15 @@ function open(path: string): void {
 
 /*
  * 功能入口：宽屏并排、窄屏一行一个。
- * `auto-fill + minmax(card-min-width, 1fr)`：手机上一列、桌面两列，不用写断点。
+ * `auto-fill + minmax(280px, 1fr)`：手机上一列、桌面两三列，不用写断点。
+ *
+ * 280 而不是卡片通用的 `--w-size-card-min-width`(200)：这里的副标题是一整句说明，
+ * 200px 下会折成三行（"库存总量、今日告警、/巡检进度与设备在线的实时/汇总"），
+ * 一行高度对不齐、看着像排版坏了。宽一点换来每张卡两行以内。
  */
 .w-home__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--w-size-card-min-width), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--w-space-row-gap);
   list-style: none;
   margin: 0;
@@ -153,8 +213,8 @@ function open(path: string): void {
 
 .w-home__entry {
   display: flex;
-  flex-direction: column;
-  gap: var(--w-space-inline-gap);
+  align-items: flex-start;
+  gap: var(--w-space-card-padding-compact);
   width: 100%;
   min-height: var(--w-space-touch-target-min);
   padding: var(--w-space-card-padding-compact);
@@ -170,6 +230,31 @@ function open(path: string): void {
 .w-home__entry:active {
   background: var(--w-color-surface-alt);
   border-color: var(--w-color-primary);
+}
+
+/*
+ * 图标底盘：32px 方片 + 淡主色，复用的就是侧栏「当前项」那一档色（`--w-color-primary-soft`）。
+ * 整屏仍是白底白卡，彩色只出现在这 32px 里 —— 图标负责"扫一眼分辨"，面积不能抢内容。
+ */
+.w-home__entry-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--w-size-mark-size);
+  height: var(--w-size-mark-size);
+  /* Element Plus 图标是 1em 宽的 SVG：字号就是图标大小 */
+  font-size: var(--w-type-section-title-size);
+  color: var(--w-color-primary);
+  background: var(--w-color-primary-soft);
+  border-radius: var(--w-radius-chip);
+}
+
+.w-home__entry-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+  min-width: 0;
 }
 
 .w-home__entry-name {

@@ -248,6 +248,28 @@ if (!loginReady) {
   check('每个入口写着"进去能干什么"（不是只有标题）', hubFirst.split('\n').length >= 2, hubFirst.replace(/\n/g, ' / ').slice(0, 60));
 
   /*
+   * 图标：**真的画出 SVG 了**才计数。
+   *
+   * 只断言"入口数量对"是拦不住图标写错的 —— 图标名拼错时那一格只是空着，
+   * 数量、文案、点击全都没问题（而缺省退回 `Grid` 更让"少一个图标"看不出来）。
+   */
+  const hubIcons = await cdp.evaluate(
+    `(() => {
+       const entries = [...document.querySelectorAll('.w-home__entry')];
+       return {
+         total: entries.length,
+         withIcon: entries.filter((e) => e.querySelector('.w-home__entry-icon svg')).length,
+       };
+     })()`,
+    { awaitPromise: false },
+  );
+  check(
+    '每个入口都画出了图标（不是只有名字）',
+    hubIcons.total === 17 && hubIcons.withIcon === hubIcons.total,
+    `withIcon=${hubIcons.withIcon}/${hubIcons.total}`,
+  );
+
+  /*
    * 应用中心是**唯一入口**：点不开就等于功能被藏起来了。
    * 所以这条要真点一次，确认路由与子页面标题都变了。
    */
