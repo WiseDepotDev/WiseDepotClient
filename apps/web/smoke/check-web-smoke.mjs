@@ -227,12 +227,41 @@ if (!loginReady) {
   );
   check('登录按钮可点击（校验通过后不再禁用）', clicked === true);
 
-  const home = await waitFor(`document.querySelector('.w-home') ? document.querySelector('.w-home').innerText.slice(0, 300) : null`, 20_000);
-  check('登录后进入主框架', home !== null);
+  const home = await waitFor(`document.querySelector('.w-home') ? document.querySelector('.w-home').innerText.slice(0, 600) : null`, 20_000);
+  check('登录后进入主框架（应用中心）', home !== null);
   if (home) {
     check('主框架显示真实会话账号', /admin/.test(home), home.replace(/\s+/g, ' ').slice(0, 80));
-    check('未上线页面用业务语言标注', /功能上线中/.test(home));
+    check(
+      '应用中心按域分组（运营/库存/现场/管理）',
+      ['运营', '库存', '现场', '管理'].every((d) => home.includes(d)),
+      home.replace(/\s+/g, ' ').slice(0, 60),
+    );
+    check('首页不再是"上线中"占位（29 屏全迁完之后那句话已过期）', !/功能上线中/.test(home), home.replace(/\s+/g, ' ').slice(0, 60));
   }
+
+  const hubEntries = await cdp.evaluate(`document.querySelectorAll('.w-home__entry').length`, { awaitPromise: false });
+  // 17 = 当前导航叶子数（运营 2 / 库存 6 / 现场 5 / 管理 3 + 巡检计划与其它；加叶子时这条要跟着改）
+  check('功能入口数量 = 导航叶子数（一级功能 17 个）', hubEntries === 17, `entries=${hubEntries}`);
+  const hubFirst = await cdp.evaluate(`document.querySelector('.w-home__entry')?.innerText.trim() ?? ''`, {
+    awaitPromise: false,
+  });
+  check('每个入口写着"进去能干什么"（不是只有标题）', hubFirst.split('\n').length >= 2, hubFirst.replace(/\n/g, ' / ').slice(0, 60));
+
+  /*
+   * 应用中心是**唯一入口**：点不开就等于功能被藏起来了。
+   * 所以这条要真点一次，确认路由与子页面标题都变了。
+   */
+  await cdp.evaluate(`document.querySelector('.w-home__entry')?.click()`, { awaitPromise: false });
+  await sleep(900);
+  const afterEntryClick = await cdp.evaluate(
+    `({ hash: location.hash, title: document.querySelector('.w-page-header__title')?.innerText ?? '' })`,
+    { awaitPromise: false },
+  );
+  check(
+    '点入口真的进得了子页面',
+    /^#\/(overview|inventory|field|me)\//.test(afterEntryClick.hash) && afterEntryClick.title !== '',
+    `${afterEntryClick.hash} / ${afterEntryClick.title}`,
+  );
 
   const url = await cdp.evaluate('location.hash', { awaitPromise: false });
   check('使用 hash 路由（宿主相对路径兼容）', typeof url === 'string' && url.startsWith('#/'), url);
