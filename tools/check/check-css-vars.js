@@ -9,6 +9,13 @@
  *
  * 扫描范围：packages/ 与 apps/ 下的 *.css（不含生成的 tokens.css 自身）。
  *
+ * ## 两条令牌基线并存（Vue 重写过渡期）
+ *
+ * 旧基线 `tokens.css`（由归档 Compose 主题导出）服务还在树上的 React 旧屏；
+ * 新基线 `theme.v2.css`（由 `src/theme.json` 生成，见 tools/gen/gen-naive-theme.js）
+ * 服务 Vue 新界面。**已定义的令牌取两者的并集** —— 门禁要拦的是"引用了不存在的令牌"，
+ * 不是"引用了另一条基线的令牌"。等 React 版退役（V6），把这里收成一条。
+ *
  * 用法：
  *   node tools/check/check-css-vars.js          # 校验，发现问题退出 1
  *   node tools/check/check-css-vars.js --list   # 同时列出已定义的令牌名
@@ -21,8 +28,9 @@ const path = require('path');
 
 const CLIENT_ROOT = path.resolve(__dirname, '..', '..');
 const TOKENS_CSS = path.join(CLIENT_ROOT, 'packages', 'tokens', 'src', 'generated', 'tokens.css');
+const TOKENS_CSS_V2 = path.join(CLIENT_ROOT, 'packages', 'tokens', 'src', 'generated', 'theme.v2.css');
 const SCAN_ROOTS = ['packages', 'apps'];
-const SKIP_DIR = new Set(['node_modules', 'build', 'dist', 'generated', '.git', 'release']);
+const SKIP_DIR = new Set(['node_modules', 'build', 'dist', 'generated', '.git', 'release', 'spike']);
 
 function walk(dir, out = []) {
     if (!fs.existsSync(dir)) {
@@ -49,6 +57,18 @@ if (!fs.existsSync(TOKENS_CSS)) {
 
 const tokenCss = fs.readFileSync(TOKENS_CSS, 'utf8');
 const defined = new Set([...tokenCss.matchAll(/^\s*(--w-[a-z0-9-]+):/gm)].map((m) => m[1]));
+const legacyCount = defined.size;
+
+let v2Count = 0;
+if (fs.existsSync(TOKENS_CSS_V2)) {
+    const v2 = fs.readFileSync(TOKENS_CSS_V2, 'utf8');
+    for (const m of v2.matchAll(/^\s*(--w-[a-z0-9-]+):/gm)) {
+        defined.add(m[1]);
+    }
+    v2Count = defined.size - legacyCount;
+} else {
+    console.error('! 缺少 theme.v2.css（Vue 新界面基线），跳过它；如已迁移请跑 `pnpm gen:naive`。');
+}
 
 // 允许写死取值的例外：0 与 1px 边框、百分比、以及关键字
 const ALLOWED_LITERAL_PX = new Set(['0', '1px', '2px']);
@@ -100,4 +120,6 @@ if (problems > 0) {
     console.error(`check-css-vars: 扫描 ${scanned} 个 CSS 文件，发现 ${problems} 处问题。`);
     process.exit(1);
 }
-console.log(`check-css-vars OK: 扫描 ${scanned} 个 CSS 文件，令牌定义 ${defined.size} 个，无未定义引用、无写死取值`);
+console.log(
+    `check-css-vars OK: 扫描 ${scanned} 个 CSS 文件，令牌定义 ${defined.size} 个（旧基线 ${legacyCount} + 新基线 ${v2Count}），无未定义引用、无写死取值`,
+);

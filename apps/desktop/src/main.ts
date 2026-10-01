@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net, shell } from 'electron';
+import { app, BrowserWindow, Menu, protocol, net, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { join } from 'node:path';
@@ -104,7 +104,6 @@ async function startBridge(): Promise<void> {
     ],
   });
 
-  bridge.on('state', (s) => mainWindow?.webContents.send('bridge-state', s));
   // 不重复加前缀：桥自己的日志已经以 `[bridge] ` 开头（那是它写给人看的一部分），
   // 再套一层会变成 `[bridge] [bridge] …` —— 噪音虽小，但每条日志都多一层。
   bridge.on('log', (line: string) => console.log(line.trimEnd()));
@@ -172,6 +171,7 @@ async function createWindow(): Promise<void> {
 }
 
 void app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   registerAppProtocol();
   // 并行：不 await 桥，窗口先起来（桥就绪前 Web 会拿到 503 并显示"连接中"）
   const bridgeStartup = startBridge().catch((e: Error) => {

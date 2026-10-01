@@ -2,12 +2,13 @@
   "name": "@wise/scan",
   "version": "1.0.0",
   "private": true,
-  "description": "键盘式扫码枪输入：把「快速连打 + 结束符」的键盘流识别成一次扫码",
+  "description": "键盘式扫码枪输入：把「快速连打 + 结束符」的键盘流识别成一次扫码。核心 assembler 与框架无关，Vue 侧经 ./assembler 子路径复用同一份实现。",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./assembler": "./src/assembler.ts"
   },
   "peerDependencies": {
     "react": "^19.0.0"

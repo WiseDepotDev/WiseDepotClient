@@ -72,6 +72,8 @@ export interface WebSocketTransportOptions {
   readonly maxBackoffMs?: number;
   /** 连续失败多少次后放弃（放弃后 state=closed，UI 显示"桥已断开"）。 */
   readonly maxAttempts?: number;
+  /** 宿主重启后刷新端口/token；返回 null 时保留旧引导并让本次连接自然失败重试。 */
+  readonly refreshBootstrap?: () => Promise<BridgeBootstrap | null>;
 }
 
 /**
@@ -97,7 +99,36 @@ const DEFAULTS = {
   connectTimeoutMs: 6_000,
   maxBackoffMs: 5_000,
   maxAttempts: 6,
+  refreshBootstrap: undefined,
 } as const;
+
+const utf8Encoder = new TextEncoder();
+
+function utf8ByteLength(text: string): number {
+  return utf8Encoder.encode(text).byteLength;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isBridgeFrame(value: unknown): value is BridgeFrame {
+  if (!isRecord(value) || value.v !== BRIDGE_PROTOCOL_VERSION || typeof value.type !== 'string') {
+    return false;
+  }
+  switch (value.type) {
+    case 'res':
+      return typeof value.id === 'string' && value.ok === true;
+    case 'err':
+      return typeof value.id === 'string' && isRecord(value.error) && typeof value.error.code === 'string';
+    case 'evt':
+      return typeof value.topic === 'string';
+    case 'req':
+      return typeof value.id === 'string' && typeof value.method === 'string';
+    default:
+      return false;
+  }
+}
 
 /**
  * 生产传输：`ws://127.0.0.1:{port}{HANDSHAKE_PATH}?token=…`。
@@ -114,14 +145,21 @@ export class WebSocketTransport implements BridgeTransport {
   private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer: number }>();
   private readonly topics = new Map<string, Set<(data: unknown) => void>>();
   private readonly stateHandlers = new Set<(s: ConnectionState) => void>();
-  private readonly opts: Required<WebSocketTransportOptions>;
+  private readonly opts: {
+    readonly callTimeoutMs: number;
+    readonly connectTimeoutMs: number;
+    readonly maxBackoffMs: number;
+    readonly maxAttempts: number;
+    readonly refreshBootstrap: (() => Promise<BridgeBootstrap | null>) | undefined;
+  };
   private currentState: ConnectionState = 'idle';
   private connecting: Promise<void> | null = null;
+  private cancelReconnect: (() => void) | null = null;
   private attempts = 0;
   private seq = 0;
 
   constructor(
-    private readonly bootstrap: BridgeBootstrap,
+    private bootstrap: BridgeBootstrap,
     options: WebSocketTransportOptions = {},
   ) {
     this.opts = { ...DEFAULTS, ...options };
@@ -181,7 +219,7 @@ export class WebSocketTransport implements BridgeTransport {
             ...(meta === undefined ? {} : { meta }),
           };
           const text = JSON.stringify(frame);
-          if (text.length > MAX_FRAME_BYTES) {
+          if (utf8ByteLength(text) > MAX_FRAME_BYTES) {
             fail(new BridgeError({ code: BridgeErrorCode.FRAME_TOO_LARGE, messageKey: 'bridge.frameTooLarge' }));
             return;
           }
@@ -221,8 +259,11 @@ export class WebSocketTransport implements BridgeTransport {
 
   close(): void {
     this.setState('closed');
+    this.cancelReconnect?.();
+    this.cancelReconnect = null;
     this.socket?.close();
     this.socket = null;
+    this.failPending();
   }
 
   // ------------------------------------------------------------ 内部
@@ -251,7 +292,12 @@ export class WebSocketTransport implements BridgeTransport {
 
   private open(): Promise<void> {
     this.setState(this.attempts === 0 ? 'connecting' : 'reconnecting');
-    return new Promise<void>((resolve, reject) => {
+    return (async (): Promise<void> => {
+      const refreshed = await this.opts.refreshBootstrap?.();
+      if (refreshed) {
+        this.bootstrap = refreshed;
+      }
+      return await new Promise<void>((resolve, reject) => {
       // host 由宿主下发（见 BridgeBootstrap.host）；缺省回退 127.0.0.1 以兼容旧宿主。
       const host = this.bootstrap.host ?? '127.0.0.1';
       const url = `ws://${host}:${this.bootstrap.port}${HANDSHAKE_PATH}?token=${encodeURIComponent(this.bootstrap.token)}`;
@@ -319,7 +365,8 @@ export class WebSocketTransport implements BridgeTransport {
           void this.scheduleReconnect(resolve, reject);
         });
       };
-    });
+      });
+    })();
   }
 
   private async scheduleReconnect(resolve: () => void, reject: (e: unknown) => void): Promise<void> {
@@ -331,7 +378,21 @@ export class WebSocketTransport implements BridgeTransport {
     }
     this.setState('reconnecting');
     const wait = Math.min(this.opts.maxBackoffMs, 300 * 2 ** (this.attempts - 1));
-    await new Promise((r) => setTimeout(r, wait));
+    const canRetry = await new Promise<boolean>((resolve) => {
+      const timer = globalThis.setTimeout(() => {
+        this.cancelReconnect = null;
+        resolve(true);
+      }, wait);
+      this.cancelReconnect = () => {
+        globalThis.clearTimeout(timer);
+        this.cancelReconnect = null;
+        resolve(false);
+      };
+    });
+    if (!canRetry || this.currentState === 'closed') {
+      reject(new BridgeError({ code: BridgeErrorCode.UNAUTHORIZED, messageKey: 'bridge.closed' }));
+      return;
+    }
     try {
       await this.open();
       resolve();
@@ -341,9 +402,17 @@ export class WebSocketTransport implements BridgeTransport {
   }
 
   private dispatch(text: string): void {
+    if (utf8ByteLength(text) > MAX_FRAME_BYTES) {
+      this.socket?.close(1009, 'frame too large');
+      return;
+    }
     let frame: BridgeFrame;
     try {
-      frame = JSON.parse(text) as BridgeFrame;
+      const parsed: unknown = JSON.parse(text);
+      if (!isBridgeFrame(parsed)) {
+        return;
+      }
+      frame = parsed;
     } catch {
       return;
     }

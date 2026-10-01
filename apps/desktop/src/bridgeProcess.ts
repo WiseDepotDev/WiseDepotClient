@@ -84,6 +84,7 @@ export class BridgeProcess extends EventEmitter {
       return this.handshake!;
     }
     this.stopping = false;
+    this.restarts = 0;
     return await this.spawnOnce();
   }
 
@@ -168,7 +169,6 @@ export class BridgeProcess extends EventEmitter {
         try {
           const hs = JSON.parse(line) as BridgeHandshake;
           this.handshake = hs;
-          this.restarts = 0;
           clearTimeout(timer);
           this.setState('running');
           this.emit('ready', hs);
@@ -186,6 +186,7 @@ export class BridgeProcess extends EventEmitter {
       });
 
       child.once('exit', (code, signal) => {
+        clearTimeout(timer);
         this.child = null;
         this.handshake = null;
         if (this.stopping) {

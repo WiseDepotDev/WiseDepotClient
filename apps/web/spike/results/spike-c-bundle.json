@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-10-01T04:55:31.264Z",
+  "budgetKB": 250,
+  "base": {
+    "name": "base（vue+vue-router+pinia，无 UI 库）",
+    "rawKB": 0,
+    "gzipKB": 33.1
+  },
+  "probes": [
+    {
+      "name": "lean（登录/首屏最小集）",
+      "entry": "probe/lean.ts",
+      "rawKB": 274.7,
+      "gzipKB": 88.8
+    },
+    {
+      "name": "lean + DataTable + Pagination",
+      "entry": "probe/dtable.ts",
+      "rawKB": 547.5,
+      "gzipKB": 164.6
+    },
+    {
+      "name": "lean + Select + DatePicker",
+      "entry": "probe/picker.ts",
+      "rawKB": 550.4,
+      "gzipKB": 159.3
+    },
+    {
+      "name": "list（列表页：DataTable+Select+DatePicker+Drawer）",
+      "entry": "probe/list.ts",
+      "rawKB": 722.1,
+      "gzipKB": 204.7
+    },
+    {
+      "name": "shell（双壳：+Layout+Sider+Menu+Badge+Tooltip）",
+      "entry": "probe/shell.ts",
+      "rawKB": 776.4,
+      "gzipKB": 217
+    }
+  ]
+}

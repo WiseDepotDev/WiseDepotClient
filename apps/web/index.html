@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <!--
       CSP 的 connect-src 必须覆盖**桥的实际地址**，而那个地址是宿主运行时下发的：
       桌面/真机是 127.0.0.1，WSA 是 loopback0 的点对点地址（如 169.254.73.153）。
@@ -12,12 +12,41 @@
 
       教训：把 host 改成运行时下发时，漏了同步改这里 —— 结果是页面被自己的 CSP 拦住，
       而 logcat 里只有一条 CONSOLE 记录，很容易被当成"没报错"。
+
+      Naive UI 是 CSS-in-JS（运行时注入 <style>），因此 style-src 必须保留 'unsafe-inline'。
     -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
-    <title>慧仓智控 WiseDepot</title>
+    <meta name="color-scheme" content="light" />
+    <title>慧仓智控 · WiseDepot</title>
+    <style>
+      /* 挂载前的静态启动态：mount 会把它整个替换掉。
+         放在这里而不是 JS 里，是为了"宿主还在握手"的那几百毫秒也有东西可看
+         （架构文档 §10：冷启动到可交互 ≤2.5s）。 */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #f7f9f9;
+        color: #173344;
+        font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      }
+      #app {
+        height: 100%;
+      }
+      #app-splash {
+        display: flex;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 0.02em;
+        font-size: 14px;
+        color: #84949c;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="app"><div id="app-splash">正在启动…</div></div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

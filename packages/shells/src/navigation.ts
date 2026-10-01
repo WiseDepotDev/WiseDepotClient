@@ -51,7 +51,6 @@ export const DOMAINS: readonly NavDomain[] = [
       { id: 'stock-order-create', label: '新建出入库单', primaryMethod: 'stockOrder.create' },
       // 单据详情同理：由列表点一行推入，不占导航项
       { id: 'warehouses', label: '仓库管理', primaryMethod: 'warehouse.list' },
-      { id: 'warehouses', label: '仓库管理', primaryMethod: 'warehouse.list' },
     ],
   },
   {

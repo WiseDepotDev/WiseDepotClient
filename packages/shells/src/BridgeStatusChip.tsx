@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import type { Bridge } from '@wise/bridge-client';
 import type { ConnectionState } from '@wise/bridge-client';
 
@@ -38,19 +39,24 @@ export function BridgeStatusChip({
   origin: string;
   alwaysShow?: boolean;
 }): React.ReactElement | null {
+  const state = useSyncExternalStore(
+    bridge.onStateChange.bind(bridge),
+    () => bridge.state,
+    () => bridge.state,
+  );
   const isMock = bridge.kind === 'mock';
-  const healthy = !isMock && bridge.state === 'open';
+  const healthy = !isMock && state === 'open';
 
   if (healthy && !alwaysShow) {
     return null;
   }
 
   // 异常时给**业务语言**，不给内部术语。"mock" 只在开发态出现（页面里本来就有开发标记）
-  const label = isMock ? '开发态假数据' : bridge.state === 'open' ? '连接正常' : STATE_LABEL[bridge.state];
+  const label = isMock ? '开发态假数据' : state === 'open' ? '连接正常' : STATE_LABEL[state];
 
   return (
-    <span className={tone(bridge.kind, bridge.state) === 'warn' ? 'w-chip w-chip--warn' : 'w-chip'} title={origin}>
-      <span className={`w-dot w-dot--${tone(bridge.kind, bridge.state)}`} />
+    <span className={tone(bridge.kind, state) === 'warn' ? 'w-chip w-chip--warn' : 'w-chip'} title={origin}>
+      <span className={`w-dot w-dot--${tone(bridge.kind, state)}`} />
       {label}
     </span>
   );

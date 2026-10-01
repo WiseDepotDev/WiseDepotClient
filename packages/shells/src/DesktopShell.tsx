@@ -1,12 +1,10 @@
-import { useCallback, useState } from 'react';
 import type { Bridge } from '@wise/bridge-client';
+import { useContext } from 'react';
 import { Capability } from '@wise/bridge-client';
 import { useScanGun } from '@wise/scan';
-import type { ScreenParams } from '@wise/features';
 import {
   AppBar,
   Button,
-  Chip,
   Content,
   Mono,
   NavItem,
@@ -17,13 +15,8 @@ import {
 } from '@wise/patterns';
 import { BridgeStatusChip } from './BridgeStatusChip.js';
 import { PageBody } from './PageBody.js';
-import { DOMAINS, SCAN_TARGET_METHOD, destinationOf, findLeafByMethod, screenKey, type DomainId, type NavLeaf } from './navigation.js';
-
-/** 推入栈里的一层（与移动外壳同构）。 */
-interface Crumb {
-  readonly leaf: NavLeaf;
-  readonly params?: ScreenParams | undefined;
-}
+import { DOMAINS, screenKey } from './navigation.js';
+import { NavigationContext, ShellNavigationProvider, useShellNavigation } from './navigationState.js';
 
 /**
  * 桌面外壳（Medium / Expanded，≥600px，见 docs/ui-spec.md §2）。
@@ -41,73 +34,51 @@ interface Crumb {
  * 壳猜不出来）。在那之前，Expanded 与 Medium 一样走单列限宽居中 ——
  * 宁可少一个装饰性的空栏，也不要摆一块假数据。
  */
-export function DesktopShell({
-  bridge,
-  origin,
-  size,
-}: {
+type DesktopShellProps = {
   bridge: Bridge;
   origin: string;
   size: WindowSize;
-}): React.ReactElement {
-  const [domain, setDomain] = useState<DomainId>('overview');
-  const [leaf, setLeaf] = useState<NavLeaf>(DOMAINS[0]!.children[0]!);
-  /** 推入栈：屏请求去的下一层（详情类）。空栈 = 在导航叶子上。 */
-  const [stack, setStack] = useState<readonly Crumb[]>([]);
-  const top = stack.length > 0 ? stack[stack.length - 1]! : undefined;
-  const shown = top ?? { leaf, params: undefined as ScreenParams | undefined };
+};
 
-  const goRoot = (next: NavLeaf, nextDomain?: DomainId): void => {
-    if (nextDomain !== undefined) {
-      setDomain(nextDomain);
-    }
-    setLeaf(next);
-    setStack([]);
-  };
+export function DesktopShell(props: DesktopShellProps): React.ReactElement {
+  const navigation = useContext(NavigationContext);
+  return navigation ? (
+    <DesktopShellContent {...props} />
+  ) : (
+    <ShellNavigationProvider>
+      <DesktopShellContent {...props} />
+    </ShellNavigationProvider>
+  );
+}
 
-  /** 屏请求导航：能推到下一层就推，推不了（未知目的地）就留日志而不是静默。 */
-  const onNavigate = useCallback((to: { method: string; params?: ScreenParams | undefined }) => {
-    const dest = destinationOf(to.method);
-    if (!dest) {
-      console.warn(`[shell] 收到未知的导航目标：${to.method}`);
-      return;
-    }
-    setStack((prev) => [
-      ...prev,
-      { leaf: { id: dest.method, label: dest.label, primaryMethod: dest.method }, params: to.params },
-    ]);
-  }, []);
+function DesktopShellContent({
+  bridge,
+  origin,
+  size,
+}: DesktopShellProps): React.ReactElement {
+  const { domain, leaf, top, shown, goRoot, onNavigate, onScan, pop } = useShellNavigation();
 
-  /** 扫码枪扫到东西 → 推入标签详情并带上编码（与移动外壳同一套落点与语义）。 */
-  const onScan = useCallback((code: string) => {
-    const dest = destinationOf(SCAN_TARGET_METHOD);
-    const target = findLeafByMethod(SCAN_TARGET_METHOD);
-    if (target && !dest) {
-      goRoot(target.leaf, target.domain);
-      return;
-    }
-    if (!dest) {
-      return;
-    }
-    setStack((prev) => [
-      ...prev,
-      { leaf: { id: dest.method, label: dest.label, primaryMethod: dest.method }, params: { code } },
-    ]);
-  }, []);
+  const categoryOf = (id: typeof domain): string => (id === 'field' ? '现场' : id === 'me' ? '管理' : '运营');
+  const sectionLabel = categoryOf(domain);
 
   useScanGun({ enabled: bridge.supports(Capability.SCAN_GUN_KEYBOARD), onScan });
 
   return (
-    <div className="w-root">
+    <div className="w-root w-root--industrial">
       <Sidebar
+        variant="industrial"
         brand={
-          <span>
-            WiseDepot <Mono>慧仓智控</Mono>
+          <span className="w-sidebar__brand-lockup">
+            <strong>慧仓智控</strong>
+            <Mono>WiseDepot / OPS</Mono>
           </span>
         }
       >
-        {DOMAINS.map((d) => (
+        {DOMAINS.map((d, index) => (
           <div key={d.id} className="w-navgroup">
+            {index === 0 || categoryOf(DOMAINS[index - 1]!.id) !== categoryOf(d.id) ? (
+              <div className="w-navgroup__label">{categoryOf(d.id)}</div>
+            ) : null}
             <NavItem
               label={d.label}
               icon={d.id}
@@ -131,18 +102,18 @@ export function DesktopShell({
 
       <div className="w-main">
         <AppBar
-          title={top ? top.leaf.label : leaf.label}
+          variant="industrial"
+          title={`${sectionLabel} / ${top ? top.leaf.label : leaf.label}`}
           actions={
             <>
               {top ? (
-                <Button ariaLabel="返回" onClick={() => setStack((prev) => prev.slice(0, -1))}>
+                <Button ariaLabel="返回" onClick={pop}>
                   返回
                 </Button>
               ) : null}
-              <Chip tone="neutral">{`${bridge.capabilities.length} 项能力`}</Chip>
             </>
           }
-          status={<BridgeStatusChip bridge={bridge} origin={origin} />}
+          status={<BridgeStatusChip bridge={bridge} origin={origin} alwaysShow />}
         />
         <div className="w-scroll">
           <Content size={size}>

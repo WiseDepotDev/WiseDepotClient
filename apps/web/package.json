@@ -3,27 +3,42 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "唯一 Web 产物：桌面（Electron app://）与手机（WebViewAssetLoader https://appassets…）共用同一份构建",
+  "description": "唯一 Web 产物：桌面（Electron app://）与手机（WebViewAssetLoader https://appassets…）共用同一份构建。入口为 Vue 3 + Element Plus；React 旧屏保留在树上做对照，V6 删除。",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 4173",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
     "@wise/bridge-client": "workspace:*",
+    "@wise/bridge-vue": "workspace:*",
     "@wise/contract": "workspace:*",
+    "@wise/features": "workspace:*",
+    "@wise/layouts": "workspace:*",
     "@wise/shells": "workspace:*",
+    "@wise/stores": "workspace:*",
     "@wise/tokens": "workspace:*",
+    "@wise/ui": "workspace:*",
+    "element-plus": "^2.14.6",
+    "pinia": "^4.0.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "@wise/features": "workspace:*"
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
   },
   "devDependencies": {
+    "@css-render/vue3-ssr": "^0.15.14",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/server-renderer": "^3.5.43",
+    "naive-ui": "^2.45.3",
     "typescript": "^5.7.3",
-    "vite": "^6.0.7"
+    "unplugin-element-plus": "^0.11.2",
+    "vite": "^6.0.7",
+    "vue-tsc": "^3.3.11"
   }
 }

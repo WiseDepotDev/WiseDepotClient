@@ -1,0 +1,96 @@
+/*
+ * 全局基线样式。**只放不能进组件的东西**：盒子模型、字体、焦点圈、滚动条、等宽数字。
+ * 任何颜色与尺寸都必须来自 --w-* 令牌（门禁 check:css 会拦 hex 与字面量尺寸）。
+ *
+ * ## 为什么整页是 fixed 高度、只有内容区滚动
+ *
+ * 现场是"仪表盘式"的作业界面：顶栏（搜索/Bridge 状态/账号）、侧栏、状态栏、手机底栏
+ * 都必须**一直可见**。如果让整个文档滚动，滚到列表底部时这些就都跑掉了，
+ * 操作员每次都要先滚回顶部才能换页。
+ *
+ * 所以：`html/body/#app` 固定 100%，外壳是 flex 列，**只有 `.w-content` 滚动**。
+ * 这也顺手消掉了移动端"地址栏收起/展开导致整页跳动"的问题。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--w-color-bg);
+  color: var(--w-color-on-surface);
+  font-family: var(--w-font-family);
+  font-size: var(--w-type-body-size);
+  line-height: var(--w-type-body-line);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 机器数据（单号 / 条码 / RFID）一律等宽 + 表格数字，保证纵向对齐 */
+.w-mono,
+code,
+kbd,
+samp {
+  font-family: var(--w-font-mono);
+  font-size: var(--w-type-mono-size);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 应用根：整页固定高度，只有内部滚动区动。
+ *
+ * 用 **`100dvh`** 而不是 `height: 100%`，是有原因的：
+ * naive-ui 的 `NConfigProvider` 会渲染一层 `div.n-config-provider`，
+ * 那层是**自动高度**的块级元素 ——  `.w-app` 写 `height: 100%` 会解析成 auto，
+ * 于是被内容撑到 1176px（视口才 900），表现为"整页还能滚一下"。
+ * 用视口单位就绕开了"祖先是 auto 高度"这个前提，也不依赖库的 DOM 结构。
+ * `100vh` 在前是给不支持 dvh 的内核兜底。
+ */
+.w-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+
+/* 键盘可达性：只用 outline 表达焦点，不用阴影 */
+:focus-visible {
+  outline: 2px solid var(--w-color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* 桌面端的细滚动条；触摸端不显示滚动条（现场以手势为主） */
+@media (min-width: 1024px) {
+  ::-webkit-scrollbar {
+    width: var(--w-space-inline-gap);
+    height: var(--w-space-inline-gap);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--w-color-outline);
+    border-radius: var(--w-radius-pill);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+}

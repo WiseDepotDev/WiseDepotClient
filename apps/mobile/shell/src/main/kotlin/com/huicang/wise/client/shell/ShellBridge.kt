@@ -190,9 +190,8 @@ object ShellBridge {
         if (!AndroidKeystoreCodec.available()) {
             return com.huicang.wise.bridge.backend.InMemoryTokenStore()
         }
-        val file = java.io.File(filesDir, "bridge-session.enc").toPath()
         return com.huicang.wise.bridge.backend.PersistentTokenStore(
-            file = file,
+            filePath = java.io.File(filesDir, "bridge-session.enc").absolutePath,
             codec = AndroidKeystoreCodec(),
             log = { android.util.Log.i("WiseShell", it) },
         )

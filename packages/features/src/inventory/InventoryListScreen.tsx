@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Button,
   Card,
@@ -6,6 +6,7 @@ import {
   DataList,
   DataRow,
   Dot,
+  KeyValue,
   Mono,
   PageHeader,
   SearchField,
@@ -62,6 +63,7 @@ export function InventoryListScreen({
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
   const [filter, setFilter] = useState<StockFilter>('all');
+  const [selectedId, setSelectedId] = useState<number | undefined>(undefined);
 
   const { loading, data, error, reload } = useBridgeCall<unknown>(bridge, 'inventory.list', {
     page,
@@ -88,6 +90,13 @@ export function InventoryListScreen({
     }
     return true;
   });
+
+  const selectedRow = rows.find((item) => item.inventoryId === selectedId) ?? rows[0];
+  useEffect(() => {
+    if (selectedId === undefined && selectedRow?.inventoryId !== undefined) {
+      setSelectedId(selectedRow.inventoryId);
+    }
+  }, [selectedId, selectedRow?.inventoryId]);
 
   const hasMore = total !== undefined ? page * PAGE_SIZE < total : all.length === PAGE_SIZE;
 
@@ -120,63 +129,88 @@ export function InventoryListScreen({
       </TabStrip>
 
       <Section title={`库存列表${applied ? `（含「${applied}」）` : ''}`}>
-        <Card flush>
-          <ListStateHost
-            loading={loading}
-            error={error ? { code: error.code, text: humanize(error) } : undefined}
-            items={rows}
-            emptyText={
-              applied || filter !== 'all'
-                ? '没有符合条件的库存记录，试试换个关键词或切回「全部」。'
-                : '暂无库存数据。请点击右上角刷新，或前往「商品管理」新增商品后再入库。'
-            }
-            onRetry={reload}
-          >
-            {(items) => (
-              <DataList>
-                {items.map((r) => (
-                  <DataRow
-                    key={r.inventoryId ?? `${r.productCode}-${r.location}`}
-                    id={r.productCode}
-                    /* 整行点一下 = 进库存详情（条件展开的原因见 AlertListScreen） */
-                    {...(r.inventoryId === undefined
-                      ? {}
-                      : {
-                          onSelect: () =>
-                            onNavigate?.({
-                              method: 'inventory.detail',
-                              params: { inventoryId: String(r.inventoryId) },
-                            }),
-                        })}
-                    main={r.productName ?? '未命名商品'}
-                    sub={
-                      <>
-                        {r.warehouseName ? <span>{r.warehouseName} · </span> : null}
-                        <span className="w-mono">{r.location ?? '未分配货位'}</span>
-                      </>
-                    }
-                    trailing={
-                      <>
-                        <Mono>{`×${r.quantity ?? 0}`}</Mono>
-                        {r.status === 1 ? (
-                          <Chip tone="warn">
-                            <Dot tone="warn" />
-                            已锁定
-                          </Chip>
-                        ) : (
-                          <Chip tone="ok">
-                            <Dot tone="ok" />
-                            正常
-                          </Chip>
-                        )}
-                      </>
-                    }
-                  />
-                ))}
-              </DataList>
-            )}
-          </ListStateHost>
-        </Card>
+        <div className="w-inventory-workspace">
+          <Card flush>
+            <ListStateHost
+              loading={loading}
+              error={error ? { code: error.code, text: humanize(error) } : undefined}
+              items={rows}
+              emptyText={
+                applied || filter !== 'all'
+                  ? '没有符合条件的库存记录，试试换个关键词或切回「全部」。'
+                  : '暂无库存数据。请点击右上角刷新，或前往「商品管理」新增商品后再入库。'
+              }
+              onRetry={reload}
+            >
+              {(items) => (
+                <DataList>
+                    {items.map((r) => (
+                      <DataRow
+                        key={r.inventoryId ?? `${r.productCode}-${r.location}`}
+                        id={r.productCode}
+                        active={r.inventoryId !== undefined && r.inventoryId === selectedId}
+                        {...(r.inventoryId === undefined
+                          ? {}
+                          : {
+                              onSelect: () => {
+                                setSelectedId(r.inventoryId);
+                                // ui-language-ok: media query mirrors the compact shell breakpoint; CSS tokens are not available in JS.
+                                if (typeof window !== 'undefined' && window.matchMedia('(max-width: 599px)').matches) {
+                                  onNavigate?.({
+                                    method: 'inventory.detail',
+                                    params: { inventoryId: String(r.inventoryId) },
+                                  });
+                                }
+                              },
+                            })}
+                        main={r.productName ?? '未命名商品'}
+                        sub={
+                          <>
+                            {r.warehouseName ? <span>{r.warehouseName} · </span> : null}
+                            <span className="w-mono">{r.location ?? '未分配货位'}</span>
+                          </>
+                        }
+                        trailing={
+                          <>
+                            <Mono>{`×${r.quantity ?? 0}`}</Mono>
+                            {r.status === 1 ? (
+                              <Chip tone="warn">
+                                <Dot tone="warn" />
+                                已锁定
+                              </Chip>
+                            ) : (
+                              <Chip tone="ok">
+                                <Dot tone="ok" />
+                                正常
+                              </Chip>
+                            )}
+                          </>
+                        }
+                      />
+                    ))}
+                </DataList>
+              )}
+            </ListStateHost>
+          </Card>
+          <Card className="w-inventory-detail">
+            {selectedRow ? (
+                <>
+                  <div className="w-inventory-detail__title">
+                    <span>库存详情</span>
+                    {selectedRow.status === 1 ? <Chip tone="warn">已锁定</Chip> : <Chip tone="ok">正常</Chip>}
+                  </div>
+                  <KeyValue k="商品" v={selectedRow.productName ?? '未命名商品'} />
+                  <KeyValue k="编码" v={<Mono>{selectedRow.productCode ?? '—'}</Mono>} />
+                  <KeyValue k="仓库" v={selectedRow.warehouseName ?? '—'} />
+                  <KeyValue k="货位" v={<Mono>{selectedRow.location ?? '未分配货位'}</Mono>} />
+                  <KeyValue k="数量" v={<Mono>{selectedRow.quantity ?? 0}</Mono>} />
+                  <KeyValue k="更新时间" v={selectedRow.updateTime ?? '—'} />
+                </>
+              ) : (
+                <span className="w-muted">选择一条库存记录查看详情</span>
+              )}
+          </Card>
+        </div>
       </Section>
 
       {/* 分页用 Toolbar + Button：它是**动作**，不是"平级页签" —— 别拿 TabStrip 当按钮组用 */}

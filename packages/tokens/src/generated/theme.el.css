@@ -1,0 +1,76 @@
+/*
+ * 由 tools/gen/gen-naive-theme.js 从 packages/tokens/src/theme.json 生成 —— 不要手改。
+ * Element Plus 主题桥：把 --w-* 语义令牌映射到 --el-* 变量。
+ * 少了哪一档，EP 就会在那个位置漏出默认蓝 —— 门禁 check:el-theme 盯的就是这件事。
+ */
+:root {
+  --el-color-primary: #087C75;
+  --el-color-primary-light-3: #52a39e;
+  --el-color-primary-light-5: #84beba;
+  --el-color-primary-light-7: #b5d8d6;
+  --el-color-primary-light-8: #cee5e3;
+  --el-color-primary-light-9: #E3F2F0;
+  --el-color-primary-dark-2: #06635e;
+  --el-color-success: #126961;
+  --el-color-success-light-3: #599690;
+  --el-color-success-light-5: #89b4b0;
+  --el-color-success-light-7: #b8d2d0;
+  --el-color-success-light-8: #d0e1df;
+  --el-color-success-light-9: #DFF3EF;
+  --el-color-success-dark-2: #0e544e;
+  --el-color-warning: #B8690B;
+  --el-color-warning-light-3: #cd9654;
+  --el-color-warning-light-5: #dcb485;
+  --el-color-warning-light-7: #ead2b6;
+  --el-color-warning-light-8: #f1e1ce;
+  --el-color-warning-light-9: #FFF0D8;
+  --el-color-warning-dark-2: #935409;
+  --el-color-danger: #B23A42;
+  --el-color-danger-light-3: #c9757b;
+  --el-color-danger-light-5: #d99da1;
+  --el-color-danger-light-7: #e8c4c6;
+  --el-color-danger-light-8: #f0d8d9;
+  --el-color-danger-light-9: #FBE7E8;
+  --el-color-danger-dark-2: #8e2e35;
+  --el-color-error: #B23A42;
+  --el-color-error-light-3: #c9757b;
+  --el-color-error-light-5: #d99da1;
+  --el-color-error-light-7: #e8c4c6;
+  --el-color-error-light-8: #f0d8d9;
+  --el-color-error-light-9: #FBE7E8;
+  --el-color-error-dark-2: #8e2e35;
+  --el-color-info: #5B6B70;
+  --el-color-info-light-3: #8c979b;
+  --el-color-info-light-5: #adb5b8;
+  --el-color-info-light-7: #ced3d4;
+  --el-color-info-light-8: #dee1e2;
+  --el-color-info-light-9: #EEF1F6;
+  --el-color-info-dark-2: #49565a;
+  --el-text-color-primary: #173344;
+  --el-text-color-regular: #5B6B70;
+  --el-text-color-secondary: #84949C;
+  --el-text-color-placeholder: #84949C;
+  --el-text-color-disabled: #84949C;
+  --el-border-color: #DBE3E6;
+  --el-border-color-light: #EDF1F1;
+  --el-border-color-lighter: #EDF1F1;
+  --el-border-color-extra-light: #EDF1F1;
+  --el-bg-color: #FFFFFF;
+  --el-bg-color-page: #F7F9F9;
+  --el-bg-color-overlay: #FFFFFF;
+  --el-fill-color: #FAFBFB;
+  --el-fill-color-light: #FAFBFB;
+  --el-fill-color-lighter: #F7F9F9;
+  --el-fill-color-extra-light: #F7F9F9;
+  --el-fill-color-blank: #FFFFFF;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px;
+  --el-font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,sans-serif;
+  --el-font-size-base: 14px;
+  --el-font-size-small: 12px;
+  --el-font-size-large: 14px;
+  --el-component-size-large: 48px;
+  --el-component-size: 40px;
+  --el-component-size-small: 32px;
+}

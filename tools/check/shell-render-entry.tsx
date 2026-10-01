@@ -76,7 +76,7 @@ const cases: readonly Case[] = [
     expect: ['w-root--stack'],
   },
   {
-    name: 'DesktopShell（扩展档外壳，单列限宽居中）',
+    name: 'DesktopShell（扩展档工业运营台）',
     render: () =>
       renderToStaticMarkup(
         <DesktopShell bridge={fakeBridge(['window.control', 'print.system'])} origin="test" size="expanded" />,
@@ -84,7 +84,7 @@ const cases: readonly Case[] = [
     // 断言里**不再有** w-master-detail / w-datarow：桌面端的主列表曾是写死的
     // `main="占位行" sub={leaf.primaryMethod}`，真机上会显示六行假数据 + 桥方法 id。
     // 已删除；真正的双栏要等屏自己提供主列表内容。
-    expect: ['w-sidebar', 'w-navitem', 'w-content--expanded', '2 项能力', '看板'],
+    expect: ['w-sidebar', 'w-sidebar--industrial', 'w-navitem', 'w-content--expanded', '慧仓智控', '看板'],
   },
   {
     name: 'LoginScreen（登录屏，W3-b）',

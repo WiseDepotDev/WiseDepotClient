@@ -1,0 +1,408 @@
+/*
+ * @wise/ui 的组件级样式。
+ *
+ * 纪律（由 check:css 与 check:naive 守）：**只允许 var(--w-*) 与 0/1px/2px**。
+ * 任何颜色、间距、字号、圆角、尺寸都必须来自 packages/tokens 的生成物。
+ *
+ * 关于 `.w-datatable.w-datatable` 这种"同一个类写两遍"：
+ * naive-ui 是运行时注入样式（css-render），它的选择器与我们的静态 CSS 同权重，
+ * 而注入的 <style> 通常排在后面 —— 只写一遍会被它盖掉。
+ * 重复类名把权重抬一档，这是在不改 Naive 源码前提下最省事的做法。
+ */
+
+/* ---------- 页面骨架件 ---------- */
+
+.w-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-section-gap);
+  width: 100%;
+  max-width: var(--w-space-content-max-width);
+  margin: 0 auto;
+  padding: var(--w-space-screen-v) var(--w-space-screen-h);
+}
+
+.w-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--w-space-group-gap);
+  flex-wrap: wrap;
+}
+
+.w-page-header__titles {
+  min-width: 0;
+}
+
+.w-page-header__title {
+  margin: 0;
+  font-size: var(--w-type-page-title-size);
+  line-height: var(--w-type-page-title-line);
+  font-weight: var(--w-type-page-title-weight);
+  color: var(--w-color-on-surface);
+}
+
+/* 副标题承载"数据来源 / 最后同步"这类真实上下文，不要写装饰性文案 */
+.w-page-header__note {
+  margin: var(--w-space-inline-gap) 0 0;
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-color-on-surface-muted);
+}
+
+.w-page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex-wrap: wrap;
+}
+
+.w-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-section__title {
+  margin: 0;
+  font-size: var(--w-type-label-size);
+  font-weight: var(--w-type-label-weight);
+  color: var(--w-color-on-surface-variant);
+}
+
+.w-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex-wrap: wrap;
+}
+
+/* ---------- 数据视图（Element Plus 表格的收口） ---------- */
+
+.w-datatable {
+  background: var(--w-color-surface);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-card);
+  overflow: hidden;
+}
+
+/* 行高 = 含边框 48（令牌值）：Element Plus 的 size=large 并不等于 48，要显式给 */
+.w-datatable .el-table__row {
+  height: var(--w-density-table-row-height);
+}
+
+.w-datatable .el-table__cell {
+  border-bottom: 1px solid var(--w-color-outline-subtle);
+}
+
+.w-datatable .el-table__header-wrapper th.el-table__cell {
+  background: var(--w-color-surface-alt);
+  color: var(--w-color-on-surface-muted);
+  font-weight: var(--w-type-label-weight);
+}
+
+/* 去掉 Element Plus 默认的外框与最后一行分隔线，避免与卡片描边叠成两层 */
+.w-datatable .el-table,
+.w-datatable .el-table::before,
+.w-datatable .el-table__inner-wrapper::before {
+  border: none;
+  background: transparent;
+}
+
+.w-datatable .el-table__row:last-child .el-table__cell {
+  border-bottom: none;
+}
+
+.w-datatable--clickable .el-table__row {
+  cursor: pointer;
+}
+
+.w-cell--right {
+  text-align: right;
+}
+
+/* ---------- 手机卡片 ---------- */
+
+.w-cardlist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-row-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.w-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+  width: 100%;
+  min-height: var(--w-space-touch-target-min);
+  padding: var(--w-space-card-padding);
+  text-align: left;
+  background: var(--w-color-surface);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-card);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.w-card:active {
+  background: var(--w-color-surface-alt);
+}
+
+.w-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-card__primary {
+  font-size: var(--w-type-section-title-size);
+  font-weight: var(--w-type-section-title-weight);
+  color: var(--w-color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-card__secondary {
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-color-on-surface-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 卡片底部的行内操作（删除等），与桌面端表格的「操作」列是同一份插槽 */
+.w-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--w-space-inline-gap);
+  margin-top: var(--w-space-inline-gap);
+}
+
+/* 卡片头部的选择框（批量操作用） */
+.w-card__lead {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+/* ---------- 芯片 ---------- */
+
+.w-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  height: var(--w-size-chip-height);
+  padding: 0 var(--w-space-inline-gap);
+  border-radius: var(--w-radius-chip);
+  font-size: var(--w-type-label-size);
+  font-weight: var(--w-type-label-weight);
+  white-space: nowrap;
+}
+
+/*
+ * 状态色使用规则（ui-spec §3.6 / 设计稿 §6.1）：
+ * **文字用 --w-state-*-text，底色用 --w-state-*-fill**。
+ * 反过来用（拿 fill 当文字色）在浅色下会掉到 WCAG AA 以下 —— 旧仓为此修过 24 处。
+ */
+.w-chip--success {
+  background: var(--w-state-success-fill);
+  color: var(--w-state-success-text);
+}
+
+.w-chip--warning {
+  background: var(--w-state-warning-fill);
+  color: var(--w-state-warning-text);
+}
+
+.w-chip--danger {
+  background: var(--w-state-danger-fill);
+  color: var(--w-state-danger-text);
+}
+
+.w-chip--info {
+  background: var(--w-state-info-fill);
+  color: var(--w-state-info-text);
+}
+
+.w-chip--neutral {
+  background: var(--w-state-neutral-fill);
+  color: var(--w-state-neutral-text);
+}
+
+/* ---------- 指标 ---------- */
+
+.w-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--w-size-card-min-width), 1fr));
+  gap: var(--w-space-group-gap);
+}
+
+.w-metric {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--w-space-row-gap);
+  background: var(--w-color-surface);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-card);
+  padding: var(--w-space-card-padding);
+}
+
+.w-metric__label {
+  font-size: var(--w-type-label-size);
+  color: var(--w-color-on-surface-muted);
+}
+
+.w-metric__value {
+  margin-top: var(--w-space-inline-gap);
+  font-size: var(--w-type-display-small-size);
+  line-height: var(--w-type-display-small-line);
+  font-weight: var(--w-type-display-small-weight);
+  font-variant-numeric: tabular-nums;
+  color: var(--w-color-on-surface);
+}
+
+.w-metric__note {
+  margin-top: var(--w-space-inline-gap);
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-color-on-surface-muted);
+}
+
+.w-metric__mark {
+  display: grid;
+  place-items: center;
+  width: var(--w-size-mark-size);
+  height: var(--w-size-mark-size);
+  border-radius: var(--w-radius-control);
+  font-size: var(--w-type-label-size);
+  font-weight: var(--w-type-label-weight);
+}
+
+/* ---------- 详情 ---------- */
+
+.w-kv {
+  display: grid;
+  grid-template-columns: minmax(var(--w-size-kv-label-width), auto) 1fr;
+  gap: var(--w-space-inline-gap) var(--w-space-group-gap);
+  margin: 0;
+  padding: 0;
+}
+
+.w-kv__label {
+  margin: 0;
+  font-size: var(--w-type-label-size);
+  color: var(--w-color-on-surface-muted);
+}
+
+.w-kv__value {
+  margin: 0;
+  font-size: var(--w-type-body-size);
+  color: var(--w-color-on-surface);
+  word-break: break-word;
+}
+
+/* ---------- 动作坞 ---------- */
+
+/*
+ * 为什么不是全局 fixed（旧 BottomActionBar 的缺陷，见 findings.md）：
+ * 全局 fixed 会遮挡手机底栏、并跨到桌面侧栏上。
+ * 这里用 sticky + 底栏高度 + 安全区，桌面回到静态（动作在页头）。
+ */
+.w-actiondock {
+  position: sticky;
+  bottom: calc(var(--w-space-tabbar-height) + env(safe-area-inset-bottom, 0));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--w-space-inline-gap);
+  min-height: var(--w-space-action-bar-height);
+  padding: var(--w-space-inline-gap) var(--w-space-screen-h);
+  background: var(--w-color-surface);
+  border-top: 1px solid var(--w-color-outline);
+}
+
+@media (min-width: 600px) {
+  .w-actiondock {
+    position: static;
+    min-height: 0;
+    padding: 0;
+    background: transparent;
+    border-top: none;
+  }
+}
+
+/* ---------- 四态 ---------- */
+
+.w-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-skeleton__row {
+  height: var(--w-size-skeleton-row-height);
+  border-radius: var(--w-radius-control);
+  background: var(--w-color-surface-sunken);
+  animation: w-skeleton-pulse var(--w-motion-normal) ease-in-out infinite alternate;
+}
+
+.w-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--w-space-group-gap);
+  padding: var(--w-space-section-gap) var(--w-space-card-padding);
+  color: var(--w-color-on-surface-muted);
+}
+
+/*
+ * 错误态：左侧 2px 红条 + 等宽错误码 + 人话 + 重试。
+ * 错误码必须露出来 —— 它是排障时用户唯一能念出来的证据。
+ */
+.w-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+  padding: var(--w-space-card-padding);
+  border-left: 2px solid var(--w-state-danger-text);
+  background: var(--w-state-danger-fill);
+  border-radius: var(--w-radius-chip);
+  color: var(--w-state-danger-text);
+}
+
+.w-error__text {
+  font-size: var(--w-type-body-size);
+}
+
+.w-error__code {
+  font-family: var(--w-font-mono);
+  font-size: var(--w-type-mono-size);
+  opacity: 0.85;
+}
+
+@keyframes w-skeleton-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-skeleton__row {
+    animation: none;
+  }
+}

@@ -118,7 +118,13 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
   }
 
   if (loaded.kind === 'ready') {
-    const transport = new WebSocketTransport(loaded.bootstrap, options.transport ?? {});
+    const transport = new WebSocketTransport(loaded.bootstrap, {
+      ...(options.transport ?? {}),
+      refreshBootstrap: async () => {
+        const current = await loadBootstrap();
+        return current.kind === 'ready' ? current.bootstrap : null;
+      },
+    });
     return {
       bridge: new BridgeImpl(transport, loaded.bootstrap),
       origin: `宿主 ${loaded.bootstrap.platform} v${loaded.bootstrap.ver} @ 127.0.0.1:${loaded.bootstrap.port}（等待 ${attempts} 次探测）`,
@@ -142,6 +148,10 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
       'file.dialog',
       'window.control',
       'scan.camera',
+      // 浏览器本来就能接收键盘输入，所以"键盘式扫码枪"在开发态是**真能工作**的：
+      // 补上它，扫码三分支（输入焦点 / 屏内消费者 / 兜底跳转）在 pnpm dev 里可验，
+      // 不必等真机。相机扫码不在其中（浏览器里没有宿主提供的取景能力）。
+      'scan.gun.keyboard',
     ],
   };
   return {

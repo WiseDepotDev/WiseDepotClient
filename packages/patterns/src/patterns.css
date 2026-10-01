@@ -81,6 +81,40 @@ body {
 
 .w-appbar__spacer { flex: 1; }
 
+/* Industrial shell: a compact operations console shared by desktop and mobile. */
+.w-appbar--industrial {
+  min-height: var(--w-dp-64);
+  background: var(--w-color-inverse-surface);
+  border-bottom-color: var(--w-color-outline);
+  color: var(--w-color-inverse-on-surface);
+}
+
+.w-appbar--industrial .w-appbar__title {
+  letter-spacing: 0;
+}
+
+.w-appbar--industrial .w-btn {
+  background: transparent;
+  color: var(--w-color-inverse-on-surface);
+  border-color: var(--w-color-outline);
+}
+
+.w-appbar--industrial .w-btn:hover {
+  background: var(--w-color-primary-container);
+  color: var(--w-color-on-primary-container);
+}
+
+.w-appbar--industrial .w-btn--primary {
+  background: var(--w-accent-accent-teal);
+  border-color: var(--w-accent-accent-teal);
+  color: var(--w-color-inverse-surface);
+}
+
+.w-appbar--industrial .w-chip {
+  background: var(--w-color-primary-container);
+  color: var(--w-color-on-primary-container);
+}
+
 /* ---- 侧栏（仅 ≥600）---- */
 
 .w-sidebar {
@@ -100,6 +134,55 @@ body {
   font-weight: var(--w-type-headline-small-weight);
 }
 
+.w-sidebar--industrial {
+  width: var(--w-dp-280);
+  background: var(--w-color-inverse-surface);
+  border-right-color: var(--w-color-outline);
+  color: var(--w-color-inverse-on-surface);
+}
+
+.w-sidebar--industrial .w-sidebar__brand {
+  padding-block: var(--w-space-section-gap);
+  border-bottom-color: var(--w-color-outline);
+  color: var(--w-color-inverse-on-surface);
+}
+
+.w-sidebar__brand-lockup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-dp-4);
+}
+
+.w-sidebar__brand-lockup strong {
+  font-size: var(--w-type-headline-large-size);
+}
+
+.w-sidebar__brand-lockup .w-mono {
+  color: var(--w-accent-accent-teal);
+  font-size: var(--w-type-label-small-size);
+}
+
+.w-sidebar--industrial .w-navgroup__label {
+  color: var(--w-color-inverse-on-surface);
+  opacity: 0.68;
+}
+
+.w-sidebar--industrial .w-navitem {
+  color: var(--w-color-inverse-on-surface);
+  border-left-color: transparent;
+}
+
+.w-sidebar--industrial .w-navitem:hover {
+  background: var(--w-color-primary-container);
+  color: var(--w-color-on-primary-container);
+}
+
+.w-sidebar--industrial .w-navitem[aria-current="true"] {
+  background: var(--w-accent-accent-teal);
+  border-left-color: var(--w-accent-accent-teal);
+  color: var(--w-color-inverse-surface);
+}
+
 .w-navgroup { display: flex; flex-direction: column; }
 
 .w-navgroup__label {
@@ -111,7 +194,7 @@ body {
 .w-navitem {
   display: block;
   width: 100%;
-  min-height: var(--w-dp-40);
+  min-height: var(--w-space-touch-target-min);
   padding: var(--w-space-inline-gap) var(--w-space-screen-horizontal);
   border: none;
   border-left: 2px solid transparent;
@@ -123,7 +206,7 @@ body {
 }
 
 .w-navitem--child {
-  min-height: var(--w-dp-36);
+  min-height: var(--w-space-touch-target-min);
   padding-left: var(--w-space-section-gap);
   font-size: var(--w-type-body-small-size);
 }
@@ -165,6 +248,19 @@ body {
 .w-tabbar__item[aria-current="true"] {
   color: var(--w-color-primary);
   font-weight: 600;
+}
+
+.w-tabbar--industrial {
+  background: var(--w-color-inverse-surface);
+  border-top-color: var(--w-color-outline);
+}
+
+.w-tabbar--industrial .w-tabbar__item {
+  color: var(--w-color-inverse-on-surface);
+}
+
+.w-tabbar--industrial .w-tabbar__item[aria-current="true"] {
+  color: var(--w-accent-accent-teal);
 }
 
 /* ---- 域内二级切换条（横向可滚，不换行）----
@@ -247,6 +343,18 @@ body {
   padding: var(--w-space-screen-vertical) var(--w-space-screen-horizontal);
 }
 
+.w-root--industrial .w-page {
+  padding-top: var(--w-space-section-gap);
+}
+
+.w-root--industrial .w-pageheader {
+  margin-bottom: var(--w-space-group-gap);
+}
+
+.w-root--industrial .w-pageheader__title {
+  letter-spacing: 0;
+}
+
 /* ================================================================ 页面件 */
 
 .w-pageheader {
@@ -296,6 +404,27 @@ body {
   display: grid;
   gap: var(--w-space-group-gap);
   grid-template-columns: repeat(auto-fit, minmax(var(--w-dp-200), 1fr));
+}
+
+.w-metric-grid {
+  display: grid;
+  gap: var(--w-space-group-gap);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.w-metric-card {
+  min-height: var(--w-dp-100);
+  border-top: 2px solid var(--w-accent-accent-teal);
+}
+
+.w-metric-card .w-kpi__value {
+  color: var(--w-color-on-surface);
+}
+
+.w-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(var(--w-dp-280), 0.8fr) minmax(0, 1.2fr);
+  gap: var(--w-space-group-gap);
 }
 
 .w-card {
@@ -350,9 +479,7 @@ body {
  * 它不进内容流，所以内容区必须自己留出等高的下边距（用 .w-page--withbottombar）。
  */
 .w-bottombar {
-  position: fixed;
-  left: 0;
-  right: 0;
+  position: sticky;
   bottom: 0;
   display: flex;
   align-items: center;
@@ -363,6 +490,13 @@ body {
   background: var(--w-color-surface);
   border-top: 1px solid var(--w-color-outline);
   z-index: 5;
+}
+
+/* Shells place this slot inside their own content column. The dock must never
+ * span the desktop sidebar or cover the mobile tab bar. */
+.w-main > .w-bottombar,
+.w-root--stack > .w-bottombar {
+  flex: none;
 }
 
 .w-bottombar > .w-btn--block { flex: 1; }
@@ -497,8 +631,12 @@ body {
   font-size: var(--w-type-body-medium-size);
 }
 
-.w-input:focus {
+.w-input:focus:not(:focus-visible) {
   outline: none;
+  border-color: var(--w-color-primary);
+}
+
+.w-input:focus-visible {
   border-color: var(--w-color-primary);
 }
 
@@ -577,6 +715,12 @@ body {
 
 .w-datalist { display: flex; flex-direction: column; }
 
+.w-operational-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+}
+
 .w-datarow {
   display: flex;
   align-items: center;
@@ -618,6 +762,53 @@ button.w-datarow[aria-current="true"] {
 .w-datarow__sub {
   color: var(--w-color-on-surface-variant);
   font-size: var(--w-type-body-small-size);
+}
+
+/* 同一份数据在两种设备上的阅读节奏不同：桌面强调列对齐，手机强调单手点击。 */
+.w-root:not(.w-root--stack) .w-datarow {
+  min-height: var(--w-dp-56);
+  padding-block: var(--w-space-inline-gap);
+}
+
+.w-root--stack .w-datarow {
+  align-items: flex-start;
+  padding-block: var(--w-space-row-gap);
+}
+
+.w-root--stack .w-datarow__trailing {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--w-dp-4);
+}
+
+.w-root--stack .w-operational-list .w-datarow {
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-small);
+  background: var(--w-color-surface);
+}
+
+.w-root--stack .w-operational-list .w-datarow:last-child {
+  border-bottom: 1px solid var(--w-color-outline);
+}
+
+.w-inventory-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(var(--w-dp-280), 0.85fr);
+  gap: var(--w-space-group-gap);
+  align-items: start;
+}
+
+.w-inventory-detail {
+  position: sticky;
+  top: var(--w-space-inline-gap);
+}
+
+.w-inventory-detail__title {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  margin-bottom: var(--w-space-inline-gap);
+  font-weight: 600;
 }
 
 .w-kv { display: flex; gap: var(--w-space-row-gap); padding: var(--w-dp-4) 0; }
@@ -727,4 +918,40 @@ button.w-datarow[aria-current="true"] {
 @media (prefers-reduced-motion: reduce) {
   .w-skeleton { animation: none; }
   .w-btn { transition: none; }
+}
+
+@media (max-width: 839px) {
+  .w-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .w-inventory-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .w-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .w-inventory-detail {
+    position: static;
+  }
+}
+
+@media (max-width: 599px) {
+  .w-appbar--industrial {
+    min-height: var(--w-dp-56);
+  }
+
+  .w-root--industrial .w-page {
+    padding-top: var(--w-space-group-gap);
+  }
+
+  .w-metric-card {
+    min-height: var(--w-dp-80);
+  }
+
+  .w-root--stack .w-inventory-detail {
+    display: none;
+  }
 }

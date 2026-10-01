@@ -1,0 +1,24 @@
+{
+  "name": "@wise/stores",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinia 状态层：桥连接、会话、资源缓存（单飞/去重/重连重取）、UI 壳状态、导航视图状态",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@wise/bridge-client": "workspace:*",
+    "@wise/bridge-vue": "workspace:*"
+  },
+  "peerDependencies": {
+    "pinia": "^3.0.0 || ^4.0.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "pinia": "^4.0.3",
+    "vue": "^3.5.43"
+  }
+}

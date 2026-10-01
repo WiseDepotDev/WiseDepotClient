@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-10-01T04:54:15.356Z",
+  "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "viewport": "1440x900 (headless=new, 后台节流已关闭)",
+  "ready": true,
+  "pageErrors": [],
+  "bundleGzipTotal": 152857,
+  "bundle": [
+    {
+      "file": "assets/index-B55p93Gs.js",
+      "rawBytes": 502365,
+      "gzipBytes": 152472
+    },
+    {
+      "file": "index.html",
+      "rawBytes": 559,
+      "gzipBytes": 385
+    }
+  ],
+  "result": {
+    "totalRows": 1000,
+    "domRowsFirstPaint": 22,
+    "domRowsMax": 22,
+    "domRowsEnd": 22,
+    "firstRowHeightPx": 49,
+    "mountedMs": 20.6,
+    "scrollHeight": 43204,
+    "frameP50": 16.7,
+    "frameP95": 16.8,
+    "frameMax": 16.8,
+    "frameCount": 120,
+    "framesOver20": 0,
+    "scrollRangeCovered": 35243
+  }
+}

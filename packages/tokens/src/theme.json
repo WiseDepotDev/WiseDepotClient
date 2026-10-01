@@ -1,0 +1,116 @@
+{
+  "$comment": "Vue 重写后的设计令牌唯一出处。取值来自参考图逐像素统计（设计稿 §6.1），不是目测。业务代码禁止 hex 与字面量尺寸，一切经 tools/gen/gen-naive-theme.js 生成 CSS 变量与 Naive themeOverrides。",
+  "$source": "docs/superpowers/specs/2026-10-02-vue3-dual-shell-rewrite-design.md §6.1",
+  "color": {
+    "bg": "#F7F9F9",
+    "surface": "#FFFFFF",
+    "surfaceAlt": "#FAFBFB",
+    "surfaceSunken": "#F2F5F5",
+    "outline": "#DBE3E6",
+    "outlineSubtle": "#EDF1F1",
+    "onSurface": "#173344",
+    "onSurfaceVariant": "#5B6B70",
+    "onSurfaceMuted": "#84949C",
+    "primary": "#087C75",
+    "primaryHover": "#0A6E68",
+    "primaryPressed": "#085F5A",
+    "primarySoft": "#E3F2F0",
+    "onPrimary": "#FFFFFF",
+    "brandMark": "#6ED2C0",
+    "danger": "#B23A42",
+    "focusRing": "#087C75"
+  },
+  "nav": {
+    "$comment": "侧栏/顶栏的导航面。**白色简约**：侧栏与内容同为白底，只用 1px 描边与选中态的浅主色块分层，不用深色块。",
+    "bg": "#FFFFFF",
+    "surface": "#F4F7F7",
+    "itemActiveBg": "#E3F2F0",
+    "itemHoverBg": "#F5F8F7",
+    "fg": "#173344",
+    "fgMuted": "#5B6B70",
+    "groupLabel": "#8A9AA0",
+    "border": "#E9EEEE"
+  },
+  "brand": {
+    "$comment": "深青只作为**品牌面**出现（登录页品牌区、扫码结果浮层），不再铺满侧栏。",
+    "bg": "#102E3E",
+    "fg": "#FFFFFF",
+    "fgMuted": "#B9CDD5"
+  },
+  "state": {
+    "successFill": "#DFF3EF",
+    "successText": "#126961",
+    "warningFill": "#FFF0D8",
+    "warningText": "#B8690B",
+    "dangerFill": "#FBE7E8",
+    "dangerText": "#B23A42",
+    "infoFill": "#FFF7E9",
+    "infoText": "#845817",
+    "neutralFill": "#EEF1F6",
+    "neutralText": "#5B6B70"
+  },
+  "space": {
+    "screenH": 16,
+    "screenV": 16,
+    "sectionGap": 24,
+    "groupGap": 16,
+    "rowGap": 12,
+    "inlineGap": 8,
+    "cardPadding": 16,
+    "cardPaddingCompact": 12,
+    "listItemV": 12,
+    "actionBarHeight": 56,
+    "touchTargetMin": 48,
+    "sidebarWidth": 232,
+    "sidebarWidthCompact": 64,
+    "topbarHeight": 56,
+    "statusbarHeight": 28,
+    "tabbarHeight": 56,
+    "detailColumnWidth": 400,
+    "contentMaxWidth": 1120
+  },
+  "radius": {
+    "card": 12,
+    "control": 8,
+    "chip": 6,
+    "pill": 999
+  },
+  "size": {
+    "chipHeight": 28,
+    "markSize": 32,
+    "cardMinWidth": 200,
+    "kvLabelWidth": 96,
+    "skeletonRowHeight": 48,
+    "captchaWidth": 96,
+    "dialogMaxWidth": 480
+  },
+  "type": {
+    "displaySmall": { "size": 22, "lineHeight": 28, "weight": 600 },
+    "pageTitle": { "size": 20, "lineHeight": 28, "weight": 600 },
+    "sectionTitle": { "size": 14, "lineHeight": 20, "weight": 600 },
+    "body": { "size": 14, "lineHeight": 22, "weight": 400 },
+    "bodySmall": { "size": 12, "lineHeight": 18, "weight": 400 },
+    "label": { "size": 13, "lineHeight": 18, "weight": 500 },
+    "mono": { "size": 13, "lineHeight": 18, "weight": 400 }
+  },
+  "motion": {
+    "fast": 150,
+    "normal": 200
+  },
+  "breakpoint": {
+    "compactMax": 599,
+    "mediumMax": 1023,
+    "desktopMin": 1024,
+    "wideMin": 1440
+  },
+  "density": {
+    "tableRowHeight": 48,
+    "controlHeight": 48,
+    "controlHeightSm": 40,
+    "controlHeightXs": 32
+  },
+  "font": {
+    "family": "\"PingFang SC\",\"Microsoft YaHei\",\"Noto Sans SC\",system-ui,-apple-system,sans-serif",
+    "monoFamily": "\"JetBrains Mono\",\"Cascadia Mono\",Consolas,\"Courier New\",monospace"
+  }
+}

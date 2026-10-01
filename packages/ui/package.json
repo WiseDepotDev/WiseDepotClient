@@ -1,0 +1,21 @@
+{
+  "name": "@wise/ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "设计系统：Element Plus 的短包装 + 业务组件（四态宿主 / 响应式数据视图 / 指标 / 详情面板 / 动作坞）。不认识桥，也不认识 store。",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ui.css": "./src/styles/ui.css"
+  },
+  "peerDependencies": {
+    "element-plus": "^2.14.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "element-plus": "^2.14.6",
+    "vue": "^3.5.43"
+  }
+}

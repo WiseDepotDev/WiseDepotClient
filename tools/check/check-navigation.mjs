@@ -45,12 +45,25 @@ const leafMethods = [...navText.matchAll(/primaryMethod:\s*'([^']+)'/g)].map((m)
 const destBlock = /DESTINATIONS[\s\S]*?=\s*\[([\s\S]*?)\];/.exec(navText)?.[1] ?? '';
 const destMethods = [...destBlock.matchAll(/method:\s*'([^']+)'/g)].map((m) => m[1]);
 
+function checkUnique(values, label) {
+    const seen = new Set();
+    for (const value of values) {
+        if (seen.has(value)) {
+            fail(`${label} 存在重复项：${value}`);
+        }
+        seen.add(value);
+    }
+}
+
 const contractText = fs.readFileSync(CONTRACT_TS, 'utf8');
 const contractIds = new Set([...contractText.matchAll(/\{ id: '([^']+)', domain:/g)].map((m) => m[1]));
 
 const registryText = fs.readFileSync(REGISTRY_TS, 'utf8');
 const registryBody = registryText.slice(registryText.indexOf('const REGISTRY'));
 const registered = new Set([...registryBody.matchAll(/^\s*'([^']+)':\s*[\w.]+,\s*$/gm)].map((m) => m[1]));
+
+checkUnique(leafMethods, '导航叶子方法');
+checkUnique(destMethods, '导航目的地方法');
 
 // ---- 1. 导航叶子与目的地都必须在契约里 ----
 for (const m of leafMethods) {

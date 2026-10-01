@@ -1,0 +1,78 @@
+{
+  "generatedAt": "2026-10-01T04:53:33.758Z",
+  "partial": {
+    "label": "partial（只覆盖 primary）",
+    "cssBytes": 106702,
+    "htmlBytes": 21889,
+    "collectWorks": true,
+    "primaryTokenInCss": false,
+    "primaryTokenInHtml": true,
+    "primaryTokenApplied": true,
+    "menuNavBgApplied": false,
+    "navMutedTextApplied": false,
+    "heightLarge48Applied": false,
+    "tableRendered": true,
+    "menuRendered": true,
+    "siderStyleVars": "--n-bezier:cubic-bezier(.4, 0, .2, 1);--n-toggle-button-color:#FFF;--n-toggle-button-border:1px solid rgb(239, 239, 245);--n-toggle-bar-color:rgba(191, 191, 191, 1);--n-toggle-bar-color-hover:rgba(153, 153, 153, 1);--n-color:rgb(0, 20, 40);--n-text-color:#FFF;--n-border-color:rgb(0, 20, 40);--n-toggle-button-icon-color:rgb(51, 54, 57);__invert-scrollbar:true;max-width:232px;width:232px;",
+    "menuStyleVars": "--n-divider-color:rgb(239, 239, 245);--n-bezier:cubic-bezier(.4, 0, .2, 1);--n-font-size:14px;--n-border-color-horizontal:#0000;--n-border-radius:3px;--n-item-height:42px;--n-group-text-color:#AAA;--n-color:#0000;--n-item-text-color:#BBB;--n-item-text-color-hover:#FFF;--n-item-text-color-active:#FFF;--n-item-text-color-child-active:#FFF;--n-item-text-color-child-active-hover:#FFF;--n-item-text-color-active-hover:#FFF",
+    "leakedNaiveDefaults": [
+      {
+        "hex": "#18a058",
+        "count": 5
+      },
+      {
+        "hex": "#36ad6a",
+        "count": 10
+      },
+      {
+        "hex": "#0c7a43",
+        "count": 6
+      },
+      {
+        "hex": "#f0a020",
+        "count": 9
+      },
+      {
+        "hex": "#d03050",
+        "count": 10
+      }
+    ],
+    "leakTotal": 40
+  },
+  "full": {
+    "label": "full（覆盖设计稿 §6.3 的普通键）",
+    "cssBytes": 106702,
+    "htmlBytes": 21539,
+    "collectWorks": true,
+    "primaryTokenInCss": false,
+    "primaryTokenInHtml": true,
+    "primaryTokenApplied": true,
+    "menuNavBgApplied": false,
+    "navMutedTextApplied": false,
+    "heightLarge48Applied": true,
+    "tableRendered": true,
+    "menuRendered": true,
+    "siderStyleVars": "--n-bezier:cubic-bezier(.4, 0, .2, 1);--n-toggle-button-color:#FFF;--n-toggle-button-border:1px solid #DBE3E6;--n-toggle-bar-color:rgba(185, 187, 187, 1);--n-toggle-bar-color-hover:rgba(148, 149, 149, 1);--n-color:rgb(0, 20, 40);--n-text-color:#FFF;--n-border-color:rgb(0, 20, 40);--n-toggle-button-icon-color:#173344;__invert-scrollbar:true;max-width:232px;width:232px;",
+    "menuStyleVars": "--n-divider-color:#DBE3E6;--n-bezier:cubic-bezier(.4, 0, .2, 1);--n-font-size:14px;--n-border-color-horizontal:#0000;--n-border-radius:8px;--n-item-height:42px;--n-group-text-color:#AAA;--n-color:#0000;--n-item-text-color:#BBB;--n-item-text-color-hover:#FFF;--n-item-text-color-active:#FFF;--n-item-text-color-child-active:#FFF;--n-item-text-color-child-active-hover:#FFF;--n-item-text-color-active-hover:#FFF;--n-item-i",
+    "leakedNaiveDefaults": [],
+    "leakTotal": 0
+  },
+  "withInverted": {
+    "label": "full + *Inverted 键（修正）",
+    "cssBytes": 106702,
+    "htmlBytes": 21560,
+    "collectWorks": true,
+    "primaryTokenInCss": false,
+    "primaryTokenInHtml": true,
+    "primaryTokenApplied": true,
+    "menuNavBgApplied": true,
+    "navMutedTextApplied": true,
+    "heightLarge48Applied": true,
+    "tableRendered": true,
+    "menuRendered": true,
+    "siderStyleVars": "--n-bezier:cubic-bezier(.4, 0, .2, 1);--n-toggle-button-color:#FFF;--n-toggle-button-border:1px solid #DBE3E6;--n-toggle-bar-color:rgba(185, 187, 187, 1);--n-toggle-bar-color-hover:rgba(148, 149, 149, 1);--n-color:#102E3E;--n-text-color:#FFF;--n-border-color:#102E3E;--n-toggle-button-icon-color:#173344;__invert-scrollbar:true;max-width:232px;width:232px;",
+    "menuStyleVars": "--n-divider-color:#DBE3E6;--n-bezier:cubic-bezier(.4, 0, .2, 1);--n-font-size:14px;--n-border-color-horizontal:#0000;--n-border-radius:8px;--n-item-height:42px;--n-group-text-color:#B9CDD5;--n-color:#0000;--n-item-text-color:#B9CDD5;--n-item-text-color-hover:#FFFFFF;--n-item-text-color-active:#FFFFFF;--n-item-text-color-child-active:#FFFFFF;--n-item-text-color-child-active-hover:#FFFFFF;--n-item-text-color-active-hov",
+    "leakedNaiveDefaults": [],
+    "leakTotal": 0
+  }
+}

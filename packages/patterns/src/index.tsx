@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { windowSizeOf, type WindowSize } from '@wise/tokens';
 
 /**
@@ -12,9 +12,19 @@ import { windowSizeOf, type WindowSize } from '@wise/tokens';
 
 // ================================================================ 骨架件
 
-export function AppBar({ title, actions, status }: { title: string; actions?: ReactNode; status?: ReactNode }): React.ReactElement {
+export function AppBar({
+  title,
+  actions,
+  status,
+  variant = 'default',
+}: {
+  title: string;
+  actions?: ReactNode;
+  status?: ReactNode;
+  variant?: 'default' | 'industrial';
+}): React.ReactElement {
   return (
-    <header className="w-appbar">
+    <header className={variant === 'industrial' ? 'w-appbar w-appbar--industrial' : 'w-appbar'}>
       <span className="w-appbar__title">{title}</span>
       <span className="w-appbar__spacer" />
       {actions}
@@ -23,9 +33,17 @@ export function AppBar({ title, actions, status }: { title: string; actions?: Re
   );
 }
 
-export function Sidebar({ brand, children }: { brand: ReactNode; children: ReactNode }): React.ReactElement {
+export function Sidebar({
+  brand,
+  children,
+  variant = 'default',
+}: {
+  brand: ReactNode;
+  children: ReactNode;
+  variant?: 'default' | 'industrial';
+}): React.ReactElement {
   return (
-    <aside className="w-sidebar">
+    <aside className={variant === 'industrial' ? 'w-sidebar w-sidebar--industrial' : 'w-sidebar'}>
       <div className="w-sidebar__brand">{brand}</div>
       <nav aria-label="一级导航">{children}</nav>
     </aside>
@@ -58,9 +76,9 @@ export function NavItem({
   );
 }
 
-export function TabBar({ children }: { children: ReactNode }): React.ReactElement {
+export function TabBar({ children, variant = 'default' }: { children: ReactNode; variant?: 'default' | 'industrial' }): React.ReactElement {
   return (
-    <nav className="w-tabbar" aria-label="一级导航">
+    <nav className={variant === 'industrial' ? 'w-tabbar w-tabbar--industrial' : 'w-tabbar'} aria-label="一级导航">
       {children}
     </nav>
   );
@@ -92,7 +110,7 @@ export function Content({ size, children }: { size: WindowSize; children: ReactN
 }
 
 export function Page({ children }: { children: ReactNode }): React.ReactElement {
-  return <div className="w-page">{children}</div>;
+  return <main className="w-page">{children}</main>;
 }
 
 export function PageHeader({
@@ -105,20 +123,20 @@ export function PageHeader({
   actions?: ReactNode;
 }): React.ReactElement {
   return (
-    <div className="w-pageheader">
+    <header className="w-pageheader">
       <div>
-        <div className="w-pageheader__title">{title}</div>
+        <h1 className="w-pageheader__title">{title}</h1>
         {subtitle ? <div className="w-pageheader__sub">{subtitle}</div> : null}
       </div>
       {actions ? <div className="w-pageheader__actions">{actions}</div> : null}
-    </div>
+    </header>
   );
 }
 
 export function Section({ title, children }: { title?: string; children: ReactNode }): React.ReactElement {
   return (
     <section className="w-section">
-      {title ? <div className="w-section__title">{title}</div> : null}
+      {title ? <h2 className="w-section__title">{title}</h2> : null}
       {children}
     </section>
   );
@@ -145,13 +163,16 @@ export function Card({
   children,
   flush,
   style,
+  className,
 }: {
   children: ReactNode;
   flush?: boolean;
   style?: CSSProperties;
+  className?: string;
 }): React.ReactElement {
+  const classes = ['w-card', flush ? 'w-card--flush' : '', className ?? ''].filter(Boolean).join(' ');
   return (
-    <div className={flush ? 'w-card w-card--flush' : 'w-card'} style={style}>
+    <div className={classes} style={style}>
       {children}
     </div>
   );
@@ -207,12 +228,48 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }): React.ReactElement | null {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const panel = panelRef.current;
+    const focusable = panel?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    focusable?.focus();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== 'Tab' || !panel) {
+        return;
+      }
+      const items = Array.from(panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'));
+      if (items.length === 0) {
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onCancel, open]);
+
   if (!open) {
     return null;
   }
   return (
     <div className="w-overlay" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="w-overlay__panel">
+      <div className="w-overlay__panel" ref={panelRef}>
         <div className="w-pageheader__title">{title}</div>
         <div className="w-state">{message}</div>
         <div className="w-actionbar">
@@ -290,20 +347,22 @@ export function Button({
 
 export function Field({
   label,
+  htmlFor,
   error,
   children,
 }: {
   label: string;
+  htmlFor?: string | undefined;
   /** 显式带 `| undefined`：本仓开了 `exactOptionalPropertyTypes`，"转发一个可能没有的错误文案"才编译得过。 */
   error?: string | undefined;
   children: ReactNode;
 }): React.ReactElement {
   return (
-    <label className="w-field">
-      <span className="w-field__label">{label}</span>
+    <div className="w-field">
+      {htmlFor ? <label className="w-field__label" htmlFor={htmlFor}>{label}</label> : <span className="w-field__label">{label}</span>}
       {children}
-      {error ? <span className="w-field__error">{error}</span> : null}
-    </label>
+      {error ? <span className="w-field__error" id={htmlFor ? `${htmlFor}-error` : undefined}>{error}</span> : null}
+    </div>
   );
 }
 
@@ -315,6 +374,11 @@ export function Input({
   type = 'text',
   mono,
   ariaLabel,
+  id,
+  name,
+  autoComplete,
+  inputMode,
+  error,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -324,14 +388,25 @@ export function Input({
   type?: 'text' | 'password';
   mono?: boolean;
   ariaLabel?: string | undefined;
+  id?: string | undefined;
+  name?: string | undefined;
+  autoComplete?: string | undefined;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  error?: string | undefined;
 }): React.ReactElement {
   return (
     <input
       className={mono ? 'w-input w-mono' : 'w-input'}
       type={type}
+      id={id}
+      name={name}
       value={value}
       placeholder={placeholder}
+      autoComplete={autoComplete}
+      inputMode={inputMode}
       aria-label={ariaLabel}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? `${id ?? ariaLabel ?? 'field'}-error` : undefined}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && onEnter) {
@@ -426,17 +501,18 @@ export function Mono({ children }: { children: ReactNode }): React.ReactElement 
   return <span className="w-mono">{children}</span>;
 }
 
-export function KpiCard({ value, label }: { value: ReactNode; label: string }): React.ReactElement {
+export function KpiCard({ value, label, className }: { value: ReactNode; label: string; className?: string }): React.ReactElement {
+  const cardProps = className === undefined ? {} : { className };
   return (
-    <Card>
+    <Card {...cardProps}>
       <div className="w-kpi__value">{value}</div>
       <div className="w-kpi__label">{label}</div>
     </Card>
   );
 }
 
-export function DataList({ children }: { children: ReactNode }): React.ReactElement {
-  return <div className="w-datalist">{children}</div>;
+export function DataList({ children, className }: { children: ReactNode; className?: string }): React.ReactElement {
+  return <div className={['w-datalist', className ?? ''].filter(Boolean).join(' ')}>{children}</div>;
 }
 
 export function DataRow({

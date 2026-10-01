@@ -93,7 +93,7 @@ export function AlertListScreen({
             onRetry={reload}
           >
             {(items) => (
-              <DataList>
+              <DataList className="w-operational-list">
                 {items.map((a) => (
                   <DataRow
                     key={a.eventId}

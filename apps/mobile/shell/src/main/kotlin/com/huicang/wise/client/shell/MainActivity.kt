@@ -104,7 +104,9 @@ class MainActivity : ComponentActivity() {
                     override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
                         val wantsCamera =
                             request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)
-                        if (!wantsCamera) {
+                        val onlyCamera =
+                            request.resources.all { it == android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE }
+                        if (!wantsCamera || !onlyCamera || !isShellUrl(request.origin)) {
                             // 只要不是相机（麦克风等），一律拒绝：这个壳不需要那些能力
                             request.deny()
                             return
@@ -131,7 +133,7 @@ class MainActivity : ComponentActivity() {
     private fun grantCamera(request: android.webkit.PermissionRequest) {
         CameraSafety.beginAttempt(this)
         cameraGrantedAt = SystemClock.elapsedRealtime()
-        request.grant(request.resources)
+        request.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE))
     }
 
     override fun onDestroy() {
@@ -372,7 +374,7 @@ class MainActivity : ComponentActivity() {
         override fun shouldOverrideUrlLoading(
             view: WebView,
             url: String,
-        ): Boolean = !url.startsWith(SHELL_ORIGIN)
+        ): Boolean = !isShellUrl(Uri.parse(url))
 
         override fun shouldOverrideUrlLoading(
             view: WebView,
@@ -416,6 +418,9 @@ class MainActivity : ComponentActivity() {
         /** 静态产物在 APK 里的前缀，与 `WebViewAssetLoader` 的默认约定一致。 */
         const val ASSET_PREFIX = "assets/"
 
-        fun isShellUrl(uri: Uri): Boolean = uri.toString().startsWith(SHELL_ORIGIN)
+        fun isShellUrl(uri: Uri): Boolean =
+            uri.scheme == "https" &&
+                uri.host == SHELL_DOMAIN &&
+                (uri.port == -1 || uri.port == 443)
     }
 }

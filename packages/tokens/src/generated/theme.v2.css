@@ -1,0 +1,113 @@
+/*
+ * 由 tools/gen/gen-naive-theme.js 从 packages/tokens/src/theme.json 生成 —— 不要手改。
+ * 取值来自参考图逐像素统计，见设计稿 §6.1。
+ */
+:root {
+  --w-color-bg: #F7F9F9;
+  --w-color-surface: #FFFFFF;
+  --w-color-surface-alt: #FAFBFB;
+  --w-color-surface-sunken: #F2F5F5;
+  --w-color-outline: #DBE3E6;
+  --w-color-outline-subtle: #EDF1F1;
+  --w-color-on-surface: #173344;
+  --w-color-on-surface-variant: #5B6B70;
+  --w-color-on-surface-muted: #84949C;
+  --w-color-primary: #087C75;
+  --w-color-primary-hover: #0A6E68;
+  --w-color-primary-pressed: #085F5A;
+  --w-color-primary-soft: #E3F2F0;
+  --w-color-on-primary: #FFFFFF;
+  --w-color-brand-mark: #6ED2C0;
+  --w-color-danger: #B23A42;
+  --w-color-focus-ring: #087C75;
+  --w-nav-bg: #FFFFFF;
+  --w-nav-surface: #F4F7F7;
+  --w-nav-item-active-bg: #E3F2F0;
+  --w-nav-item-hover-bg: #F5F8F7;
+  --w-nav-fg: #173344;
+  --w-nav-fg-muted: #5B6B70;
+  --w-nav-group-label: #8A9AA0;
+  --w-nav-border: #E9EEEE;
+  --w-brand-bg: #102E3E;
+  --w-brand-fg: #FFFFFF;
+  --w-brand-fg-muted: #B9CDD5;
+  --w-state-success-fill: #DFF3EF;
+  --w-state-success-text: #126961;
+  --w-state-warning-fill: #FFF0D8;
+  --w-state-warning-text: #B8690B;
+  --w-state-danger-fill: #FBE7E8;
+  --w-state-danger-text: #B23A42;
+  --w-state-info-fill: #FFF7E9;
+  --w-state-info-text: #845817;
+  --w-state-neutral-fill: #EEF1F6;
+  --w-state-neutral-text: #5B6B70;
+  --w-space-screen-h: 16px;
+  --w-space-screen-v: 16px;
+  --w-space-section-gap: 24px;
+  --w-space-group-gap: 16px;
+  --w-space-row-gap: 12px;
+  --w-space-inline-gap: 8px;
+  --w-space-card-padding: 16px;
+  --w-space-card-padding-compact: 12px;
+  --w-space-list-item-v: 12px;
+  --w-space-action-bar-height: 56px;
+  --w-space-touch-target-min: 48px;
+  --w-space-sidebar-width: 232px;
+  --w-space-sidebar-width-compact: 64px;
+  --w-space-topbar-height: 56px;
+  --w-space-statusbar-height: 28px;
+  --w-space-tabbar-height: 56px;
+  --w-space-detail-column-width: 400px;
+  --w-space-content-max-width: 1120px;
+  --w-radius-card: 12px;
+  --w-radius-control: 8px;
+  --w-radius-chip: 6px;
+  --w-radius-pill: 999px;
+  --w-size-chip-height: 28px;
+  --w-size-mark-size: 32px;
+  --w-size-card-min-width: 200px;
+  --w-size-kv-label-width: 96px;
+  --w-size-skeleton-row-height: 48px;
+  --w-size-captcha-width: 96px;
+  --w-size-dialog-max-width: 480px;
+  --w-motion-fast: 150ms;
+  --w-motion-normal: 200ms;
+  --w-breakpoint-compact-max: 599px;
+  --w-breakpoint-medium-max: 1023px;
+  --w-breakpoint-desktop-min: 1024px;
+  --w-breakpoint-wide-min: 1440px;
+  --w-density-table-row-height: 48px;
+  --w-density-control-height: 48px;
+  --w-density-control-height-sm: 40px;
+  --w-density-control-height-xs: 32px;
+  --w-type-display-small-size: 22px;
+  --w-type-display-small-line: 28px;
+  --w-type-display-small-weight: 600;
+  --w-type-page-title-size: 20px;
+  --w-type-page-title-line: 28px;
+  --w-type-page-title-weight: 600;
+  --w-type-section-title-size: 14px;
+  --w-type-section-title-line: 20px;
+  --w-type-section-title-weight: 600;
+  --w-type-body-size: 14px;
+  --w-type-body-line: 22px;
+  --w-type-body-weight: 400;
+  --w-type-body-small-size: 12px;
+  --w-type-body-small-line: 18px;
+  --w-type-body-small-weight: 400;
+  --w-type-label-size: 13px;
+  --w-type-label-line: 18px;
+  --w-type-label-weight: 500;
+  --w-type-mono-size: 13px;
+  --w-type-mono-line: 18px;
+  --w-type-mono-weight: 400;
+  --w-font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,sans-serif;
+  --w-font-mono: "JetBrains Mono","Cascadia Mono",Consolas,"Courier New",monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --w-motion-fast: 0ms;
+    --w-motion-normal: 0ms;
+  }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useContext, useState } from 'react';
 import type { Bridge } from '@wise/bridge-client';
 import { Capability } from '@wise/bridge-client';
 import { useScanGun } from '@wise/scan';
@@ -16,19 +16,8 @@ import {
 import { BridgeStatusChip } from './BridgeStatusChip.js';
 import { CameraScanOverlay } from './CameraScanOverlay.js';
 import { PageBody } from './PageBody.js';
-import { DOMAINS, SCAN_TARGET_METHOD, destinationOf, findLeafByMethod, screenKey, type DomainId, type NavLeaf } from './navigation.js';
-import type { ScreenParams } from '@wise/features';
-
-/**
- * 推入栈里的一层：一个屏 + 它的参数。
- *
- * `leaf` 只是个"壳能显示标题、能派发到屏"的最小载体 —— 推入的屏不在 `DOMAINS` 里，
- * 它的 id/label 由 `DESTINATIONS` 给。
- */
-interface Crumb {
-  readonly leaf: NavLeaf;
-  readonly params?: ScreenParams | undefined;
-}
+import { DOMAINS, screenKey } from './navigation.js';
+import { NavigationContext, ShellNavigationProvider, useShellNavigation } from './navigationState.js';
 
 /**
  * 移动外壳（Compact，<600px，见 docs/ui-spec.md §2）。
@@ -36,95 +25,42 @@ interface Crumb {
  * 结构固定为 AppBar / 内容 / TabBar 三段；页内标题走 `PageHeader`，不再自建顶栏。
  * 域内切换放 `Toolbar`（横向按钮组），避免和底栏的两级导航打架。
  */
-export function MobileShell({
-  bridge,
-  origin,
-  size,
-}: {
+type MobileShellProps = {
   bridge: Bridge;
   origin: string;
   size: WindowSize;
-}): React.ReactElement {
-  const [domain, setDomain] = useState<DomainId>('overview');
-  const root = DOMAINS.find((d) => d.id === domain) ?? DOMAINS[0]!;
-  const [leaf, setLeaf] = useState<NavLeaf>(root.children[0]!);
-  /**
-   * 推入栈：屏请求去的"下一层"（详情类）。
-   *
-   * 空栈 = 在导航叶子上；非空 = 在推入的屏上，`top` 是当前那一屏。
-   * 用栈而不是单个 state，是为了支持"详情里再进一层"，
-   * 并且**底栏切换域/叶子会清空栈** —— 那是"回到根"，不是"再进一层"。
-   */
-  const [stack, setStack] = useState<readonly Crumb[]>([]);
-  const top = stack.length > 0 ? stack[stack.length - 1]! : undefined;
-  const shown = top ?? { leaf, params: undefined as ScreenParams | undefined };
+};
+
+export function MobileShell(props: MobileShellProps): React.ReactElement {
+  const navigation = useContext(NavigationContext);
+  return navigation ? (
+    <MobileShellContent {...props} />
+  ) : (
+    <ShellNavigationProvider>
+      <MobileShellContent {...props} />
+    </ShellNavigationProvider>
+  );
+}
+
+function MobileShellContent({
+  bridge,
+  origin,
+  size,
+}: MobileShellProps): React.ReactElement {
+  const { domain, root, leaf, top, shown, switchDomain, goRoot, onNavigate, onScan, pop } = useShellNavigation();
 
   /** 相机取景是否打开。关闭即释放摄像头（hook 的清理函数会停掉所有轨道）。 */
   const [scanning, setScanning] = useState(false);
 
-  const switchDomain = (id: DomainId): void => {
-    const next = DOMAINS.find((d) => d.id === id);
-    if (!next) {
-      return;
-    }
-    setDomain(id);
-    setLeaf(next.children[0]!);
-    setStack([]);
-  };
 
-  const goRoot = (next: NavLeaf, nextDomain?: DomainId): void => {
-    if (nextDomain !== undefined) {
-      setDomain(nextDomain);
-    }
-    setLeaf(next);
-    setStack([]);
-  };
-
-  /** 屏请求导航：能推到下一层就推，推不了（未知目的地）就忽略并留日志。 */
-  const onNavigate = useCallback((to: { method: string; params?: ScreenParams | undefined }) => {
-    const dest = destinationOf(to.method);
-    if (!dest) {
-      // 不静默：屏请求了一个壳不认识的目的地，是接线漏了，而不是"用户点了没反应"
-      console.warn(`[shell] 收到未知的导航目标：${to.method}`);
-      return;
-    }
-    setStack((prev) => [...prev, { leaf: { id: dest.method, label: dest.label, primaryMethod: dest.method }, params: to.params }]);
-  }, []);
-
-  /**
-   * 扫码枪扫到东西 → 推入标签详情并带上编码。
-   *
-   * 好处是**用户不用再手输一遍**：现场扫一下就该看到这个标签是什么。
-   * 编码通过 `params` 交给屏（屏签名里的 `screenParams`）。
-   *
-   * 注意扫码是**推入一层**（不是切到某个导航叶子）：扫完按返回应该回到原来那一屏，
-   * 而不是把用户丢到"库存"域里。
-   */
-  const onScan = useCallback((code: string) => {
-    const target = findLeafByMethod(SCAN_TARGET_METHOD);
-    // 扫码的落点既可能是导航叶子（保留了叶子就该切过去），也可能是推入的屏
-    if (target && !destinationOf(SCAN_TARGET_METHOD)) {
-      setDomain(target.domain);
-      setLeaf(target.leaf);
-      setStack([]);
-      return;
-    }
-    const dest = destinationOf(SCAN_TARGET_METHOD);
-    if (!dest) {
-      return;
-    }
-    setStack((prev) => [
-      ...prev,
-      { leaf: { id: dest.method, label: dest.label, primaryMethod: dest.method }, params: { code } },
-    ]);
-  }, []);
 
   // 只在宿主**声明了**这项能力时才监听：能力表是"宿主真的具备什么"的唯一说法。
   useScanGun({ enabled: bridge.supports(Capability.SCAN_GUN_KEYBOARD), onScan });
 
   return (
-    <div className="w-root w-root--stack">
+    <div className="w-root w-root--stack w-root--industrial">
       <AppBar
+        variant="industrial"
         title={top ? top.leaf.label : root.label}
         /*
          * 栈非空时给一根**返回**键，替代扫码入口。
@@ -134,7 +70,7 @@ export function MobileShell({
          */
         actions={
           top ? (
-            <Button ariaLabel="返回" onClick={() => setStack((prev) => prev.slice(0, -1))}>
+            <Button ariaLabel="返回" onClick={pop}>
               返回
             </Button>
           ) : bridge.supports(Capability.SCAN_CAMERA) ? (
@@ -189,7 +125,7 @@ export function MobileShell({
         壳只负责"哪一屏"，屏内动作归屏。
       */}
 
-      <TabBar>
+      <TabBar variant="industrial">
         {DOMAINS.map((d) => (
           <TabBarItem key={d.id} label={d.short} icon={d.id} active={d.id === domain} onClick={() => switchDomain(d.id)} />
         ))}

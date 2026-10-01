@@ -1,0 +1,30 @@
+{
+  "name": "@wise/layouts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "双端外壳与导航模型：AppFrame 持有唯一一份内容实例，桌面/手机只换壳（跨断点不重建屏）",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./shell.css": "./src/styles/shell.css"
+  },
+  "dependencies": {
+    "@wise/scan": "workspace:*",
+    "@wise/stores": "workspace:*",
+    "@wise/ui": "workspace:*"
+  },
+  "peerDependencies": {
+    "@element-plus/icons-vue": "^2.3.0",
+    "element-plus": "^2.14.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.4.0 || ^5.0.0"
+  },
+  "devDependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "element-plus": "^2.14.6",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
+  }
+}

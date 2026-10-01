@@ -230,7 +230,7 @@ export function InspectionTaskListScreen({
             onRetry={reload}
           >
             {(items) => (
-              <DataList>
+              <DataList className="w-operational-list">
                 {items.map((t) => (
                   <DataRow
                     key={t.taskId ?? t.taskCode}

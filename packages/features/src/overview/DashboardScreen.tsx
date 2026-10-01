@@ -4,7 +4,6 @@ import {
   DataRow,
   Dot,
   Chip,
-  Grid,
   KeyValue,
   KpiCard,
   ListStateHost,
@@ -78,67 +77,69 @@ export function DashboardScreen({ bridge }: { bridge: Bridge }): React.ReactElem
         onRetry={reload}
       >
         {() => (
-          <Grid>
-            <KpiCard value={data?.inventoryTotal ?? 0} label="库存总量" />
-            <KpiCard value={data?.todayAlertCount ?? 0} label="今日告警" />
-            <KpiCard value={`${data?.inspectionProgress ?? 0}%`} label="巡检进度" />
-            <KpiCard value={data?.deviceOnlineCount ?? 0} label="设备在线" />
-          </Grid>
+          <div className="w-metric-grid">
+            <KpiCard className="w-metric-card" value={data?.inventoryTotal ?? 0} label="库存总量" />
+            <KpiCard className="w-metric-card" value={data?.todayAlertCount ?? 0} label="今日告警" />
+            <KpiCard className="w-metric-card" value={`${data?.inspectionProgress ?? 0}%`} label="巡检进度" />
+            <KpiCard className="w-metric-card" value={data?.deviceOnlineCount ?? 0} label="设备在线" />
+          </div>
         )}
       </ListStateHost>
 
-      <Section title="当前任务">
-        <Card>
-          {task?.taskCode ? (
-            <>
-              <KeyValue k="任务号" v={<Mono>{task.taskCode}</Mono>} />
-              <KeyValue k="任务名" v={task.taskName ?? '—'} />
-              <KeyValue
-                k="进度"
-                v={
-                  <>
-                    {task.progress ?? 0}%
-                    {task.totalItems ? (
-                      <span className="w-muted">
-                        {' '}
-                        （{task.inspectedItems ?? 0}/{task.totalItems}）
-                      </span>
-                    ) : null}
-                  </>
-                }
-              />
-            </>
-          ) : (
-            <span className="w-muted">当前没有进行中的巡检任务</span>
-          )}
-        </Card>
-      </Section>
-
-      <Section title={`未处理告警（${alerts.length}）`}>
-        <Card flush>
-          <ListStateHost
-            loading={loading}
-            error={error ? { code: error.code, text: humanize(error) } : undefined}
-            items={alerts}
-            emptyText="没有未处理的告警"
-            onRetry={reload}
-          >
-            {(items) => (
-              <DataList>
-                {items.map((a) => (
-                  <DataRow
-                    key={a.eventId}
-                    id={`#${a.eventId}`}
-                    main={a.title}
-                    sub={shortTime(a.createTime)}
-                    trailing={<LevelChip level={a.level} />}
-                  />
-                ))}
-              </DataList>
+      <div className="w-dashboard-grid">
+        <Section title="当前任务">
+          <Card>
+            {task?.taskCode ? (
+              <>
+                <KeyValue k="任务号" v={<Mono>{task.taskCode}</Mono>} />
+                <KeyValue k="任务名" v={task.taskName ?? '—'} />
+                <KeyValue
+                  k="进度"
+                  v={
+                    <>
+                      {task.progress ?? 0}%
+                      {task.totalItems ? (
+                        <span className="w-muted">
+                          {' '}
+                          （{task.inspectedItems ?? 0}/{task.totalItems}）
+                        </span>
+                      ) : null}
+                    </>
+                  }
+                />
+              </>
+            ) : (
+              <span className="w-muted">当前没有进行中的巡检任务</span>
             )}
-          </ListStateHost>
-        </Card>
-      </Section>
+          </Card>
+        </Section>
+
+        <Section title={`未处理告警（${alerts.length}）`}>
+          <Card flush>
+            <ListStateHost
+              loading={loading}
+              error={error ? { code: error.code, text: humanize(error) } : undefined}
+              items={alerts}
+              emptyText="没有未处理的告警"
+              onRetry={reload}
+            >
+              {(items) => (
+                <DataList className="w-operational-list">
+                  {items.map((a) => (
+                    <DataRow
+                      key={a.eventId}
+                      id={`#${a.eventId}`}
+                      main={a.title}
+                      sub={shortTime(a.createTime)}
+                      trailing={<LevelChip level={a.level} />}
+                    />
+                  ))}
+                </DataList>
+              )}
+            </ListStateHost>
+          </Card>
+        </Section>
+      </div>
     </Stack>
   );
 }

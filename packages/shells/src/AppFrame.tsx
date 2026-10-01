@@ -2,6 +2,7 @@ import type { Bridge } from '@wise/bridge-client';
 import { DesktopShell } from './DesktopShell.js';
 import { MobileShell } from './MobileShell.js';
 import { useViewport } from './useViewport.js';
+import { ShellNavigationProvider } from './navigationState.js';
 
 /**
  * 外壳选择器：**唯一**决定"现在是手机形态还是桌面形态"的地方（ui-spec §1.2）。
@@ -12,9 +13,13 @@ import { useViewport } from './useViewport.js';
  */
 export function AppFrame({ bridge, origin }: { bridge: Bridge; origin: string }): React.ReactElement {
   const viewport = useViewport();
-  return viewport.size === 'compact' ? (
-    <MobileShell bridge={bridge} origin={origin} size={viewport.size} />
-  ) : (
-    <DesktopShell bridge={bridge} origin={origin} size={viewport.size} />
+  return (
+    <ShellNavigationProvider>
+      {viewport.size === 'compact' ? (
+        <MobileShell bridge={bridge} origin={origin} size={viewport.size} />
+      ) : (
+        <DesktopShell bridge={bridge} origin={origin} size={viewport.size} />
+      )}
+    </ShellNavigationProvider>
   );
 }

@@ -1,0 +1,351 @@
+/*
+ * 双端外壳样式。纪律同 @wise/ui：只用 var(--w-*) 与 0/1px/2px。
+ *
+ * 布局约定：
+ *  · **桌面**：左列整屏高（品牌在最左上角；菜单区自己滚；页脚是账号块），
+ *    右列 = 顶栏 + 内容 + 状态栏。顶栏在**右列**里，所以"面包屑 / 搜索 / Bridge 状态"
+ *    出现在每个子页面的上方。
+ *  · **手机**：单列 = 情景头 + 分段控件 + 内容 + 底栏。
+ *  · 两者都**整页固定高度**，只有 `.w-content` 是滚动容器。
+ */
+
+.w-shell {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  background: var(--w-color-bg);
+}
+
+.w-shell--desktop {
+  flex-direction: row;
+}
+
+.w-shell--mobile {
+  flex-direction: column;
+}
+
+/* ---------- 左列：侧栏 ---------- */
+
+.w-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: var(--w-space-sidebar-width);
+  min-height: 0;
+  background: var(--w-nav-bg);
+  color: var(--w-nav-fg);
+  border-right: 1px solid var(--w-nav-border);
+}
+
+.w-sidebar--collapsed {
+  width: var(--w-space-sidebar-width-compact);
+}
+
+.w-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex: 0 0 auto;
+  min-height: var(--w-space-topbar-height);
+  padding: 0 var(--w-space-inline-gap);
+  border-bottom: 1px solid var(--w-nav-border);
+}
+
+.w-sidebar__brandtext {
+  flex: 1;
+  min-width: 0;
+}
+
+.w-sidebar__mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--w-size-mark-size);
+  height: var(--w-size-mark-size);
+  border-radius: var(--w-radius-control);
+  background: var(--w-color-primary);
+  color: var(--w-color-on-primary);
+  font-weight: 700;
+}
+
+.w-sidebar__name {
+  font-size: var(--w-type-section-title-size);
+  font-weight: var(--w-type-section-title-weight);
+  color: var(--w-color-on-surface);
+  white-space: nowrap;
+}
+
+.w-sidebar__sub {
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-nav-group-label);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.w-sidebar__toggle {
+  flex: 0 0 auto;
+}
+
+/*
+ * 菜单区：**自己滚动**。
+ * 这是"防止超出屏幕"的落点 —— 导航项再多也只在这一点区域内滚，
+ * 品牌行与账号块永远是钉住的。
+ */
+.w-sidebar__menu {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--w-space-inline-gap);
+}
+
+/* Element Plus 菜单的配色收口（把 --el-menu-* 指到我们的导航令牌） */
+.w-sidebar__menu .el-menu {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--w-nav-fg-muted);
+  --el-menu-hover-bg-color: var(--w-nav-item-hover-bg);
+  --el-menu-active-color: var(--w-color-primary);
+  --el-menu-item-height: var(--w-density-control-height-sm);
+  --el-menu-sub-item-height: var(--w-density-control-height-sm);
+  --el-menu-base-level-padding: var(--w-space-row-gap);
+  --el-menu-border-color: transparent;
+  border-right: none;
+}
+
+.w-sidebar__menu .el-menu-item,
+.w-sidebar__menu .el-sub-menu__title {
+  border-radius: var(--w-radius-control);
+  margin-bottom: 1px;
+}
+
+.w-sidebar__menu .el-menu-item.is-active {
+  background: var(--w-nav-item-active-bg);
+  color: var(--w-color-primary);
+  font-weight: var(--w-type-label-weight);
+}
+
+.w-sidebar__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex: 0 0 auto;
+  min-height: var(--w-space-touch-target-min);
+  padding: var(--w-space-row-gap) var(--w-space-inline-gap);
+  border-top: 1px solid var(--w-nav-border);
+}
+
+.w-sidebar__avatar {
+  flex: 0 0 auto;
+  background: var(--w-color-primary);
+  color: var(--w-color-on-primary);
+}
+
+.w-sidebar__account {
+  min-width: 0;
+}
+
+.w-sidebar__account-name {
+  font-size: var(--w-type-body-size);
+  color: var(--w-color-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w-sidebar__account-role {
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-color-on-surface-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 右列：顶栏 + 内容 + 状态栏 ---------- */
+
+.w-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.w-commandbar {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-group-gap);
+  flex: 0 0 auto;
+  min-height: var(--w-space-topbar-height);
+  padding: 0 var(--w-space-screen-h);
+  background: var(--w-color-surface);
+  border-bottom: 1px solid var(--w-color-outline);
+}
+
+.w-commandbar__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  min-width: 0;
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-color-on-surface-muted);
+  white-space: nowrap;
+}
+
+.w-commandbar__current {
+  color: var(--w-color-on-surface);
+  font-weight: var(--w-type-label-weight);
+}
+
+/* 右上角：搜索 + Bridge 状态（账号在左下角） */
+.w-commandbar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-row-gap);
+  margin-left: auto;
+}
+
+/* ---------- 内容区：唯一的滚动容器 ---------- */
+
+.w-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ---------- 状态栏 ---------- */
+
+.w-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-group-gap);
+  flex: 0 0 auto;
+  min-height: var(--w-space-statusbar-height);
+  padding: 0 var(--w-space-screen-h);
+  background: var(--w-color-surface);
+  border-top: 1px solid var(--w-color-outline);
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-color-on-surface-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* ---------- 手机：情景头 / 分段控件 / 底栏 ---------- */
+
+.w-contextheader {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex: 0 0 auto;
+  min-height: var(--w-space-topbar-height);
+  padding: 0 var(--w-space-screen-h);
+  background: var(--w-color-surface);
+  border-bottom: 1px solid var(--w-color-outline);
+}
+
+.w-contextheader__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--w-type-section-title-size);
+  font-weight: var(--w-type-section-title-weight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.w-tabbar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  flex: 0 0 auto;
+  min-height: var(--w-space-tabbar-height);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background: var(--w-color-surface);
+  border-top: 1px solid var(--w-color-outline);
+}
+
+.w-tabbar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--w-space-inline-gap);
+  min-height: var(--w-space-touch-target-min);
+  border: none;
+  background: transparent;
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  cursor: pointer;
+}
+
+.w-tabbar__item--active {
+  color: var(--w-color-primary);
+  font-weight: var(--w-type-label-weight);
+}
+
+/* ---------- 手机：扫码结果卡（顶部浮层，用品牌深青） ---------- */
+
+.w-scancard {
+  position: fixed;
+  top: env(safe-area-inset-top, 0);
+  left: var(--w-space-screen-h);
+  right: var(--w-space-screen-h);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-inline-gap);
+  padding: var(--w-space-card-padding);
+  background: var(--w-brand-bg);
+  color: var(--w-brand-fg);
+  border-radius: var(--w-radius-card);
+}
+
+.w-scancard__label {
+  font-size: var(--w-type-body-small-size);
+  color: var(--w-brand-fg-muted);
+}
+
+.w-scancard__code {
+  font-family: var(--w-font-mono);
+  font-size: var(--w-type-body-size);
+  word-break: break-all;
+}
+
+.w-scancard__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------- 手机：域内分段控件（等高、可点、不横滚） ---------- */
+
+.w-segment {
+  flex: 0 0 auto;
+  padding: var(--w-space-row-gap) var(--w-space-screen-h) 0;
+}
+
+/* ---------- 页面跳转搜索 ---------- */
+
+.w-pagesearch {
+  width: var(--w-space-detail-column-width);
+  max-width: 42vw;
+}
+
+.w-pagesearch__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-pagesearch__item-domain {
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+}
+
+/* ---------- 通用 ---------- */
+
+.w-shell__spacer {
+  flex: 1;
+}
