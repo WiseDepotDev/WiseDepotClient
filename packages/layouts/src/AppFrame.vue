@@ -138,7 +138,18 @@ function hasHistoryBack(): string | null {
 const canGoBack = computed(() => {
   // 显式依赖路由：`history.state` 不是响应式的，不读 route 的话导航后不会重算
   void route.fullPath;
-  return hasHistoryBack() !== null || route.name !== 'home';
+  /*
+   * **首页不出「返回」**。
+   *
+   * 真机实测（WSA 冷启动的应用中心）：`history.state.back` 在 WebView 里**不是 null**
+   * （初始那个 webview entry 被算了进去），于是按钮显示出来 —— 而点它 `router.back()`
+   * 没有任何可回退的真实路由，**页面一动不动**（两张截图字节完全一致）。
+   * 这正是原先那条 `isDetail || …` 条件留下的同一类毛病：按钮在，动作没意义。
+   */
+  if (route.name === 'home') {
+    return false;
+  }
+  return hasHistoryBack() !== null;
 });
 
 function goBack(): void {

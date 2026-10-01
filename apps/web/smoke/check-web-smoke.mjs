@@ -601,6 +601,29 @@ const detailChrome = await cdp.evaluate(
 check('手机档：详情屏不画分段控件（画了会三个都不高亮）', detailChrome.segment === 0, `segment=${detailChrome.segment}`);
 check('手机档：详情屏有「返回」', detailChrome.hasBack === true);
 
+/*
+ * 首页**不**显示「返回」。
+ *
+ * 真机实测（WSA 冷启动的应用中心）：`history.state.back` 在 WebView 里不是 null
+ * （初始的 webview entry 被算了进去），按钮会显示出来 —— 而点它没有任何可回退的真实路由，
+ * 页面一动不动（两次截图字节完全一致）。所以首页直接不出这个按钮。
+ */
+await cdp.evaluate(`(location.hash = '#/')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-contextheader') ? true : null`, 20_000, 200);
+await sleep(500);
+const homeChrome = await cdp.evaluate(
+  `({
+     hasContextHeader: !!document.querySelector('.w-contextheader'),
+     back: [...document.querySelectorAll('.w-contextheader button')].some((b) => b.innerText.trim() === '返回'),
+   })`,
+  { awaitPromise: false },
+);
+check(
+  '手机档：应用中心（首页）不显示「返回」（点了没有任何可回退的路由）',
+  homeChrome.hasContextHeader === true && homeChrome.back === false,
+  JSON.stringify(homeChrome),
+);
+
 // 窄档：点行仍然走详情路由（主从只在宽档生效 —— 手机上并排两栏谁都看不清）
 await cdp.evaluate(`(location.hash = '#/inventory/inventory')`, { awaitPromise: false });
 // 窄档出卡片、宽档出表格：两种都认，避免等到超时（超时会让后面的断言跑在空列表上）

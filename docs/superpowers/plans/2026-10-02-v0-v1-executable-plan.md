@@ -1632,6 +1632,40 @@ SSR 下 `isWide` 特意退化成 `false`：服务端渲染若两栏并存，门�
 其中"卡片列表点得到"是写测试时踩出来的：窄档出的是卡片（`.w-cardrow > .w-card`）、
 宽档出的是表格行，照抄选择器会什么都点不到，而断言拿到的是"hash 没变"，看着像功能坏了。
 
+### 五、真机复核（本轮收尾）：WSA 冷启动
+
+前两轮试过三次都没截到"恢复态账号名"（WSA 前台被抢 + WebView 恢复滚动位置）。
+这一轮换了手段：**直接读 WebView 的 DOM**，而不是看图 ——
+
+```bash
+adb shell cat /proc/net/unix | grep webview_devtools   # → @webview_devtools_remote_6407
+adb forward tcp:9222 localabstract:webview_devtools_remote_6407
+curl http://127.0.0.1:9222/json                        # → page target 的 ws url
+# 再用 CDP 在页面里 evaluate 读 DOM
+```
+
+冷启动（`am force-stop` → LAUNCHER）后读到的结果：
+
+```json
+{ "hash": "#/",
+  "contextHeader": "运营 正常",          // ← 只有"运营"和"正常"，**没有「返回」**
+  "headerButtons": [],                   // ← 一个按钮都没有
+  "account": "当前账号：系统管理员·详情、…",
+  "hubCount": 18 }
+```
+
+**两项都达成**：恢复态账号名是「系统管理员」（不是"已登录"），首页也确实不显示「返回」。
+
+> 一个必须记下来的教训：**我先看的是截图，并且"看到"了「返回」** —— 低分辨率预览里
+> 那不是按钮，是我预期它在那儿。前两轮"没截到图"的结论也因此值得怀疑：
+> 当时如果直接读 DOM，可能一次就成了。**图像给人"看到了"的错觉，DOM 给的是可核对的字符串。**
+
+另外这一轮真机复核**发现了一个新问题并已修**：`history.state.back` 在 WebView 里不是 `null`
+（初始的 webview entry 被算了进去），于是首页也画出「返回」，而点它 `router.back()` 没有任何
+可回退的真实路由 —— **页面一动不动**（两次截图字节完全一致）。现在首页直接不出这个按钮。
+冒烟加了一条对应断言（**251/251**）。
+
+
 
 
 
