@@ -76,6 +76,29 @@
   flex-wrap: wrap;
 }
 
+/*
+ * 工具条里的输入框 / 下拉要**让位给按钮**。
+ *
+ * Element Plus 的 `.el-input` / `.el-select` 默认是 `width: 100%`，放进 flex 行里会**独占一整行**，
+ * 把「查找」挤到下一行、把筛选下拉又挤到第三行 —— 手机上一屏的 1/4 就这么没了（实测截图即如此）。
+ *
+ * 基准宽度用**百分比**而不是"宽列"那个令牌：`--w-space-detail-column-width` 是桌面用的宽列（≈360px），
+ * 在 390px 的手机上会把整行占满、照样把按钮挤下去（第一版就是这么返工的）。
+ * 45% 的基准让输入框吃满按钮之外的空间，两者落在同一行；`max-width` 仍由各屏自己管。
+ */
+.w-toolbar > .el-input,
+.w-toolbar > .el-select,
+.w-toolbar > .el-date-editor {
+  flex: 1 1 45%;
+  min-width: 0;
+}
+
+/* 工具条里的纯文本口径说明（如「筛选本页」）：占满剩余，不与按钮抢位置 */
+.w-toolbar > .w-chip,
+.w-toolbar > span {
+  flex: 0 1 auto;
+}
+
 /* ---------- 数据视图（Element Plus 表格的收口） ---------- */
 
 .w-datatable {
@@ -131,13 +154,34 @@
   padding: 0;
 }
 
+/*
+ * 卡片行 = 卡片 + 行操作（同一行内、垂直居中）。
+ *
+ * 为什么不是"卡片下面吊一行右对齐的操作"：那样每张卡片下方都浮着一个孤立的红色按钮，
+ * 看起来像掉在卡片外面（手机端实测截图就是这样）。
+ * 操作必须留在 `<button>` 外面（按钮不能嵌按钮），但可以**并排**放在同一行。
+ */
+.w-cardrow {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex: 0 0 auto;
+}
+
 .w-card {
   display: flex;
   flex-direction: column;
   gap: var(--w-space-inline-gap);
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: var(--w-space-touch-target-min);
-  padding: var(--w-space-card-padding);
+  padding: var(--w-space-card-padding-compact);
   text-align: left;
   background: var(--w-color-surface);
   border: 1px solid var(--w-color-outline);
@@ -291,6 +335,23 @@
   gap: var(--w-space-inline-gap) var(--w-space-group-gap);
   margin: 0;
   padding: 0;
+}
+
+/*
+ * 手机档的字段表更紧凑：标签列改成"按内容自适应"而不是固定宽（窄屏上固定宽会把值挤到角落里），
+ * 行距也收到最小间距。详情屏在手机上原本 7 行就吃掉半屏 —— 那是"看起来乱"的主要来源之一。
+ */
+@media (max-width: 599px) {
+  .w-kv {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--w-space-inline-gap);
+  }
+
+  .w-kv__label,
+  .w-kv__value {
+    font-size: var(--w-type-body-small-size);
+    line-height: var(--w-type-body-small-line);
+  }
 }
 
 .w-kv__label {

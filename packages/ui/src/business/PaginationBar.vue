@@ -47,19 +47,30 @@ const pagerProps = computed<any>(() => ({
 
 <template>
   <div class="w-pagination">
-    <span class="w-pagination__range">共 {{ total }} 条 · 第 {{ page }}/{{ pageCount }} 页</span>
+    <!--
+      手机档的文案合并成一句：`共 N 条 · 第 x/y 页` 在窄屏上会折行，而且"第 1/1 页"对只有一页的
+      列表毫无信息量。所以：只有一页时只说"共 N 条"，多页时才报页码。
+    -->
+    <span class="w-pagination__range">
+      {{
+        pageCount > 1
+          ? `${asMore ? '已显示' : '共'} ${Math.min(page * pageSize, total)} 条 · 第 ${page}/${pageCount} 页`
+          : `共 ${total} 条`
+      }}
+    </span>
 
+    <!-- 没有更多时**不渲染按钮**：一个恒定禁用、写着"没有更多了"的按钮只是占位与噪音 -->
     <ElButton
-      v-if="asMore"
+      v-if="asMore && hasMore"
       size="large"
-      :disabled="!hasMore || loading"
+      :disabled="loading"
       :loading="loading"
       @click="emit('update:page', page + 1)"
     >
-      {{ hasMore ? '加载更多' : '没有更多了' }}
+      加载更多
     </ElButton>
 
-    <ElPagination v-else v-bind="pagerProps" @current-change="(p: number) => emit('update:page', p)" />
+    <ElPagination v-else-if="!asMore" v-bind="pagerProps" @current-change="(p: number) => emit('update:page', p)" />
   </div>
 </template>
 

@@ -260,7 +260,13 @@ onBeforeUnmount(() => {
 
       <header v-if="isCompact" class="w-contextheader">
         <ElButton v-if="isDetail || domain.children.length > 0" text size="small" @click="goBack">返回</ElButton>
-        <h1 class="w-contextheader__title">{{ pageTitle }}</h1>
+        <!--
+          手机上这里显示**所属域**（库存 / 现场 / 我的…），不是页名。
+          为什么：每一屏自己的页头（`PageHeader`）已经写着页名了，情景头再写一遍
+          就是同一句话占两行 —— 手机一屏才 844px，顶部那 200px 里有两行是重复的（实测截图即如此）。
+          换成域名之后，两行合起来读是"我在库存域 → 我在看库存查询"，既去重又给了方位感。
+        -->
+        <h1 class="w-contextheader__title">{{ domain.label }}</h1>
         <ElButton v-if="!useSegmented" text size="small" @click="mobileDrawerOpen = true">页面</ElButton>
         <BridgeStatusChip compact />
       </header>

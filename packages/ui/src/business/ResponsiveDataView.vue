@@ -153,7 +153,7 @@ function onRowClick(row: T): void {
   </div>
 
   <ul v-else class="w-cardlist">
-    <li v-for="row in rows" :key="rowKey(row)">
+    <li v-for="row in rows" :key="rowKey(row)" class="w-cardrow">
       <button type="button" class="w-card" @click="emit('row-click', row)">
         <span class="w-card__head">
           <span v-if="hasLead" class="w-card__lead" @click.stop>
@@ -171,7 +171,15 @@ function onRowClick(row: T): void {
         </span>
         <span v-if="secondaryCol" class="w-card__secondary">{{ valueOf(row, secondaryCol) }}</span>
       </button>
-      <!-- 手机卡片底部同一份操作（不再另写一套） -->
+      <!--
+        手机卡片同一份操作（不再另写一套）。
+
+        **放在按钮外面是硬要求**：卡片整体是一个 `<button>`，按钮里再嵌按钮是非法 HTML，
+        浏览器会把内层按钮提到外面，行为变得不可预测。
+        但"提到外面"不等于"另起一行右对齐"—— 那样每张卡片下面吊着一个孤零零的红色「移除」，
+        视觉上像浮在卡片外面的东西（实测截图就是这么难看的）。
+        所以外面再包一层 flex：卡片占满剩余宽度，操作贴在右侧、与卡片垂直居中。
+      -->
       <div v-if="hasActions" class="w-card__actions">
         <slot name="actions" :row="row" />
       </div>
