@@ -555,6 +555,24 @@ check('参数段仍可达：/stock-orders/12345 打开"单据详情"（真屏已
 await cdp.evaluate(`(location.hash = '#/inventory/inventory')`, { awaitPromise: false });
 await sleep(500);
 
+/*
+ * 桌面档"回应用中心"的入口：左上角品牌。
+ * 桌面侧栏列的是"域 → 叶子"，**没有 `/` 这一项**，面包屑又只是文字 ——
+ * 进了子页面之后同样没有回首页的路，所以品牌区做成按钮。
+ */
+const brandHome = await cdp.evaluate(
+  `(() => {
+     const b = document.querySelector('.w-sidebar__brandhome');
+     return { exists: !!b, label: b?.getAttribute('aria-label') ?? '', text: b?.innerText.replace(/\\s+/g, ' ').trim() ?? '' };
+   })()`,
+  { awaitPromise: false },
+);
+check(
+  '桌面档：左上角品牌是"回应用中心"的入口（有可读的名字，不是只靠形状）',
+  brandHome.exists === true && brandHome.label === '回到应用中心' && /慧仓智控/.test(brandHome.text),
+  JSON.stringify(brandHome),
+);
+
 // 断点切换：390px 宽的手机档
 await cdp.send('Emulation.setDeviceMetricsOverride', {
   width: 390,
@@ -575,9 +593,60 @@ const mobile = await cdp.evaluate(
   { awaitPromise: false },
 );
 check('手机壳：底栏出现、侧栏消失、情景头在', mobile.tabbar && !mobile.sidebar && mobile.contextheader);
-check('手机底栏 4 项', mobile.tabItems === 4, `items=${mobile.tabItems}`);
+check('手机底栏 5 项（应用 + 四个域）', mobile.tabItems === 5, `items=${mobile.tabItems}`);
 check('断点切换不丢当前路由', mobile.hash === '#/inventory/inventory', mobile.hash);
 check('叶子 >4 的域改用抽屉入口（不做横向滚动）', mobile.drawerButton === true);
+
+/*
+ * ---- "回应用中心"的两个入口（手机上方 + 手机下方；桌面在品牌区）----
+ *
+ * 原先手机上**根本回不去首页**：底栏点域是"进该域第一个叶子"、抽屉里只有当前域的子页、
+ * 扫码与详情都往更深处走 —— 首页一旦离开只剩系统返回键（而 WebView 里的返回键还未必可用）。
+ */
+const leafChrome = await cdp.evaluate(
+  `({
+     top: [...document.querySelectorAll('.w-contextheader button')].map((b) => b.innerText.trim()),
+     tabs: [...document.querySelectorAll('.w-tabbar__item')].map((b) => b.innerText.trim()),
+     activeTabs: [...document.querySelectorAll('.w-tabbar__item--active')].map((b) => b.innerText.trim()),
+   })`,
+  { awaitPromise: false },
+);
+check('手机档：叶子屏上方有「应用中心」入口', leafChrome.top.includes('应用中心'), JSON.stringify(leafChrome.top));
+check('手机档：底栏第一项是「应用」', leafChrome.tabs[0] === '应用', JSON.stringify(leafChrome.tabs));
+check('手机档：在库存域时高亮的是「库存」而不是「应用」', leafChrome.activeTabs.join(',') === '库存', JSON.stringify(leafChrome.activeTabs));
+
+await cdp.evaluate(
+  `(() => {
+     const btn = [...document.querySelectorAll('.w-tabbar__item')].find((b) => b.innerText.trim() === '应用');
+     btn?.click();
+     return !!btn;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(900);
+const afterAppTab = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     activeTabs: [...document.querySelectorAll('.w-tabbar__item--active')].map((b) => b.innerText.trim()),
+     title: document.querySelector('.w-contextheader__title')?.innerText.trim() ?? '',
+     segment: document.querySelectorAll('.w-segment').length,
+     topButtons: [...document.querySelectorAll('.w-contextheader button')].map((b) => b.innerText.trim()),
+   })`,
+  { awaitPromise: false },
+);
+check('手机档：点底栏「应用」回到应用中心', afterAppTab.hash === '#/', afterAppTab.hash);
+check('手机档：首页时高亮「应用」、四个域一个都不亮', afterAppTab.activeTabs.join(',') === '应用', JSON.stringify(afterAppTab.activeTabs));
+check(
+  '手机档：首页不画域内分段控件（首页没有"当前域"可言）',
+  afterAppTab.segment === 0,
+  `segment=${afterAppTab.segment}`,
+);
+check(
+  '手机档：首页标题是品牌名而不是兜底出来的"运营"',
+  afterAppTab.title === '慧仓智控',
+  afterAppTab.title,
+);
+check('手机档：首页上方不再有「应用中心」入口（已经在首页）', !afterAppTab.topButtons.includes('应用中心'), JSON.stringify(afterAppTab.topButtons));
 
 /*
  * 手机壳两处"恒真条件"的回归护栏（都是在真机上才看得见的缺陷）。

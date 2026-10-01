@@ -57,6 +57,31 @@
   min-width: 0;
 }
 
+/*
+ * 品牌区是一个**按钮**（点击回应用中心，见 AppFrame 里的说明）。
+ * 这里把它重置成"看起来就是原来那段文字"，只在悬停时给出可点的暗示 ——
+ * 一个默认就带边框/背景的按钮会破坏左上角的安静感。
+ */
+.w-sidebar__brandhome {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.w-sidebar__brandhome:hover .w-sidebar__name,
+.w-sidebar__brandhome:focus-visible .w-sidebar__name {
+  color: var(--w-color-primary);
+}
+
 .w-sidebar__mark {
   display: grid;
   place-items: center;
@@ -258,7 +283,12 @@
 
 .w-tabbar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /*
+   * 列数由**项数**决定，不写死：现在是「应用 + 四个域」= 5 项。
+   * 写死 4 会让第 5 项折到第二行（底栏高度翻倍），而第 5 项以后还可能再加域。
+   */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   flex: 0 0 auto;
   min-height: var(--w-space-tabbar-height);
   padding-bottom: env(safe-area-inset-bottom, 0);

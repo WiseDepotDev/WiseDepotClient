@@ -106,6 +106,14 @@ const mobileDrawerOpen = ref(false);
 /** ≤4 项用分段控件；>4 项改用抽屉里的入口列表（**不做横向滚动**：现场手指找不到） */
 const useSegmented = computed(() => domain.value.children.length <= 4);
 
+/**
+ * 当前是不是**应用中心**（`/`）。
+ *
+ * 它不属于任何域，所以有三处要特判：标题（不能写"运营"）、域内分段控件（没有"当前域"可言）、
+ * 底栏高亮（一个域都不该亮，"应用"那一项亮）。
+ */
+const isHome = computed(() => route.name === 'home');
+
 function goLeaf(path: string): void {
   mobileDrawerOpen.value = false;
   void router.push(path);
@@ -116,6 +124,17 @@ function goDomain(id: DomainId): void {
   if (first) {
     void router.push(first.path);
   }
+}
+
+/**
+ * 回应用中心（`/`）。
+ *
+ * 手机上原先**没有任何入口**能回应用中心：底栏点域是"进该域第一个叶子"，
+ * 抽屉里只有当前域的子页，扫码/详情都往更深处走 —— 首页一旦离开就只能靠系统返回键。
+ * 现在上方情景头与下方底栏各给一个入口（见模板里的说明）。
+ */
+function goHome(): void {
+  void router.push({ name: 'home' });
 }
 
 /**
@@ -203,11 +222,25 @@ onBeforeUnmount(() => {
     <!-- ============ 桌面：整屏高的左列（品牌在最左上角） ============ -->
     <aside v-if="!isCompact" class="w-sidebar" :class="{ 'w-sidebar--collapsed': collapsed }">
       <div class="w-sidebar__brand">
-        <span class="w-sidebar__mark" aria-hidden="true">W</span>
-        <div v-if="!collapsed" class="w-sidebar__brandtext">
-          <div class="w-sidebar__name">慧仓智控</div>
-          <div class="w-sidebar__sub">WISEDEPOT</div>
-        </div>
+        <!--
+          品牌区可点 → 回应用中心。
+          为什么：桌面侧栏列的是"域 → 叶子"，**没有 `/` 这一项** ——
+          进了子页面之后同样没有回首页的入口（面包屑只是文字）。
+          常见做法就是把左上角品牌当"回首页"，这里照做并给出 title 说明。
+        -->
+        <button
+          type="button"
+          class="w-sidebar__brandhome"
+          title="回到应用中心"
+          aria-label="回到应用中心"
+          @click="goHome"
+        >
+          <span class="w-sidebar__mark" aria-hidden="true">W</span>
+          <div v-if="!collapsed" class="w-sidebar__brandtext">
+            <div class="w-sidebar__name">慧仓智控</div>
+            <div class="w-sidebar__sub">WISEDEPOT</div>
+          </div>
+        </button>
         <ElButton
           class="w-sidebar__toggle"
           text
@@ -262,28 +295,37 @@ onBeforeUnmount(() => {
 
       <header v-if="isCompact" class="w-contextheader">
         <!--
-          「返回」的显示条件必须**有意义**：原先写的是 `isDetail || domain.children.length > 0`，
-          而每个域都有 ≥2 个子项 ⇒ 第二个条件恒真 ⇒ 按钮在手机上无条件出现，
-          同时 `goBack()` 在非详情屏做的是"跳到域首屏"。现在条件如实表达"有没有上一屏可回"。
+          左上角那个位置**按当前位置给恰当的动作**（同一处，不叠按钮）：
+            · 详情屏 → 「返回」（回上一屏；判据见 `canGoBack` 的注释）
+            · 其它屏 → 「应用中心」（回 `/`）
+            · 首页   → 什么都不显示
+          为什么要有「应用中心」这个入口：手机上原先**根本回不去首页** ——
+          底栏点域是"进该域第一个叶子"、抽屉里只有当前域的子页、扫码与详情都往更深处走。
+          首页一旦离开，只剩系统返回键，而 WebView 里的返回键还未必可用。
         -->
-        <ElButton v-if="canGoBack" text size="small" @click="goBack">返回</ElButton>
+        <ElButton v-if="isDetail && canGoBack" text size="small" @click="goBack">返回</ElButton>
+        <ElButton v-else-if="!isHome" text size="small" @click="goHome">应用中心</ElButton>
         <!--
-          手机上这里显示**所属域**（库存 / 现场 / 我的…），不是页名。
+          这里显示**所属域**（库存 / 现场 / 我的…），不是页名。
           为什么：每一屏自己的页头（`PageHeader`）已经写着页名了，情景头再写一遍
           就是同一句话占两行 —— 手机一屏才 844px，顶部那 200px 里有两行是重复的（实测截图即如此）。
           换成域名之后，两行合起来读是"我在库存域 → 我在看库存查询"，既去重又给了方位感。
+
+          首页不属于任何域（`domain` 会兜底成 overview，写出来就是错的"运营"），
+          所以那时显示品牌名 —— 与桌面左上角一致，也不与屏内的「应用中心」标题重复。
         -->
-        <h1 class="w-contextheader__title">{{ domain.label }}</h1>
-        <ElButton v-if="!useSegmented" text size="small" @click="mobileDrawerOpen = true">页面</ElButton>
+        <h1 class="w-contextheader__title">{{ isHome ? '慧仓智控' : domain.label }}</h1>
+        <ElButton v-if="!useSegmented && !isHome" text size="small" @click="mobileDrawerOpen = true">页面</ElButton>
         <BridgeStatusChip compact />
       </header>
 
       <!--
-        分段控件只在**叶子屏**（同域内换页）出现。详情屏也画一个的话，
-        `activeMethod` 由 `leafHit` 算、而详情路由取不到叶子 ⇒ **三个分段一个都不高亮**，
-        看起来像"当前在哪个页面"坏了。
+        分段控件只在**叶子屏**（同域内换页）出现：
+          · 详情屏也画一个的话，`activeMethod` 由 `leafHit` 算、而详情路由取不到叶子
+            ⇒ **三个分段一个都不高亮**，看起来像"当前在哪个页面"坏了；
+          · 首页没有"当前域"可言（`currentDomainId` 会兜底成 overview）⇒ 同样一个都不该亮。
       -->
-      <div v-if="isCompact && useSegmented && !isDetail" class="w-toolbar w-segment">
+      <div v-if="isCompact && useSegmented && !isDetail && !isHome" class="w-toolbar w-segment">
         <ElButton
           v-for="c in domain.children"
           :key="c.id"
@@ -309,13 +351,26 @@ onBeforeUnmount(() => {
         <span>能力：{{ bridge.capabilities.length }} 项</span>
       </footer>
 
+      <!--
+        底栏：**「应用」+ 四个域**。
+        「应用」是回应用中心的入口（手机上原先没有）；它在首页高亮，
+        首页时四个域**一个都不亮** —— 否则会让人以为"我在概览域"，而应用中心不属于任何域。
+      -->
       <nav v-if="isCompact" class="w-tabbar" aria-label="主导航">
+        <button
+          type="button"
+          class="w-tabbar__item"
+          :class="{ 'w-tabbar__item--active': isHome }"
+          @click="goHome"
+        >
+          应用
+        </button>
         <button
           v-for="d in DOMAINS"
           :key="d.id"
           type="button"
           class="w-tabbar__item"
-          :class="{ 'w-tabbar__item--active': d.id === currentDomainId }"
+          :class="{ 'w-tabbar__item--active': !isHome && d.id === currentDomainId }"
           @click="goDomain(d.id)"
         >
           {{ d.short }}
