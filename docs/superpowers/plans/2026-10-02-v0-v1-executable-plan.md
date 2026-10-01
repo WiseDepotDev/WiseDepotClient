@@ -834,3 +834,77 @@ Vue 的 "新值 !== 旧值" 判据不成立 ⇒ 界面不刷新。实测现象�
 也就是说 16 个导航叶子 + 12 个目的地全部有真屏，`PlaceholderView` 已经没有任何路由会落到它。
 React 版的删除（V6）从"能不能删"变成了"什么时候删"的排期问题。
 
+## V6 执行记录 · 删除 React 版（2026-10-02）
+
+```
+Anti-Entropy Declaration:
+- Deletion Class: code-retirement（内部代码 / 重复所有者）+ derived-state（陈旧打包产物）
+- Old Path: packages/{features,shells,patterns}、apps/web/src/{App.tsx,main.tsx}、
+            tools/check/{shell-render-entry.tsx,check-shell-render.mjs,check-ui-language.js}、
+            apps/web/spike 脚手架、packages/scan 的两个 React hook、
+            apps/web/dist 与 apps/desktop/release（未跟踪产物）
+- Invalid Responsibility: 同一个 UI 存在**第二个所有者**（React 屏/外壳），且已无任何屏落在它上面
+- Legitimate Capability Remaining: 无（两个纯规则模块的职责已由 apps/web 那份唯一承担）
+- New Canonical Owner: apps/web/src/views/** + packages/{ui,layouts,stores,tokens,bridge-*}
+- Expected Preserved Behavior: 28 屏、25→24 条门禁、174/173 条冒烟断言、桌面/手机两宿主
+- Expected Retired Behavior: React 渲染路径、Naive 主题链、只扫 .tsx 的文案门禁
+- External Boundary Touched: no（未改 bridge 协议、后端、手机壳）
+- Source-of-Truth Data Risk: none
+Retirement Decision:
+- Path: delete-first
+- Why: 纯内部退役；无外部契约、无持久化状态；且每个被删门禁的责任都已先交给新所有者
+```
+
+**先冻结，再删**：仓库里**一个 git tag 都没有**（计划里 V0-2 那条"打回滚 tag"实际从未执行），
+所以第一步是把当时的工作区按客户端范围提交（`cd46199`）并打 `v0-react-freeze`；
+`bridge/**`（你已有的改动）明确排除在外、保持工作区原样。
+恢复方式：`git checkout v0-react-freeze -- packages/features packages/shells packages/patterns apps/web/src/App.tsx apps/web/src/main.tsx`。
+
+### 门禁：一条条问"它的责任由谁接"，然后改指或退役
+
+| 门禁 | 处置 | 为什么 |
+| --- | --- | --- |
+| `check:render` | **换成** `check-vue-render.mjs` | 原版用 `react-dom/server` 渲染 React 外壳。新版用 Vite `ssrLoadModule` 渲染 Vue 外壳 + **注册表里每一屏**（30 用例）—— 用例来自注册表本身，以后新增屏自动覆盖 |
+| `check:state` / `check:stockorder` | 改指 `apps/web` 那份 | 两个纯规则模块的唯一所有者变了 |
+| `check:parity` | 改指 Vue 注册表 | 数据源 `registry.tsx`→`views/registry.ts`，25 条映射 `.tsx`→`.vue`，`docs/feature-parity.md` 重生成 |
+| `check:navigation` | 改指 Vue IA | 改读 `packages/layouts/src/navigation.ts`，并扫 `router.push({name})`（16 处）。**它独有的价值**（手写的导航目标拼错 → 点了没反应）`check:navigation-web` 看不到，所以是改指不是删 |
+| `check:session` | 改指 `@wise/stores` | 会话订阅与 `humanize` 的新拥有者 |
+| `check:store` 的副本漂移对 | **退役** | 副本没了。留着的话两侧少一边时循环会 `continue` —— 一条**永远绿的假门禁**，比没有更糟 |
+| `check-no-react` | ALLOWED 清空 | 语义升级为"**0 React**"：任何 .tsx/.jsx、任何 react 依赖声明立刻红 |
+| `check:ui`（只扫 .tsx） | 删除 | Vue 侧由 `check:ui-web` 承担 |
+
+### 两个"删了之后才暴露"的真缺陷
+
+1. **`useScanGun` 在 setup 里直接读 `window`** —— 新的 Vue 渲染门禁**第一次运行**就抓到它：
+   SSR 下 `ReferenceError: window is not defined`，整屏 setup 崩。按 `useViewport` 已有的同款守卫修掉
+   （无 window 时**不挂监听**，而不是抛异常）。
+2. **冒烟的路由预热跑在登录之前**（它自己的注释写着"必须先预热 chunk"）：没登录时每次 `location.hash`
+   都被会话闸门挡回 `#/login`，**一个 chunk 都没预热到** → 依赖到 5/6 阶段才被 Vite 发现 →
+   补优化触发整页 reload → 会话丢掉 → 后半段 34 条断言连片失败。修法：预热挪到 `ensureSignedIn()` 之后，
+   并去掉末尾那次只为"拿干净状态"的 `location.reload()`。
+
+一个被删除脚本顺带暴露的**门禁自身缺陷**：`check-navigation` 的 `DESTINATIONS` 正则从**文件开头的注释**里
+那第一次出现的 "DESTINATIONS" 开始匹配，一路吃到 `DOMAINS` 的 `= [` —— 于是"目的地表"抓成了叶子表，
+13 处误报。锚点收紧为 `export const DESTINATIONS`。（误报把 13 处真实导航调用点列了出来，反而证明扫描是有效的。）
+
+### V6 验收证据（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **24 条全绿**（少一条 `check:ui`，`check:render` 换实现） |
+| 类型 | `pnpm typecheck` | exit 0，**0 错误** |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **94.8KB gzip**、62 chunk 全 ≤130KB，产物里**已无 `vendor-react`** |
+| 双端冒烟 | `pnpm check:web-smoke` | **173/173** |
+| 宿主边界 | `pnpm desktop:smoke` | **通过**：真 Electron + `app://wise` origin + 真桥子进程 + Vue 登录屏 |
+
+删除规模：跟踪文件 68 个（外加忽略产物 `apps/web/dist`、`apps/desktop/release` 共 219 个文件）。
+
+### 三处"看着像死代码、其实不是"的判断（都留了）
+
+- **`PlaceholderView.vue` 没删**：它不只是"未迁移屏的兜底"，还是**未知 hash 的 404 落点**；
+  而且 `screenFor(...) ?? PlaceholderView` 对未来"先加 IA、后加屏"的中间态是有用的护栏。
+- **`apps/web/spike/results/*.json` 留了**：那是被 `v1-spikes.md` 直接引用的**证据数据**（不是代码），
+  删掉就再也复核不了"当初为什么这么选"。同目录的脚手架代码（跑不起来的 Naive/React 探针）已删。
+- **`spike/lib/cdp.mjs` 不是 spike 遗留**：它唯一的消费者是浏览器冒烟。已移到 `apps/web/smoke/lib/cdp.mjs`
+  （第一次删过头导致冒烟直接起不来，属于典型的"删载体时没看消费者"）。
+
