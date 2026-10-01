@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton, ElInput } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
 import {
   FilterBar,
@@ -274,10 +275,10 @@ function openDetail(row: InventoryRow): void {
         size="large"
         clearable
         class="w-inventory__search"
-        placeholder="商品名 / 编码 / 货位"
+        :prefix-icon="Search"
+        placeholder="商品名 / 编码 / 货位（回车搜索）"
         @keydown.enter="onSearch"
       />
-      <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
       <!-- 搜索口径写在界面上：服务端只按商品名搜，没命中时退到本页 -->
       <span class="w-inventory__scope">{{ scopeText }}</span>
     </div>

@@ -6,7 +6,17 @@ import { StatusChip } from '@wise/ui';
 import type { StatusTone } from '@wise/ui';
 
 /**
- * 桥状态芯片（顶栏右上角）：`Bridge · 正常 · 11ms`。
+ * 桥状态芯片（顶栏右上角）。
+ *
+ * ## 主文案是**耗时**，不是"正常"
+ *
+ * 用户的要求：右上角把"正常"换成延迟，延迟不好使就显示"异常"。所以：
+ *   · 探测成功且有耗时 → 直接显示 `18ms`（桌面档前面带个 `Bridge · ` 前缀）
+ *   · 拿不到耗时（探测失败 / 没探测过 / 传输层断开）→ 显示**真实原因**（异常 / 检测中 / 已断开…）
+ *
+ * 这样做的道理：**"正常"是零信息量的**（正常的时候没人需要读它），
+ * 而数字既是"活着"的证据，又能反映链路质量；反过来，数字不见了本身就说明有问题，
+ * 这时才需要用文字说明出了什么事。
  *
  * ## 两条"必须真实"的要求，以及它们各自的落点
  *
@@ -23,10 +33,13 @@ import type { StatusTone } from '@wise/ui';
  *
  * 业务类拒绝（`AUTH-*` / `VAL-*` / 参数错误）**不算服务异常** —— 那说明请求走到了后端
  * 并被处理，把它们算成红灯才是"显示不真实"。
+ *
+ * 开发态假桥必须能自证身份（`假桥 124ms`）：数字是真的地方不可冒充，
+ * 否则"开发态一切正常、真机上才知道"这类偏差会一直藏在这里。
  */
 const props = withDefaults(
   defineProps<{
-    /** 手机情景头里空间紧张：只显示状态词，耗时留在 tooltip 里。 */
+    /** 手机情景头里空间紧张：去掉 `Bridge · ` 前缀，只留数字/原因。 */
     readonly compact?: boolean | undefined;
   }>(),
   { compact: false },
@@ -49,18 +62,33 @@ const tone = computed<StatusTone>(() => {
 
 const text = computed(() => {
   const status = bridge.health.status;
-  // 开发态假桥不能冒充真宿主；但"异常"永远优先于"假桥" —— 出问题就得看得见
-  const word =
-    status === 'ok' && bridge.kind === 'mock' ? '假桥' : bridge.health.reason;
-
-  if (props.compact) {
-    return word;
-  }
   const ms = bridge.latencyMs;
-  if (status !== 'ok' || ms === undefined) {
-    return `Bridge · ${word}`;
+  const isMock = bridge.kind === 'mock';
+
+  // 有耗时就说耗时 —— 这是主文案
+  if (status === 'ok' && ms !== undefined) {
+    const value = isMock ? `假桥 ${ms}ms` : `${ms}ms`;
+    return props.compact ? value : `Bridge · ${value}`;
   }
-  return `Bridge · ${word} · ${ms}ms`;
+
+  /*
+   * 拿不到耗时 = "不好使"，这时才用文字。
+   *
+   * 用户的判断很直接：正常的时候显示延迟，不好使就显示"异常"。所以这里用**短词** ——
+   * 完整原因（"与本地服务的连接已断开"/"本地服务探测失败"）与错误码留在 tooltip 里，
+   * 手机顶栏放不下那样的整句。
+   */
+  const word =
+    isMock && status === 'ok'
+      ? '假桥'
+      : status === 'down'
+        ? '异常'
+        : status === 'degraded'
+          ? '重连中'
+          : status === 'ok'
+            ? '异常' // 探测说成功却没拿到耗时：那同样是"不好使"，不能显示一个没有数字的"正常"
+            : '检测中';
+  return props.compact ? word : `Bridge · ${word}`;
 });
 
 const tip = computed(() => {

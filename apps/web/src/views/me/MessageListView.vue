@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { ElButton, ElInput, ElTag } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import { asList, asTotal, humanize, shortTime, useMutation, useResource } from '@wise/stores';
 import { ActionDock, ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
 
@@ -315,10 +316,10 @@ const emptyText = computed(() =>
         size="large"
         clearable
         class="w-me-message-list__search"
-        placeholder="标题 / 正文关键词"
+        :prefix-icon="Search"
+        placeholder="标题 / 正文关键词（回车搜索）"
         @keydown.enter="onSearch"
       />
-      <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
 
       <!-- 未读数量芯片：它取不到只说自己读不到，不把整屏拖成错误态 -->
       <ElTag v-if="unread.error.value" size="large" type="info">未读数量暂时读不到</ElTag>

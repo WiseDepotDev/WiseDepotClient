@@ -1140,8 +1140,8 @@ const hasSearch = await cdp.evaluate(
 );
 check('右上角有搜索框', hasSearch.hasSearch && /搜索页面/.test(hasSearch.searchPlaceholder), hasSearch.searchPlaceholder);
 check(
-  'Bridge 芯片显示实测往返耗时（Bridge · 状态 · Nms）',
-  /Bridge · (正常|假桥) · \d+ms/.test(hasSearch.chipText),
+  'Bridge 芯片显示实测往返耗时（主文案是数字，不是"正常"）',
+  /Bridge · (假桥 )?\d+ms/.test(hasSearch.chipText),
   hasSearch.chipText,
 );
 
@@ -1157,15 +1157,19 @@ const setBackendDown = (down) =>
   cdp.evaluate(`window.__bridgeMock?.setBackendDown(${down === true}) ?? false`, { awaitPromise: false });
 
 await setBackendDown(true);
+/*
+ * 后端挂掉之后，芯片上那个**数字必须消失、换成"异常"**。
+ * 这正好是"主文案是延迟"这条设计的另一面：没有数字可显示时不能还写着"正常"。
+ */
 const downText = await waitFor(
   `(() => {
      const t = document.querySelector('.w-commandbar__right .w-chip')?.innerText.trim() ?? '';
-     return t.includes('探测失败') ? t : null;
+     return /Bridge · 异常/.test(t) ? t : null;
    })()`,
   25_000,
   500,
 );
-check('后端不可达时顶栏显示"异常"（不会继续显示正常）', downText !== null, downText ?? await chipTextNow());
+check('后端不可达时顶栏换成"异常"（数字消失，不会继续显示正常）', downText !== null, downText ?? await chipTextNow());
 
 const bannerText = await cdp.evaluate(
   `document.querySelector('.w-app__banner')?.innerText ?? ''`,
@@ -1183,15 +1187,17 @@ await setBackendDown(false);
 const recoveredText = await waitFor(
   `(() => {
      const t = document.querySelector('.w-commandbar__right .w-chip')?.innerText.trim() ?? '';
-     return /Bridge · (正常|假桥) · \\d+ms/.test(t) ? t : null;
+     return /Bridge · (假桥 )?\\d+ms/.test(t) ? t : null;
    })()`,
   25_000,
   500,
 );
-check('恢复后自动回到正常（不需要刷新页面）', recoveredText !== null, recoveredText ?? await chipTextNow());check('右上角有搜索框', layout.hasSearch && /搜索页面/.test(layout.searchPlaceholder), layout.searchPlaceholder);
+check('恢复后自动回到正常（不需要刷新页面）', recoveredText !== null, recoveredText ?? await chipTextNow());
+
+check('右上角有搜索框', layout.hasSearch && /搜索页面/.test(layout.searchPlaceholder), layout.searchPlaceholder);
 check(
-  'Bridge 芯片显示实测往返耗时（Bridge · 状态 · Nms）',
-  /Bridge · (正常|假桥) · \d+ms/.test(layout.chipText),
+  'Bridge 芯片显示实测往返耗时（主文案是数字，不是"正常"）',
+  /Bridge · (假桥 )?\d+ms/.test(layout.chipText),
   layout.chipText,
 );
 
@@ -1254,7 +1260,7 @@ check('库存查询列表 3 行', (await rowsNow()) === 3, `rows=${await rowsNow
 const scopeLabel = await text('.w-inventory__scope');
 check('没有关键词时标注"筛选本页"', scopeLabel === '筛选本页', scopeLabel);
 
-/** 往库存搜索框写词并点「查找」。 */
+/** 往库存搜索框写词并回车（「查找」按钮已经去掉：放大镜在框里、回车触发）。 */
 const searchInventory = async (word) => {
   await cdp.evaluate(
     `(() => {
@@ -1262,12 +1268,11 @@ const searchInventory = async (word) => {
        const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
        setter.call(input, ${JSON.stringify(word)});
        input.dispatchEvent(new Event('input', { bubbles: true }));
+       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
        return true;
      })()`,
     { awaitPromise: false },
   );
-  await sleep(300);
-  await clickByText('查找');
   await sleep(700);
 };
 

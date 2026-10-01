@@ -99,6 +99,54 @@
   flex: 0 1 auto;
 }
 
+/* ---------- 状态筛选 chips ---------- */
+
+/*
+ * 一排**胶囊 chips**，取代原来那排"描边方框按钮"。
+ *
+ * 为什么换形状：那排方框与旁边的「查找」长得一样（都是方块），看不出
+ * "这是在筛同一份列表的哪一类"；胶囊 + 选中态（淡主色底 + 主色描边）才是现在大家认得的筛选控件。
+ *
+ * 两条刻意的处理：
+ *   · `flex: 1 1 100%` —— 独占一整行，不跟搜索框抢宽度（手机 390px 放不下两者一行）；
+ *   · `overflow-x: auto` + 隐藏滚动条 —— 筛选项多了横向滑，**不换行、不压缩**：
+ *     换行会把工具栏越撑越高，压缩会让两三个字的标签被截成"在…"。
+ */
+.w-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.w-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.w-chip-item {
+  flex: 0 0 auto;
+  min-height: var(--w-size-chip-height);
+  padding: 0 var(--w-space-inline-gap);
+  border: 1px solid var(--w-color-outline);
+  border-radius: var(--w-radius-pill);
+  background: var(--w-color-surface);
+  color: var(--w-color-on-surface-variant);
+  font: inherit;
+  font-size: var(--w-type-label-size);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.w-chip-item--active {
+  border-color: var(--w-color-primary);
+  background: var(--w-color-primary-soft);
+  color: var(--w-color-primary);
+  font-weight: var(--w-type-label-weight);
+}
+
 /* ---------- 数据视图（Element Plus 表格的收口） ---------- */
 
 .w-datatable {
@@ -401,6 +449,33 @@
    */
   .w-page-header:not(:has(.w-page-header__actions > button:not(.w-hide-compact))) {
     display: none;
+  }
+
+  /*
+   * 卡片列表：手机档从"一张张独立卡片"改成**一整组 + 行分隔线**。
+   *
+   * 为什么：独立卡片每张都要自己的圆角与描边，加上卡间距，一行数据要吃掉 ~110px；
+   * 而"一张白底 + 行与行之间一条淡线"是现在列表的通行形状，同样一屏能多看近一倍的行。
+   * 桌面档不变（那边出的是表格，不是卡片）。
+   */
+  .w-cardlist {
+    gap: 0;
+    background: var(--w-color-surface);
+    border: 1px solid var(--w-color-outline-subtle);
+    border-radius: var(--w-radius-card);
+    overflow: hidden;
+  }
+
+  .w-cardlist > .w-cardrow + .w-cardrow {
+    border-top: 1px solid var(--w-color-outline-subtle);
+  }
+
+  .w-card {
+    gap: calc(var(--w-space-inline-gap) / 2);
+    padding: var(--w-space-inline-gap) var(--w-space-card-padding-compact);
+    /* 组内不再各自描边/圆角：分隔线由 `.w-cardlist > .w-cardrow` 画 */
+    border: none;
+    border-radius: 0;
   }
 
   /*

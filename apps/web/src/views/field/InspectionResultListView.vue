@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElButton, ElInput } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import { asList, humanize, shortTime, useMutation, useResource, type BridgeErrorLike } from '@wise/stores';
 import {
   KeyValuePanel,
@@ -452,21 +453,24 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
     <div class="w-toolbar">
       <ElInput
         v-model="keyword"
-        v-bind="anyProps({ size: 'large', clearable: true, class: 'w-inspection-result-list__search', placeholder: '任务序号 / 结果序号' })"
+        v-bind="anyProps({ size: 'large', clearable: true, prefixIcon: Search, class: 'w-inspection-result-list__search', placeholder: '任务序号 / 结果序号' })"
         @keydown.enter="onSearch"
       />
-      <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
-      <ElButton size="large" :type="filter === 'all' ? 'primary' : 'default'" @click="setFilter('all')">全部</ElButton>
-      <ElButton size="large" :type="filter === 'pending' ? 'primary' : 'default'" @click="setFilter('pending')">
-        待确认
-      </ElButton>
-      <ElButton size="large" :type="filter === 'confirmed' ? 'primary' : 'default'" @click="setFilter('confirmed')">
-        已确认
-      </ElButton>
-      <ElButton v-if="applied !== '' || filter !== 'all'" size="large" text @click="clearLocalFilters">
-        清空筛选
-      </ElButton>
-      <span class="w-inspection-result-list__scope">关键字与状态筛选本批</span>
+      <div class="w-chips">
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'all' }" @click="setFilter('all')">
+          全部
+        </button>
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'pending' }" @click="setFilter('pending')">
+          待确认
+        </button>
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'confirmed' }" @click="setFilter('confirmed')">
+          已确认
+        </button>
+        <button v-if="applied !== '' || filter !== 'all'" type="button" class="w-chip-item" @click="clearLocalFilters">
+          清空筛选
+        </button>
+      </div>
+      <span class="w-inspection-result-list__scope">关键字与状态筛选本批 · 搜索框回车</span>
     </div>
 
     <!--

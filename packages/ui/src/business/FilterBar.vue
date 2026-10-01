@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { ElButton, ElInput, ElOption, ElSelect } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import type { FilterDef, FilterValues } from '../types';
 
 /**
@@ -65,6 +66,17 @@ function selectProps(def: FilterDef): any {
 function optionProps(opt: { value: string; label: string }): any {
   return { label: opt.label, value: opt.value };
 }
+
+/** 搜索框的属性也整块给（同上：`prefix-icon="…"` 这种字面量在这里过不了类型检查）。 */
+function searchProps(): any {
+  return {
+    size: 'large',
+    clearable: true,
+    prefixIcon: Search,
+    modelValue: props.search ?? '',
+    placeholder: props.searchPlaceholder ?? '搜索',
+  };
+}
 </script>
 
 <template>
@@ -80,13 +92,7 @@ function optionProps(opt: { value: string; label: string }): any {
     </ElSelect>
 
     <div v-if="scope !== 'none'" class="w-filterbar__search">
-      <ElInput
-        size="large"
-        :model-value="search ?? ''"
-        :placeholder="searchPlaceholder ?? '搜索'"
-        clearable
-        @update:model-value="(v: string) => emit('update:search', v)"
-      />
+      <ElInput v-bind="searchProps()" @update:model-value="(v: string) => emit('update:search', v)" />
       <span class="w-filterbar__scope">{{ scope === 'page' ? '筛选本页' : '全局搜索' }}</span>
     </div>
 
@@ -111,5 +117,25 @@ function optionProps(opt: { value: string; label: string }): any {
   font-size: var(--w-type-body-small-size);
   color: var(--w-color-on-surface-muted);
   white-space: nowrap;
+}
+
+/*
+ * 手机档：筛选下拉**不要撑满整行**。
+ *
+ * 全局那条 `.w-toolbar > .el-select { flex: 1 1 45% }` 在只有一个筛选时会把下拉拉满整行
+ * （实测"库存状态"独占一整行、下面才是列表）—— 一个状态筛选占掉一行是浪费。
+ * 这里改成按内容宽（有下限、有上限），多个筛选时横排。
+ */
+@media (max-width: 599px) {
+  .w-filterbar__select {
+    flex: 0 1 auto;
+    min-width: 130px;
+    max-width: 60%;
+  }
+
+  .w-filterbar__search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
 }
 </style>

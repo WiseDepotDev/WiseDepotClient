@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton, ElInput } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
 import {
   PageHeader,
@@ -223,17 +224,23 @@ function onPageChange(page: number): void {
         size="large"
         clearable
         class="w-inspection-list__search"
+        :prefix-icon="Search"
         placeholder="任务号 / 计划名 / 仓库 / 设备"
         @keydown.enter="onSearch"
       />
-      <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
-      <ElButton size="large" :type="filter === 'all' ? 'primary' : 'default'" @click="setFilter('all')">全部</ElButton>
-      <ElButton size="large" :type="filter === 'running' ? 'primary' : 'default'" @click="setFilter('running')">
-        进行中
-      </ElButton>
-      <ElButton size="large" :type="filter === 'done' ? 'primary' : 'default'" @click="setFilter('done')">已完成</ElButton>
-      <ElButton v-if="applied !== '' || filter !== 'all'" size="large" text @click="resetFilters">清空筛选</ElButton>
-      <span class="w-inspection-list__scope">筛选本页</span>
+      <div class="w-chips">
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'all' }" @click="setFilter('all')">
+          全部
+        </button>
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'running' }" @click="setFilter('running')">
+          进行中
+        </button>
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'done' }" @click="setFilter('done')">
+          已完成
+        </button>
+        <button v-if="applied !== '' || filter !== 'all'" type="button" class="w-chip-item" @click="resetFilters">清空筛选</button>
+      </div>
+      <span class="w-inspection-list__scope">筛选本页 · 搜索框回车</span>
     </div>
 
     <SectionBlock :title="`任务列表${applied ? `（含「${applied}」）` : ''}`">

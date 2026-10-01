@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { ElButton, ElInput } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import type { BridgeErrorLike } from '@wise/stores';
 import { asList, asTotal, humanize, roleLabel, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
 import { ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip, type StatusTone } from '@wise/ui';
@@ -514,14 +515,14 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
         v-bind="anyProps({
           size: 'large',
           clearable: true,
+          prefixIcon: Search,
           class: 'w-me-user-list__search',
-          placeholder: '账号 / 姓名 / 邮箱',
+          placeholder: '账号 / 姓名 / 邮箱（回车搜索）',
         })"
         @keydown.enter="onSearch"
       />
-      <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
       <StatusChip v-if="applied !== ''" :text="`只显示含「${applied}」的用户`" tone="info" />
-      <ElButton v-if="applied !== ''" size="large" text @click="resetSearch">清空筛选</ElButton>
+      <button v-if="applied !== ''" type="button" class="w-chip-item" @click="resetSearch">清空筛选</button>
       <span class="w-me-user-list__scope">关键字只筛本页</span>
     </div>
 

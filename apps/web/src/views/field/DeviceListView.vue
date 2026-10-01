@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton, ElInput } from 'element-plus';
+import { Search } from '@element-plus/icons-vue';
 import { asList, humanize, shortTime, useResource } from '@wise/stores';
 import { PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef } from '@wise/ui';
 
@@ -170,20 +171,33 @@ function openDetail(row: DeviceRow): void {
     </p>
 
     <div class="w-toolbar">
+      <!--
+        搜索框：**放大镜在框里 + 回车触发**，不再单摆一个「查找」按钮。
+        原来那排是"框 + 查找 + 全部 + 在线 + 离线"五个方块，视觉上分不清哪个是搜索、哪个是筛选；
+        现在是一行搜索 + 一行胶囊筛选。
+      -->
       <ElInput
         v-model="keyword"
         size="large"
         clearable
         class="w-device__search"
+        :prefix-icon="Search"
         placeholder="设备名称 / 编号 / IP / 备注"
         @keydown.enter="onSearch"
       />
-      <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
-      <ElButton size="large" :type="filter === 'all' ? 'primary' : 'default'" @click="filter = 'all'">全部</ElButton>
-      <ElButton size="large" :type="filter === 'online' ? 'primary' : 'default'" @click="filter = 'online'">在线</ElButton>
-      <ElButton size="large" :type="filter === 'offline' ? 'primary' : 'default'" @click="filter = 'offline'">离线</ElButton>
-      <ElButton v-if="applied !== '' || filter !== 'all'" size="large" text @click="resetFilters">清空筛选</ElButton>
-      <span class="w-device__scope">筛选本页</span>
+      <div class="w-chips">
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'all' }" @click="filter = 'all'">
+          全部
+        </button>
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'online' }" @click="filter = 'online'">
+          在线
+        </button>
+        <button type="button" class="w-chip-item" :class="{ 'w-chip-item--active': filter === 'offline' }" @click="filter = 'offline'">
+          离线
+        </button>
+        <button v-if="applied !== '' || filter !== 'all'" type="button" class="w-chip-item" @click="resetFilters">清空筛选</button>
+      </div>
+      <span class="w-device__scope">筛选本页 · 搜索框回车</span>
     </div>
 
     <SectionBlock :title="`设备列表${applied ? `（含「${applied}」）` : ''}`">
