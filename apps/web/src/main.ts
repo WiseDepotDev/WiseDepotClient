@@ -21,12 +21,19 @@ import './styles/base.css';
  * ```
  * boot()（读 __bridge.json → 建桥）      ← 期间 index.html 里的静态"正在启动…"可见
  *   ├ 失败 → 挂 BootFailure（给"该怎么办"，架构细节只进 DEV）
- *   └ 成功 → attach 桥 → 等 session 首次结算 → router.isReady → 挂载
+ *   └ 成功 → attach 桥 → 等 session 首次结算 → use(router) → isReady → 挂载
  * ```
  *
- * 为什么 **先等会话结算再挂载**：如果挂载后才读会话，会话门会先放行（还在 loading），
- * 等它结算出"未登录"时路由已经不跳了 —— 用户会停在首页空壳上，而不是登录屏。
- * 把等待放在挂载之前，路由守卫拿到的永远是**已结算**的会话。
+ * **为什么 `app.use(router)` 必须排在 `await session.init()` 之后**（这条踩过，且症状极具误导性）：
+ * `use(router)` 会**立刻发起首次导航**（vue-router 在 install 里 push 当前地址），
+ * 而那时会话还没结算 —— 守卫拿到的是 `authenticated = false`，于是**即使本机令牌有效、
+ * 宿主也真的恢复了登录态，用户还是会被送到登录屏**："记住登录"看起来完全没生效。
+ * 之前的注释写着"挂载前等会话结算"，但真正触发导航的是 `use(router)` 而不是 `mount`，
+ * 所以那句注释描述的意图并没有生效（真机实测：杀进程重开后落在 `#/login`，而宿主日志明确写着
+ * 「已从本机恢复登录态」）。
+ *
+ * 把 `use(router)` 挪到会话结算之后，首次导航就发生在**已结算**的状态上：
+ * 有令牌 → 直接进主界面；没令牌 / 已过期 → 进登录屏（若桥给了 `expired`，登录屏会说清原因）。
  */
 const pinia = createPinia();
 
@@ -40,7 +47,6 @@ async function start(): Promise<void> {
 
   const app = createApp(App);
   app.use(pinia);
-  app.use(router);
 
   const bridgeStore = useBridgeStore(pinia);
   bridgeStore.attach(result.bridge, result.origin);
@@ -48,9 +54,11 @@ async function start(): Promise<void> {
   // 且探测失败会把状态打成"异常"（不会因为上次成功而继续显示正常）
   bridgeStore.startProbe();
 
+  // 先结算会话，再装路由（顺序见上面的注释：装路由 = 触发首次导航）
   const session = useSessionStore(pinia);
   await session.init();
 
+  app.use(router);
   await router.isReady();
   app.mount('#app');
 }
