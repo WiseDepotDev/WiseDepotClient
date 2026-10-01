@@ -2327,6 +2327,33 @@ const pwNoticeText = await cdp.evaluate(
 );
 check('改密码成功并提示下次用新密码', /登录密码已更新/.test(pwNoticeText), pwNoticeText.slice(0, 40));
 
+/*
+ * ---- 会话过期：必须**自己**跳回登录屏，并说明原因 ----
+ *
+ * 这条盯的是"用户正停在某一屏上、会话在背后失效"这个场景：
+ * 路由守卫只在导航时才跑，如果没人主动跳，界面会继续画上一份数据、后续操作一个个报错，
+ * 用户看到的是"点哪都没反应"。
+ *
+ * 测试里**不做任何导航** —— 点完开关就等着，看它是不是自己回登录屏。
+ * （`expireSession()` 是假桥的开发态开关：真宿主在令牌失效时推同样的事件 `session.expired`。）
+ */
+await cdp.evaluate(`(location.hash = '#/inventory/inventory')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '库存查询' ? true : null`, 20_000, 200);
+await cdp.evaluate(`(window.__bridgeMock.expireSession(), true)`, { awaitPromise: false });
+const autoBackToLogin = await waitFor(`location.hash.includes('/login') ? true : null`, 15_000, 200);
+check('会话过期后**自动**回到登录屏（不用用户点任何东西）', autoBackToLogin === true, `hash=${await cdp.evaluate(`location.hash`, { awaitPromise: false })}`);
+const expiredTip = await text('.w-login__expired');
+check(
+  '登录屏说明"为什么被踢出来"（不是静默跳转）',
+  /登录已过期/.test(expiredTip),
+  expiredTip.slice(0, 40),
+);
+check('过期后历史里不留痕（用 replace 而不是 push）', await cdp.evaluate(`!history.state?.back?.includes?.('inventory')`, { awaitPromise: false }));
+
+// 收尾：重新登录一次，证明过期只是"要求重新登录"，不是把账号锁死
+await ensureSignedIn();
+check('过期后能重新登录', await cdp.evaluate(`location.hash.includes('/login') === false`, { awaitPromise: false }));
+
 check('页面无 JS 异常', pageErrors.length === 0, pageErrors.join(' | '));
 
 const failed = checks.filter((c) => !c.ok);

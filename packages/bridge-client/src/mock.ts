@@ -1,4 +1,4 @@
-import { BridgeError, BridgeErrorCode, type ReqMeta } from './types.js';
+import { BridgeError, BridgeErrorCode, BRIDGE_EVENT_SESSION_EXPIRED, type ReqMeta } from './types.js';
 import { DomainMock } from './mock-domains.js';
 import { MeMock } from './mock-me.js';
 import type { BridgeTransport, ConnectionState } from './transport.js';
@@ -61,8 +61,34 @@ export class MockTransport implements BridgeTransport {
   /** 后端挂掉开关（开发态专用，见构造函数里的说明）。 */
   private backendDown = false;
 
+  /** 会话是否已过期（开发态：由 `expireSession()` 触发，真宿主在令牌失效/被吊销时推同样的事件）。 */
+  private sessionExpired = false;
+
   setBackendDown(down: boolean): void {
     this.backendDown = down;
+  }
+
+  /**
+   * 开发态：**让会话立刻过期**，并推一次真宿主会推的那条事件。
+   *
+   * 为什么需要它：真机上"登录过期"通常要等令牌自然到期（或后端把人踢下线），
+   * 你没法按需复现 —— 而这条链路上有三件事只有真过期才看得见：
+   *   1. 界面是否**自动**回登录屏（而不是等用户点一下才跳）；
+   *   2. 登录屏有没有说明"为什么被踢出来"（不然用户以为是系统坏了）；
+   *   3. 过期后 `bridge.session` 必须报"未登录"，否则界面会继续画上一份数据。
+   *
+   * 用法（浏览器控制台或冒烟脚本）：
+   *   window.__bridgeMock.expireSession()
+   */
+  expireSession(): void {
+    this.authenticated = true; // 曾经登录过
+    this.sessionExpired = true;
+    this.emit(BRIDGE_EVENT_SESSION_EXPIRED, {});
+  }
+
+  /** 开发态：把会话恢复成"已登录"（配合上面的开关做对照）。 */
+  restoreSession(): void {
+    this.sessionExpired = false;
   }
 
   get state(): ConnectionState {
@@ -112,15 +138,17 @@ export class MockTransport implements BridgeTransport {
      */
     if (method === 'bridge.session') {
       return {
-        authenticated: this.authenticated,
-        username: this.authenticated ? this.username : null,
+        // 过期之后**不再是已登录**：界面必须回登录屏，而不是继续画上一份数据
+        authenticated: this.authenticated && !this.sessionExpired,
+        username: this.authenticated && !this.sessionExpired ? this.username : null,
         passwordChangeRequired: false,
-        expired: false,
+        expired: this.sessionExpired,
       } as T;
     }
     if (method === 'auth.login') {
       const p = (params ?? {}) as { username?: string };
       this.authenticated = true;
+      this.sessionExpired = false;
       this.username = p.username && p.username !== '' ? p.username : 'operator';
       return {} as T;
     }

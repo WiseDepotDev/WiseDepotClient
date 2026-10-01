@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElConfigProvider } from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
-import { useBridgeStore } from '@wise/stores';
+import { useBridgeStore, useSessionStore } from '@wise/stores';
 
 /**
  * 应用根：Element Plus 的全局配置（中文文案）+ 状态横幅。
@@ -17,6 +18,36 @@ import { useBridgeStore } from '@wise/stores';
  */
 const locale = zhCn as never;
 const bridge = useBridgeStore();
+const session = useSessionStore();
+const router = useRouter();
+const route = useRoute();
+
+/**
+ * **会话失效时主动回登录屏**（不是等用户点一下才跳）。
+ *
+ * 为什么必须在这里做：路由守卫只在**导航发生时**才跑。用户正停在某一屏上，
+ * 桥推来 `session.expired` → 会话 store 重新问 `bridge.session` → 判定为未登录，
+ * 但**没有任何导航发生**，于是界面会继续显示上一份数据、后续操作一个个报错，
+ * 用户完全不知道发生了什么（现场最常见的反馈是"点哪都没反应"）。
+ *
+ * 这里 watch 的是"已登录 → 未登录"这个**跳变**：
+ *   · 只处理跳变，不在首帧就把人踢走（首帧未登录是正常情况，由路由守卫处理）；
+ *   · 登录屏 / 改密屏（`meta.always`）不动，避免"已经在登录屏还被 replace 一次"的死循环；
+ *   · 用 `replace` 而不是 `push`：过期不是用户的一次导航，不该在历史里留痕 ——
+ *     否则他按返回键又会回到那个需要登录的页面，再被踢回来。
+ */
+watch(
+  () => session.authenticated,
+  (nowAuthenticated, wasAuthenticated) => {
+    if (nowAuthenticated || wasAuthenticated !== true) {
+      return;
+    }
+    if (route.meta.always === true) {
+      return;
+    }
+    void router.replace({ name: 'auth.login' });
+  },
+);
 
 /**
  * 横幅只表达**真实状态**。判据与顶栏芯片同源（`bridge.health`）：

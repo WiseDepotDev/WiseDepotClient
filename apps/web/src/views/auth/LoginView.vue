@@ -34,6 +34,16 @@ const captchaMessage = computed(() =>
 const signInMessage = computed(() => (session.signInError ? errorTextOf(session.signInError, '登录失败') : undefined));
 
 /**
+ * 会话过期后被踢回登录屏时，**必须说明为什么**。
+ *
+ * 不说的话，用户看到的就是"我正在填单子，忽然跳回登录页了" —— 第一反应是系统坏了或自己点错了。
+ * 判据用会话里的 `expired`（桥给的），不是前端自己猜的布尔。
+ */
+const expiredNotice = computed(() =>
+  session.expired ? '登录已过期，请重新登录。刚才那一步没有提交，重新登录后可以再来一次。' : undefined,
+);
+
+/**
  * 验证码字段的错误态用整块 `v-bind`。
  *
  * Element Plus 的 `error` 属性不接受 `undefined`，而本项目开着
@@ -78,6 +88,8 @@ onMounted(() => {
 
     <section class="w-login__card">
       <h1 class="w-login__title">登录</h1>
+      <!-- 被踢回来时先说清原因，再让人填表 -->
+      <p v-if="expiredNotice" class="w-login__expired" role="status">{{ expiredNotice }}</p>
       <ElForm label-position="top" @submit.prevent>
         <ElFormItem label="账号">
           <ElInput v-model="username" size="large" placeholder="请输入账号" autocomplete="username" />
@@ -117,6 +129,17 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 会话过期提示：用警告色而不是错误色 —— 过期不是用户做错了什么 */
+.w-login__expired {
+  margin: 0 0 var(--w-space-group-gap);
+  padding: var(--w-space-inline-gap) var(--w-space-card-padding-compact);
+  border-left: 2px solid var(--w-state-warning-text);
+  background: var(--w-state-warning-fill);
+  color: var(--w-state-warning-text);
+  border-radius: var(--w-radius-chip);
+  font-size: var(--w-type-body-small-size);
+  line-height: var(--w-type-body-small-line);
+}
 .w-login {
   display: grid;
   grid-template-columns: minmax(320px, 420px) minmax(320px, 400px);
