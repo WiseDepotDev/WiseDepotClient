@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { ElButton, ElDialog, ElForm, ElFormItem, ElInput } from 'element-plus';
-import { asList, asTotal, humanize, useMutation, useNavStore, useResource, useResourceCacheStore } from '@wise/stores';
-import { ConfirmDialog, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
+import { asList, asTotal, humanize, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
+import { ConfirmDialog, PageHeader, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
 
 /**
  * 仓库管理（`warehouse.list` + `warehouse.create` / `warehouse.update` / `warehouse.delete`）。
@@ -28,11 +28,7 @@ interface WarehouseRow {
   readonly description?: string;
 }
 
-const PAGE_SIZE = 20;
-
-const nav = useNavStore();
 const cache = useResourceCacheStore();
-const view = nav.viewStateOf('warehouse.list');
 
 const dialogOpen = ref(false);
 /** 正在编辑的那一行；`undefined` 表示"新增"。 */
@@ -41,8 +37,15 @@ const form = ref({ warehouseName: '', warehouseCode: '', address: '', descriptio
 const actionError = ref<string | undefined>(undefined);
 const confirmTarget = ref<WarehouseRow | undefined>(undefined);
 
-const params = computed(() => ({ page: view.page, size: PAGE_SIZE }));
-const { data, loading, error, reload } = useResource<unknown>('warehouse.list', params);
+/*
+ * **不传分页参数，也不画分页条**：`WarehouseController:34` 的列表只接 `keyword`，
+ * 返回的是 `List<WarehouseDTO>`（全量）—— 服务端根本没有分页这回事。
+ *
+ * 原先这里传了 `{page, size}` 并挂了一个 `PaginationBar`：参数被静默忽略、数据也从来不切片，
+ * 于是那条分页条是个**点了没反应的装饰**（第 2 页和第 1 页是同一批数据）。
+ * "不可用的按钮不得渲染"是本仓的硬纪律，所以整条去掉，条数改由页头说。
+ */
+const { data, loading, error, reload } = useResource<unknown>('warehouse.list');
 const rows = computed(() => asList<WarehouseRow>(data.value));
 const total = computed(() => asTotal(data.value));
 
@@ -174,13 +177,6 @@ async function confirmDelete(): Promise<void> {
             </ElButton>
           </template>
         </ResponsiveDataView>
-        <PaginationBar
-          :page="view.page"
-          :page-size="PAGE_SIZE"
-          :total="total ?? rows.length"
-          :loading="loading"
-          @update:page="(p: number) => (view.page = p)"
-        />
       </StateHost>
     </SectionBlock>
 

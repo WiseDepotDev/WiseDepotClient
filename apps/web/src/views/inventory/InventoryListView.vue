@@ -54,7 +54,10 @@ const filters = [
   { key: 'stock', label: '库存状态', options: [{ value: 'low', label: '库存偏低' }, { value: 'locked', label: '已锁定' }] },
 ];
 
-const params = computed(() => ({ page: view.page, size: PAGE_SIZE }));
+// **`pageSize`，不是 `size`**：`InventoryController:149` 只认 `pageSize`（发 `size` 被静默忽略 →
+// 永远 10 条/页）。同一批的 `alert.list` / `stockOrder.list` / `user.list` 反而是 `size` ——
+// 真后端不是一个口径，逐个按接口核过，证据见 `tools/bench/inventory-tag-probe.mjs`。
+const params = computed(() => ({ page: view.page, pageSize: PAGE_SIZE }));
 const { data, loading, error, reload } = useResource<unknown>('inventory.list', params);
 
 const all = computed(() => asList<InventoryRow>(data.value));

@@ -1251,3 +1251,96 @@ UserApplicationService#updateRole(userId, roleCode)
 | 构建 | `pnpm build` + `check:budget` | 首屏 **96.0KB gzip**、66 chunk 全 ≤130KB |
 | 双端冒烟 | `pnpm check:web-smoke` | **227/227**（侧栏账号区实测 `{"name":"现场操作员","role":"普通用户"}` —— 不再是裸码 `OPERATOR`） |
 
+## V6 之后 · 第五轮：分页口径（2026-10-03）
+
+### 一、先做探针，再动界面
+
+为"库存 / 标签主数据 CRUD"这一批写了一份可复跑的真后端探针
+（`tools/bench/inventory-tag-probe.mjs`，默认只读、`--write` 才写且用完即删）。
+它一上来就把一件**读源码读不出来**的事钉死了：真后端的分页参数名**不是一个口径**。
+
+| 桥方法 | 服务端参数名 | 证据 |
+| --- | --- | --- |
+| `alert.list` / `stockOrder.list` / `user.list` / `message.list` | `size` | `AlertController:83`、`InOutController:52`、`UserController:101`、`MessageQueryRequest` |
+| `inventory.list` / `inventory.listAll` / `product.list` | **`pageSize`** | `InventoryController:149,246,276` |
+| `tag.list` / `tag.byProduct` / `tag.search` | **`pageSize`** | `TagController:112,128,191` |
+| `inspection.taskPage` | **`pageSize`** | `InspectionController:138` |
+| `warehouse.list` / `device.list` / `inspection.planList` | **不接分页参数**（返回全量 List） | `WarehouseController:34`、`DeviceController:96`、`InspectionController:73` |
+
+真后端实测（`GET /api/tag`）：
+
+```
+?size=1      → 7 条   ← 参数被静默忽略，退回默认 10 条/页（这里一共就 7 条）
+?pageSize=1  → 1 条   ← 生效
+```
+
+**发错名字的后果是静默的**：不报错、不空白，只是"永远 10 条/页"。而 4 个屏
+（`InventoryListView` / `ProductListView` / `TagListView` / `TagListView` 的商品选项）
+一直在发 `size`。
+
+### 二、假桥那句"两个名字都认"，和它引用的"实测"
+
+假桥的 `page()` 原先**两个名字都认**，注释写着：
+
+> 而 `inventory.list` / `user.list` 那两个是 `size`（`real-smoke.mjs` 实测发 `size` 就翻得动页）。
+
+**这条结论是错的，而且"实测"实测的是假桥自己** —— 真后端只认 `pageSize`，`size` 被忽略。
+假桥比服务端宽容，于是开发态翻得动页、真机永远 10 条。这正是本仓反复付学费的那类偏差
+（`inventory.search` 那一轮也是"假桥不能比服务端聪明"）。
+
+改法：`page(rows, params, paramName)` —— 参数名**由调用方按服务端事实显式给**
+（`'size'` / `'pageSize'` / `null`），不再猜；`null` 的端点**全量返回、不自作主张截断**。
+
+### 三、顺带发现两处"假分页条"（不可用按钮不得渲染）
+
+`warehouse.list` 与 `inspection.planList` 服务端**不分页**，而这两屏各挂了一条 `PaginationBar`：
+参数被忽略、数据也从来不切片，所以**第 2 页与第 1 页永远是同一批数据** —— 那是个点了没反应的装饰。
+
+按本仓硬纪律（不可用的按钮不得渲染）整条去掉，条数改由页头说；`StockOrderCreateView` /
+`InspectionTaskCreateView` 里传给 `warehouse.list` 的 `{page, size}` 也一并清掉
+（传了被忽略，只会让下一个人以为它在起作用）。
+
+### 四、新门禁 `check:page-params`
+
+静态对照上面那张**服务端事实表**（带源码行号）与客户端实际传的参数名，48 个 `.vue` 全扫。
+
+写它的过程本身踩了两个坑，都留在脚本注释里：
+
+1. **按 `useResource` 调用点开窗口扫 → 只扫出 3 处**。因为这些屏的分页参数写在
+   `const params = computed(() => ({...}))` 里再传进去，不在字面量里。改成**按文件判定**
+   （一个屏只用一种口径），并对"一个文件混用两种"的情况**跳过并提示**而不是猜。
+2. **负向断言会回溯**：第一版写 `size\s*:\s*(?!['"\`])`，`\s*` 先吃掉空格、断言失败，
+   再退回只吃 0 个空格、断言就成功了 —— 于是 Element Plus 遍地的 `size: 'large'` 全部命中，
+   `TagListView` 被误报。改成 `size\s*:(?!\s*['"\`])` 才对。
+   **误报的门禁会被关掉，比没有更糟**，所以这条必须修干净才提交。
+
+### 五、探针顺带钉死的三件后端事实（都影响界面怎么做）
+
+| 发现 | 证据 | 对界面的影响 |
+| --- | --- | --- |
+| **`inventory.create` 在真后端上必然失败** | 实测 `HTTP 400 VAL-0001 请求参数校验失败: 仓库ID不能为空`（传了 warehouseId 也一样）；根因是实体 `Inventory.java:20` 的 `@NotNull` + `createInventory` 从不 `setWarehouseId` | 库存表空**不是"没人录"**，而是录入接口坏了 → 界面不提供"新建库存"（详见下一轮） |
+| **tag 写操作不失效 `@Cacheable`** | 解绑后 `tag.detail` 仍回 `status=1 productId=7`（旧值），而 `tag.list` 已是 `status=0 productId=null`（真值）；`getTag` 带 `@Cacheable(timeout=1800)`，`update/delete/bind/unbind` 都没有 `@CacheEvict` | 标签详情屏"改完还是旧值"是**服务端缓存**，不是写失败 → 复核必须绕开 `tag.detail` |
+| **`tag.batchUnbind` / `tag.batchQuery` 结构性不可达** | 两种 body 形态都 400：`{tagIds:[…]}` → `VAL-REQUEST-1001`；裸数组 `[8]` → 同样 `VAL-REQUEST-1001`（服务端签名是 `@RequestBody List<…>`，而被封校验要求信封对象） | 这两条方法在桥上调不通 → 界面不提供批量解绑/批量查询 |
+
+### 六、冒烟里一处**测试脆弱性**（顺手修掉）
+
+改完这批后冒烟开始出现 `响应式数据视图 · 桌面出表格（4 行） rows=2` 与"错误码没出现"，
+而且**换一处无关改动就会波动**。根因不在产品，在断言：
+
+> 组件预览页的等待条件是 `waitFor('.w-page')` —— 而 `.w-page` **上一屏也有**。
+> `<RouterView :key>` 换屏的瞬间旧屏还在 DOM 里，于是 `waitFor` 立刻命中旧屏，
+> 后面的断言跑在"旧屏 + 新屏加载中"的混合状态上。
+
+改成等**预览页独有的东西**（4 张 KPI 卡），并在表格/错误码断言前各自显式等一次。
+这不是"把红的调绿"：等待条件本来就该指向被测对象，指向一个到处都有的类名等于没等。
+
+### 本轮验收证据（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **26 条全绿**（新增 `check:page-params`） |
+| 类型 | `pnpm typecheck` | exit 0，0 错误 |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **96.1KB gzip**、66 chunk 全 ≤130KB |
+| 双端冒烟 | `pnpm check:web-smoke` | **227/227** |
+| 真后端探针 | `node tools/bench/inventory-tag-probe.mjs --write` | 16 项通过、1 项**如实失败**（`inventory.create` 不可用）；探针数据已删净 |
+

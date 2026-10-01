@@ -48,13 +48,15 @@ const productId = ref('');
 const actionError = ref<string | undefined>(undefined);
 const captcha = useCaptcha();
 
-const params = computed(() => ({ page: view.page, size: PAGE_SIZE }));
+// **`pageSize`，不是 `size`**：`TagController:112` 只认 `pageSize`（发 `size` 被静默忽略 →
+// 永远 10 条/页）。真后端实测见 `tools/bench/inventory-tag-probe.mjs`。
+const params = computed(() => ({ page: view.page, pageSize: PAGE_SIZE }));
 const { data, loading, error, reload } = useResource<unknown>('tag.list', params);
 const rows = computed(() => asList<TagRow>(data.value));
 const total = computed(() => asTotal(data.value));
 
 /** 绑定目标商品：拿第一页做选项（与建单屏同一手法：少量选项不做异步搜索）。 */
-const products = useResource<unknown>('product.list', { page: 1, size: OPTION_PAGE_SIZE });
+const products = useResource<unknown>('product.list', { page: 1, pageSize: OPTION_PAGE_SIZE });
 const productOptions = computed(() =>
   asList<ProductRow>(products.data.value)
     .filter((p): p is ProductRow & { productId: number } => typeof p.productId === 'number')

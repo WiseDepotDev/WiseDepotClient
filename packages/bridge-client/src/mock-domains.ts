@@ -13,6 +13,12 @@ import { BridgeError, BridgeErrorCode } from './types.js';
  * 数据形状严格按服务端 DTO（字段名以真后端为准，例如出入库单是
  * `orderStatus`/`orderType` 而不是 `status`/`type`）。
  */
+/**
+ * 分页参数名 —— **必须与服务端一致**，见 `page()` 的说明。
+ * `null` = 服务端这些端点不接分页参数（全量返回）。
+ */
+type PagingParamName = 'size' | 'pageSize' | null;
+
 interface Product {
   productId: number;
   productName: string;
@@ -509,15 +515,28 @@ export class DomainMock {
   };
 
   /**
-   * 分页。**两个参数名都要认**：真后端不是一个口径 ——
-   * `InspectionController#listTasksPage` 用 `pageSize`（默认 10！），
-   * 而 `inventory.list` / `user.list` 那两个是 `size`（`real-smoke.mjs` 实测发 `size` 就翻得动页）。
-   * 只认一个的话，另一种屏在假桥下永远只看到第一页，而真机上却是对的。
+   * 分页。**参数名由调用方按服务端事实显式指定**（`'pageSize'` / `'size'` / `null`）。
+   *
+   * 为什么不"两个名字都认"：这里原先两个都认，注释还写着"`inventory.list` 那两个是 `size`
+   * （`real-smoke.mjs` 实测发 `size` 就翻得动页）"。**那条结论是错的，而且"实测"实测的是假桥自己**：
+   * 真后端只有 `pageSize`（`InventoryController:149` / `ProductController` / `TagController:112`），
+   * 发 `size` 被静默忽略 → 真机永远 10 条/页；而假桥因为"两个都认"，开发态一切正常。
+   *
+   * 2026-10-03 对真后端实测钉死了这件事（`tools/bench/inventory-tag-probe.mjs`）：
+   * `GET /api/tag?size=1` → 7 条（就是全部，参数被忽略）；`?pageSize=1` → 1 条。
+   *
+   * 所以假桥现在**只认调用方声明的那个名字**：比服务端宽容的假桥会掩盖真机故障，
+   * 这是本仓已经付过多次学费的一类偏差。
    */
-  private page<T>(rows: T[], params: unknown): { rows: T[]; total: number } {
-    const p = (params ?? {}) as { page?: number; pageSize?: number; size?: number };
-    const page = typeof p.page === 'number' && p.page > 0 ? p.page : 1;
-    const raw = typeof p.pageSize === 'number' ? p.pageSize : p.size;
+  private page<T>(rows: T[], params: unknown, paramName: PagingParamName): { rows: T[]; total: number } {
+    const p = (params ?? {}) as Record<string, unknown>;
+    const page = typeof p['page'] === 'number' && (p['page'] as number) > 0 ? (p['page'] as number) : 1;
+    if (paramName === null) {
+      // 服务端这些端点根本不接分页参数（如 `warehouse.list` / `device.list` / `inspection.planList`），
+      // 全量返回 —— 假桥也不许自作主张截断，否则开发态"翻得动页"、真机只有一页。
+      return { rows, total: rows.length };
+    }
+    const raw = p[paramName];
     const size = typeof raw === 'number' && raw > 0 ? raw : 20;
     return { rows: rows.slice((page - 1) * size, page * size), total: rows.length };
   }
@@ -533,7 +552,7 @@ export class DomainMock {
     switch (method) {
       // ---- 库存 ----
       case 'inventory.list':
-        return this.page(this.inventory, params) as T;
+        return this.page(this.inventory, params, 'pageSize') as T;
       /**
        * 服务端搜索。**语义照抄**（读 `InventoryController#search` + `InventoryApplicationService` 得来）：
        *   · `keyword` 与 `type` 都是必填；`type` 只认 `PRODUCT` / `LOCATION`，**其它值回空数组**（不是报错）；
@@ -582,7 +601,7 @@ export class DomainMock {
 
       // ---- 商品 ----
       case 'product.list':
-        return this.page(this.products, params) as T;
+        return this.page(this.products, params, 'pageSize') as T;
       case 'product.create': {
         const name = String(p['productName'] ?? '');
         const code = String(p['productCode'] ?? '');
@@ -647,7 +666,7 @@ export class DomainMock {
 
       // ---- 仓库 ----
       case 'warehouse.list':
-        return this.page(this.warehouses, params) as T;
+        return this.page(this.warehouses, params, null) as T;
       case 'warehouse.create': {
         const name = String(p['warehouseName'] ?? '');
         const code = String(p['warehouseCode'] ?? '');
@@ -702,7 +721,7 @@ export class DomainMock {
 
       // ---- 标签 ----
       case 'tag.list':
-        return this.page(this.tags, params) as T;
+        return this.page(this.tags, params, 'pageSize') as T;
       case 'tag.detail': {
         const row = this.tags.find((t) => t.tagId === id('tagId'));
         return (row ?? this.tags[0]) as T;
@@ -751,7 +770,7 @@ export class DomainMock {
 
       // ---- 出入库单 ----
       case 'stockOrder.list':
-        return this.page([...this.orders].reverse(), params) as T;
+        return this.page([...this.orders].reverse(), params, 'size') as T;
       case 'stockOrder.detail': {
         const row = this.orders.find((o) => o.orderId === id('orderId'));
         if (!row) {
@@ -892,7 +911,7 @@ export class DomainMock {
 
       // ---- 设备（现场域）----
       case 'device.list':
-        return this.page(this.devices, params) as T;
+        return this.page(this.devices, params, null) as T;
       case 'device.statistics':
         return {
           totalCount: this.devices.length,
@@ -921,7 +940,7 @@ export class DomainMock {
         const enabled = p['enabled'];
         const rows =
           typeof enabled === 'boolean' ? this.inspectionPlans.filter((x) => x.enabled === enabled) : this.inspectionPlans;
-        return this.page(rows, params) as T;
+        return this.page(rows, params, null) as T;
       }
       case 'inspection.planDetail': {
         const row = this.inspectionPlans.find((x) => x.planId === id('planId'));
@@ -985,7 +1004,7 @@ export class DomainMock {
         return {} as T;
       }
       case 'inspection.taskPage':
-        return this.page(this.inspectionTasks, params) as T;
+        return this.page(this.inspectionTasks, params, 'pageSize') as T;
       case 'inspection.taskDetail': {
         const row = this.inspectionTasks.find((t) => t.taskId === id('taskId'));
         if (!row) {

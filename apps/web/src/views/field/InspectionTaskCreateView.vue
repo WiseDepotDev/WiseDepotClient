@@ -49,9 +49,6 @@ interface OptionRow {
   readonly code: string;
 }
 
-/** 选项一次取回的量：现场的计划 / 仓库 / 设备都是几十条量级，够用且不用翻页。 */
-const OPTION_PAGE_SIZE = 50;
-
 function planOptions(value: unknown): readonly OptionRow[] {
   const rows: OptionRow[] = [];
   for (const plan of asList<PlanRow>(value)) {
@@ -187,7 +184,9 @@ const busy = computed(() => createMutation.pending.value);
 
 // 三个选项列表都常驻取数（没有前置条件），失败只影响当前这一块，不阻断整屏
 const plans = useResource<unknown>('inspection.planList', {});
-const warehouses = useResource<unknown>('warehouse.list', { page: 1, size: OPTION_PAGE_SIZE });
+// `warehouse.list` 服务端**不分页**（`WarehouseController:34` 只接 keyword，返回全量 List），
+// 所以既不传 page/size，也不需要 OPTION_PAGE_SIZE —— 传了会被静默忽略，只会让人以为它在起作用。
+const warehouses = useResource<unknown>('warehouse.list');
 const devices = useResource<unknown>('device.list', {});
 
 const planRows = computed(() => planOptions(plans.data.value));

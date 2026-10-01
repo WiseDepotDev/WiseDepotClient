@@ -45,8 +45,6 @@ const ORDER_TYPES: readonly { value: OrderTypeCode; label: string; prefix: strin
   { value: 'OUT', label: '出库', prefix: 'OUT' },
 ];
 
-const OPTION_PAGE_SIZE = 50;
-
 function pad2(value: number): string {
   return value < 10 ? `0${value}` : String(value);
 }
@@ -82,7 +80,9 @@ const created = ref<CreatedOrder | undefined>(undefined);
 const actionError = ref<string | undefined>(undefined);
 const notice = ref<string | undefined>(undefined);
 
-const warehouses = useResource<unknown>('warehouse.list', { page: 1, size: OPTION_PAGE_SIZE });
+// `warehouse.list` 服务端**不分页**（`WarehouseController:34` 只接 keyword，返回全量 List），
+// 所以既不传 page/size，也不需要 OPTION_PAGE_SIZE —— 传了会被静默忽略，只会让人以为它在起作用。
+const warehouses = useResource<unknown>('warehouse.list');
 const users = useResource<unknown>('user.current');
 
 const warehouseOptions = computed(() =>

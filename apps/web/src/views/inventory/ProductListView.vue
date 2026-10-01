@@ -47,7 +47,10 @@ const actionError = ref<string | undefined>(undefined);
 
 const confirmTarget = ref<ProductRow | undefined>(undefined);
 
-const params = computed(() => ({ page: view.page, size: PAGE_SIZE }));
+// **`pageSize`，不是 `size`**：商品分页走 `InventoryController`（`:149`），它只认 `pageSize`。
+// 发 `size` 会被**静默忽略**、退回默认 10 条/页 —— 假桥原先两个名字都认，所以开发态看不出来。
+// 真后端实测（`tools/bench/inventory-tag-probe.mjs`）：`?size=1` 回 7 条（全部）、`?pageSize=1` 回 1 条。
+const params = computed(() => ({ page: view.page, pageSize: PAGE_SIZE }));
 const { data, loading, error, reload } = useResource<unknown>('product.list', params);
 const rows = computed(() => asList<ProductRow>(data.value));
 const total = computed(() => asTotal(data.value));

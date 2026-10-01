@@ -322,7 +322,14 @@ if (!loginReady) {
  */
 console.log('\n4/4 组件预览页（设计系统冒烟）…');
 await cdp.evaluate(`(location.hash = '#/preview')`, { awaitPromise: false });
-const previewReady = await waitFor(`document.querySelector('.w-page') ? true : null`, 30_000);
+/*
+ * 等待条件必须是**预览页独有的东西**，不能是 `.w-page`。
+ *
+ * 踩过：`.w-page` 上一屏也有，而 `<RouterView :key>` 换屏的瞬间旧屏还在 DOM 里 ——
+ * `waitFor('.w-page')` 会立刻命中旧屏，后面的断言跑在"旧屏 + 新屏加载中"的混合状态上，
+ * 表现为表格只数到 2 行、错误码还没出现（实测就是这么红的，而且换一处无关改动就会波动）。
+ */
+const previewReady = await waitFor(`document.querySelectorAll('.w-metric').length === 4 ? true : null`, 30_000);
 
 if (!previewReady) {
   check('预览页渲染', false, '超时');
@@ -332,6 +339,12 @@ if (!previewReady) {
   const metrics = await cdp.evaluate(`document.querySelectorAll('.w-metric').length`, { awaitPromise: false });
   check('指标区渲染 4 张真实 KPI 卡', metrics === 4, `metrics=${metrics}`);
 
+  // ElTable 的行不是同步落地的（要知道列宽才排版），所以断言前显式等一次
+  await waitFor(
+    `document.querySelectorAll('.w-datatable .el-table__body tbody tr.el-table__row').length === 4 ? true : null`,
+    15_000,
+    200,
+  );
   const tableRows = await cdp.evaluate(
     `document.querySelectorAll('.w-datatable .el-table__body tbody tr.el-table__row').length`,
     { awaitPromise: false },
@@ -341,6 +354,11 @@ if (!previewReady) {
   const cellsMono = await cdp.evaluate(`document.querySelectorAll('.w-datatable .w-mono').length`, { awaitPromise: false });
   check('机器数据走等宽（单号/库位/时间）', cellsMono > 0, `mono=${cellsMono}`);
 
+  await waitFor(
+    `document.querySelector('.w-error__code')?.innerText === 'BRIDGE_BACKEND_UNREACHABLE' ? true : null`,
+    15_000,
+    200,
+  );
   const errorCode = await cdp.evaluate(
     `document.querySelector('.w-error__code')?.innerText ?? ''`,
     { awaitPromise: false },
