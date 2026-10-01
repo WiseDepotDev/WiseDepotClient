@@ -342,6 +342,27 @@
  * 行距也收到最小间距。详情屏在手机上原本 7 行就吃掉半屏 —— 那是"看起来乱"的主要来源之一。
  */
 @media (max-width: 599px) {
+  /*
+   * 屏头在手机档**只留动作，不留标题**。
+   *
+   * 标题已经在手机外壳的情景头里了（`AppFrame` 的 `.w-contextheader__title`，显示的就是这一屏的名字）。
+   * 两处各写一半的做法（外壳写域名、屏内写页名）会让顶部出现两三行文字，而手机一屏才 844px ——
+   * 这是"像网页不像 App"最直观的一条。外壳那一行是唯一的标题行。
+   */
+  .w-page-header {
+    justify-content: flex-end;
+    min-height: 0;
+  }
+
+  .w-page-header__titles {
+    display: none;
+  }
+
+  /* 顶栏已经与内容拉开距离了，这里再留一份就是白占 */
+  .w-page {
+    padding-top: var(--w-space-inline-gap);
+  }
+
   .w-kv {
     grid-template-columns: auto minmax(0, 1fr);
     gap: var(--w-space-inline-gap);
@@ -351,6 +372,45 @@
   .w-kv__value {
     font-size: var(--w-type-body-small-size);
     line-height: var(--w-type-body-small-line);
+  }
+
+  /*
+   * 卡片：手机档用**更淡的描边**，把视觉重量让给内容。
+   * 桌面档那圈 1px 实体描边在窄屏上会挤满视野，一行一张卡片时尤其明显。
+   */
+  .w-card,
+  .w-datatable {
+    border-color: var(--w-color-outline-subtle);
+  }
+
+  /*
+   * 「刷新」这一类**只给桌面看**的动作。
+   *
+   * 手机顶栏有一个「刷新本页」（`AppFrame` 的图标按钮，走 `@wise/stores` 的 `bumpRefresh`），
+   * 页头里再来一个就是同一个动作画两遍 —— 而且页头在窄屏只剩动作，它会**独占一行**。
+   * 屏里已有的业务动作（新建、批量绑定…）不受影响，仍然留在页头。
+   */
+  .w-hide-compact {
+    display: none;
+  }
+
+  /*
+   * 页头的可见动作全被隐藏时，整块页头（连同它的内边距）也不该继续占位。
+   * 判据是"actions 里还有没有**不是** `.w-hide-compact` 的按钮" —— 用 `:has()` 才表达得出，
+   * 而 `:has()` 只看 DOM 存在、不看可见性，所以必须显式排掉那个类。
+   */
+  .w-page-header:not(:has(.w-page-header__actions > button:not(.w-hide-compact))) {
+    display: none;
+  }
+
+  /*
+   * 搜索框：**胶囊 + 浅灰底**，而不是"方框 + 描边"。
+   * Element Plus 的输入框是用 `box-shadow` 画边框的（不是 border），所以要清掉的是 box-shadow。
+   */
+  .w-toolbar > .el-input .el-input__wrapper {
+    border-radius: var(--w-radius-pill);
+    background: var(--w-color-surface-sunken);
+    box-shadow: none;
   }
 }
 

@@ -253,7 +253,7 @@ const items = computed<KeyValueItem[]>(() => {
     >
       <template #actions>
         <StatusChip :text="display?.status === 1 ? '已绑定' : '未绑定'" :tone="display?.status === 1 ? 'success' : 'neutral'" />
-        <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
       </template>
     </PageHeader>
 

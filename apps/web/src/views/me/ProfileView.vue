@@ -325,6 +325,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
     <PageHeader title="个人资料" note="账号信息、联系方式与安全设置">
       <template #actions>
         <ElButton
+          class="w-hide-compact"
           size="large"
           :loading="profile.loading.value || me.loading.value || settings.loading.value"
           @click="reloadAll"

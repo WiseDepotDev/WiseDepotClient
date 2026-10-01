@@ -144,7 +144,7 @@ async function confirmDelete(): Promise<void> {
   <div class="w-page">
     <PageHeader title="商品管理" :note="total !== undefined ? `共 ${total} 个商品` : '维护商品主数据'">
       <template #actions>
-        <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
         <ElButton size="large" type="primary" @click="openCreate">新增商品</ElButton>
       </template>
     </PageHeader>

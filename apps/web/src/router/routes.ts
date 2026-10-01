@@ -51,7 +51,8 @@ export const shellRoutes: RouteRecordRaw = {
       path: '',
       name: 'home',
       component: () => import('../views/HomeView.vue'),
-      meta: { title: '概览' },
+      // 手机档的顶栏标题直接取它（屏内的 PageHeader 在窄屏只留动作），所以这里要是**这一屏的名字**
+      meta: { title: '应用中心' },
     },
     ...leafRoutes,
     ...destinationRoutes,

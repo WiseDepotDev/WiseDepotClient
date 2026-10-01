@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElAvatar, ElButton, ElDrawer, ElIcon, ElMenu, ElMenuItem, ElSubMenu } from 'element-plus';
-import { Expand, Fold } from '@element-plus/icons-vue';
-import { useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
+import { ArrowLeft, Box, Cpu, Expand, Fold, Grid, Menu, Odometer, Refresh, User } from '@element-plus/icons-vue';
+import { bumpRefresh, useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
 import { useViewport } from '@wise/ui';
 import BridgeStatusChip from './BridgeStatusChip.vue';
 import PageSearch from './PageSearch.vue';
@@ -113,6 +113,25 @@ const useSegmented = computed(() => domain.value.children.length <= 4);
  * 底栏高亮（一个域都不该亮，"应用"那一项亮）。
  */
 const isHome = computed(() => route.name === 'home');
+
+/**
+ * 底栏图标：**每个域一个图标**（手机底栏的通用做法是"图标 + 文字"，只有文字时
+ * 看上去像一排链接而不是 App）。
+ *
+ * 图标只在这里做 id → 组件的映射，不写进 `navigation.ts`：那里的职责是信息架构，
+ * 图标是外壳的呈现细节，两者混在一起会让"加一个域"变成"必须同时想一个图标"。
+ */
+const DOMAIN_ICONS: Readonly<Record<DomainId, Component>> = {
+  overview: Odometer,
+  inventory: Box,
+  field: Cpu,
+  me: User,
+};
+
+/** 底栏是否高亮某一项：在域里时高亮那个域，在应用中心时高亮「应用」。 */
+function domainActive(id: DomainId): boolean {
+  return !isHome.value && id === currentDomainId.value;
+}
 
 function goLeaf(path: string): void {
   mobileDrawerOpen.value = false;
@@ -295,27 +314,64 @@ onBeforeUnmount(() => {
 
       <header v-if="isCompact" class="w-contextheader">
         <!--
-          左上角那个位置**按当前位置给恰当的动作**（同一处，不叠按钮）：
-            · 详情屏 → 「返回」（回上一屏；判据见 `canGoBack` 的注释）
-            · 其它屏 → 「应用中心」（回 `/`）
-            · 首页   → 什么都不显示
-          为什么要有「应用中心」这个入口：手机上原先**根本回不去首页** ——
-          底栏点域是"进该域第一个叶子"、抽屉里只有当前域的子页、扫码与详情都往更深处走。
-          首页一旦离开，只剩系统返回键，而 WebView 里的返回键还未必可用。
+          顶栏只放**动作与标题**，一行解决：
+            · 左侧：详情屏 → 返回箭头；其它屏 → 应用中心（网格图标）；首页 → 不显示
+            · 中间：**当前屏的名字**（`pageTitle`）
+            · 右侧：本域的页面入口（图标，域内叶子 >4 时才有）、Bridge 状态
+          为什么标题改成"屏名"而不是原来的"域名"：屏内的 `PageHeader` 在手机档已经把标题
+          藏起来了（见 `ui.css` 的手机断点），所以这里就是全屏唯一的标题 ——
+          两处各写一半的做法（顶栏写域、屏内写页名）会读成"我在库存域 → 我在看库存查询"，
+          占两行且都不是重点；现在一行说清"我在哪一屏"。
+          动作全部用**图标**（不是文字）：手机上文字按钮占宽、且"应用中心"四个字摆在
+          左上角一眼看不出是"回首页"。图标按钮一律带 `aria-label`（可读名字，不是只靠形状）。
         -->
-        <ElButton v-if="isDetail && canGoBack" text size="small" @click="goBack">返回</ElButton>
-        <ElButton v-else-if="!isHome" text size="small" @click="goHome">应用中心</ElButton>
+        <ElButton
+          v-if="isDetail && canGoBack"
+          class="w-contextheader__action"
+          text
+          circle
+          aria-label="返回"
+          @click="goBack"
+        >
+          <ElIcon><ArrowLeft /></ElIcon>
+        </ElButton>
+        <ElButton
+          v-else-if="!isHome"
+          class="w-contextheader__action"
+          text
+          circle
+          aria-label="应用中心"
+          @click="goHome"
+        >
+          <ElIcon><Grid /></ElIcon>
+        </ElButton>
+        <h1 class="w-contextheader__title">{{ pageTitle }}</h1>
+        <ElButton
+          v-if="!useSegmented && !isHome"
+          class="w-contextheader__action"
+          text
+          circle
+          aria-label="本域的页面"
+          @click="mobileDrawerOpen = true"
+        >
+          <ElIcon><Menu /></ElIcon>
+        </ElButton>
         <!--
-          这里显示**所属域**（库存 / 现场 / 我的…），不是页名。
-          为什么：每一屏自己的页头（`PageHeader`）已经写着页名了，情景头再写一遍
-          就是同一句话占两行 —— 手机一屏才 844px，顶部那 200px 里有两行是重复的（实测截图即如此）。
-          换成域名之后，两行合起来读是"我在库存域 → 我在看库存查询"，既去重又给了方位感。
-
-          首页不属于任何域（`domain` 会兜底成 overview，写出来就是错的"运营"），
-          所以那时显示品牌名 —— 与桌面左上角一致，也不与屏内的「应用中心」标题重复。
+          顶栏一个「刷新本页」替掉每屏页头里那个刷新按钮。
+          为什么：页头在窄屏只剩动作，而"刷新"往往**独占一行**（一屏 844px 里白占 60px）；
+          而它做的事永远是同一件 —— 重取这一屏用到的数据。信号走 `@wise/stores` 的 `bumpRefresh`，
+          只有挂载中的屏会响应（见 `resource.ts` 里那段 watch）。
         -->
-        <h1 class="w-contextheader__title">{{ isHome ? '慧仓智控' : domain.label }}</h1>
-        <ElButton v-if="!useSegmented && !isHome" text size="small" @click="mobileDrawerOpen = true">页面</ElButton>
+        <ElButton
+          v-if="!isHome"
+          class="w-contextheader__action"
+          text
+          circle
+          aria-label="刷新本页"
+          @click="bumpRefresh"
+        >
+          <ElIcon><Refresh /></ElIcon>
+        </ElButton>
         <BridgeStatusChip compact />
       </header>
 
@@ -324,17 +380,24 @@ onBeforeUnmount(() => {
           · 详情屏也画一个的话，`activeMethod` 由 `leafHit` 算、而详情路由取不到叶子
             ⇒ **三个分段一个都不高亮**，看起来像"当前在哪个页面"坏了；
           · 首页没有"当前域"可言（`currentDomainId` 会兜底成 overview）⇒ 同样一个都不该亮。
+
+        样式是**胶囊分段**（浅灰轨道 + 白色滑块）：原来那排"描边方框"读起来像一排按钮，
+        而它其实是"同一屏的几个视图"—— 胶囊 + 滑块才是现在大家认得的那个控件。
+        用原生 button 而不是 `ElButton`：要控制的就是"轨道/滑块"，用组件反而要一路覆盖它的样式。
       -->
-      <div v-if="isCompact && useSegmented && !isDetail && !isHome" class="w-toolbar w-segment">
-        <ElButton
+      <div v-if="isCompact && useSegmented && !isDetail && !isHome" class="w-segment" role="tablist">
+        <button
           v-for="c in domain.children"
           :key="c.id"
-          size="large"
-          :type="activeMethod === c.primaryMethod ? 'primary' : 'default'"
+          type="button"
+          role="tab"
+          class="w-segment__item"
+          :class="{ 'w-segment__item--active': activeMethod === c.primaryMethod }"
+          :aria-selected="activeMethod === c.primaryMethod"
           @click="goLeaf(c.path)"
         >
           {{ c.short }}
-        </ElButton>
+        </button>
       </div>
 
       <!-- 唯一的内容实例、唯一的滚动容器。
@@ -363,17 +426,19 @@ onBeforeUnmount(() => {
           :class="{ 'w-tabbar__item--active': isHome }"
           @click="goHome"
         >
-          应用
+          <ElIcon class="w-tabbar__icon"><Grid /></ElIcon>
+          <span class="w-tabbar__label">应用</span>
         </button>
         <button
           v-for="d in DOMAINS"
           :key="d.id"
           type="button"
           class="w-tabbar__item"
-          :class="{ 'w-tabbar__item--active': !isHome && d.id === currentDomainId }"
+          :class="{ 'w-tabbar__item--active': domainActive(d.id) }"
           @click="goDomain(d.id)"
         >
-          {{ d.short }}
+          <ElIcon class="w-tabbar__icon"><component :is="DOMAIN_ICONS[d.id]" /></ElIcon>
+          <span class="w-tabbar__label">{{ d.short }}</span>
         </button>
       </nav>
     </div>

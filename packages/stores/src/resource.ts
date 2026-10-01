@@ -3,6 +3,7 @@ import type { ComputedRef, MaybeRefOrGetter } from 'vue';
 import { defineStore } from 'pinia';
 import { BridgeError, shouldRefetchOnOpen } from '@wise/bridge-client';
 import { useBridgeStore } from './bridge.js';
+import { useRefreshTick } from './refresh.js';
 
 /**
  * 资源缓存层 —— React 时代 `useBridgeCall` 的替代，但**集中**在 store 里。
@@ -261,6 +262,16 @@ export function useResource<T>(
   if (getCurrentScope()) {
     onScopeDispose(off);
   }
+
+  /*
+   * 外壳的「刷新本页」（手机顶栏那个全局刷新）→ 当前屏用到的**每一个**资源各重取一次。
+   *
+   * 只有挂载中的屏会订阅（`useResource` 在组件 setup 里调用），所以它刷的就是"这一屏"，
+   * 不会把别的屏也一起拖下水 —— 各屏自己那个「刷新」按钮因此可以撤掉，不必每屏各写一遍。
+   */
+  watch(useRefreshTick(), () => {
+    void cache.run<T>(method, paramValue()).catch(() => undefined);
+  });
 
   return {
     entry,

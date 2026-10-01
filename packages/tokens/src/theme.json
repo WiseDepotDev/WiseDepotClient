@@ -78,6 +78,7 @@
   "size": {
     "chipHeight": 28,
     "markSize": 32,
+    "iconSize": 24,
     "cardMinWidth": 200,
     "kvLabelWidth": 96,
     "skeletonRowHeight": 48,

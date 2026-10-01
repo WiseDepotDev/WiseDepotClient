@@ -265,9 +265,16 @@
   gap: var(--w-space-inline-gap);
   flex: 0 0 auto;
   min-height: var(--w-space-topbar-height);
-  padding: 0 var(--w-space-screen-h);
+  padding: 0 var(--w-space-inline-gap);
   background: var(--w-color-surface);
   border-bottom: 1px solid var(--w-color-outline);
+}
+
+/* 图标动作按钮：固定方形，避免不同图标宽度把标题顶得左右乱窜 */
+.w-contextheader__action {
+  flex: 0 0 auto;
+  width: var(--w-size-mark-size);
+  height: var(--w-size-mark-size);
 }
 
 .w-contextheader__title {
@@ -310,6 +317,20 @@
   cursor: pointer;
 }
 
+/*
+ * 图标 + 文字：手机底栏的通行做法。
+ * 只有文字时那一行读起来像"一排链接"，加上图标才有"这是个 App"的体量感；
+ * 图标用 Element Plus 自带那套，不引第二套资产。
+ */
+.w-tabbar__icon {
+  font-size: var(--w-size-icon-size);
+}
+
+.w-tabbar__label {
+  font-size: var(--w-type-label-size);
+  line-height: var(--w-type-label-line);
+}
+
 .w-tabbar__item--active {
   color: var(--w-color-primary);
   font-weight: var(--w-type-label-weight);
@@ -348,11 +369,45 @@
   justify-content: flex-end;
 }
 
-/* ---------- 手机：域内分段控件（等高、可点、不横滚） ---------- */
+/* ---------- 手机：域内分段控件（胶囊 + 滑块） ---------- */
 
+/*
+ * 浅灰**轨道** + 白色**滑块**。
+ * 为什么不是原来那排"描边方框按钮"：它读起来像"四个并列的操作"，
+ * 而实际语义是"同一屏的几个视图"—— 胶囊分段才是现在大家认得的那个控件。
+ */
 .w-segment {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex: 0 0 auto;
-  padding: var(--w-space-row-gap) var(--w-space-screen-h) 0;
+  margin: var(--w-space-inline-gap) var(--w-space-screen-h) 0;
+  padding: 2px;
+  background: var(--w-color-surface-sunken);
+  border-radius: var(--w-radius-pill);
+}
+
+.w-segment__item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--w-size-chip-height);
+  padding: 0 var(--w-space-inline-gap);
+  border: none;
+  background: transparent;
+  border-radius: var(--w-radius-pill);
+  color: var(--w-color-on-surface-variant);
+  font: inherit;
+  font-size: var(--w-type-label-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.w-segment__item--active {
+  background: var(--w-color-surface);
+  color: var(--w-color-primary);
+  font-weight: var(--w-type-label-weight);
 }
 
 /* ---------- 页面跳转搜索 ---------- */

@@ -588,7 +588,10 @@ const mobile = await cdp.evaluate(
      tabItems: document.querySelectorAll('.w-tabbar__item').length,
      sidebar: !!document.querySelector('.w-sidebar'),
      contextheader: !!document.querySelector('.w-contextheader'),
-     drawerButton: [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === '页面'),
+     /* 顶栏的动作都是图标按钮了，所以按 aria-label 认，而不是按 innerText（那是空的） */
+     drawerButton: [...document.querySelectorAll('.w-contextheader button')].some(
+       (b) => b.getAttribute('aria-label') === '本域的页面',
+     ),
    })`,
   { awaitPromise: false },
 );
@@ -605,13 +608,13 @@ check('叶子 >4 的域改用抽屉入口（不做横向滚动）', mobile.drawe
  */
 const leafChrome = await cdp.evaluate(
   `({
-     top: [...document.querySelectorAll('.w-contextheader button')].map((b) => b.innerText.trim()),
+     top: [...document.querySelectorAll('.w-contextheader button')].map((b) => b.getAttribute('aria-label') ?? ''),
      tabs: [...document.querySelectorAll('.w-tabbar__item')].map((b) => b.innerText.trim()),
      activeTabs: [...document.querySelectorAll('.w-tabbar__item--active')].map((b) => b.innerText.trim()),
    })`,
   { awaitPromise: false },
 );
-check('手机档：叶子屏上方有「应用中心」入口', leafChrome.top.includes('应用中心'), JSON.stringify(leafChrome.top));
+check('手机档：叶子屏上方有「应用中心」入口（图标按钮带可读名字）', leafChrome.top.includes('应用中心'), JSON.stringify(leafChrome.top));
 check('手机档：底栏第一项是「应用」', leafChrome.tabs[0] === '应用', JSON.stringify(leafChrome.tabs));
 check('手机档：在库存域时高亮的是「库存」而不是「应用」', leafChrome.activeTabs.join(',') === '库存', JSON.stringify(leafChrome.activeTabs));
 
@@ -630,7 +633,7 @@ const afterAppTab = await cdp.evaluate(
      activeTabs: [...document.querySelectorAll('.w-tabbar__item--active')].map((b) => b.innerText.trim()),
      title: document.querySelector('.w-contextheader__title')?.innerText.trim() ?? '',
      segment: document.querySelectorAll('.w-segment').length,
-     topButtons: [...document.querySelectorAll('.w-contextheader button')].map((b) => b.innerText.trim()),
+     topButtons: [...document.querySelectorAll('.w-contextheader button')].map((b) => b.getAttribute('aria-label') ?? ''),
    })`,
   { awaitPromise: false },
 );
@@ -642,8 +645,8 @@ check(
   `segment=${afterAppTab.segment}`,
 );
 check(
-  '手机档：首页标题是品牌名而不是兜底出来的"运营"',
-  afterAppTab.title === '慧仓智控',
+  '手机档：首页顶栏标题是"应用中心"（屏内标题在窄屏已隐藏，这一行就是唯一标题）',
+  afterAppTab.title === '应用中心',
   afterAppTab.title,
 );
 check('手机档：首页上方不再有「应用中心」入口（已经在首页）', !afterAppTab.topButtons.includes('应用中心'), JSON.stringify(afterAppTab.topButtons));
@@ -663,7 +666,7 @@ await sleep(600);
 const detailChrome = await cdp.evaluate(
   `({
      segment: document.querySelectorAll('.w-segment').length,
-     hasBack: [...document.querySelectorAll('.w-contextheader button')].some((b) => b.innerText.trim() === '返回'),
+     hasBack: [...document.querySelectorAll('.w-contextheader button')].some((b) => b.getAttribute('aria-label') === '返回'),
    })`,
   { awaitPromise: false },
 );

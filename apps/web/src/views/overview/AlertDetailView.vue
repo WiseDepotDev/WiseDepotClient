@@ -177,7 +177,7 @@ watch(eventId, () => {
     >
       <template #actions>
         <StatusChip :text="alertStateText(state)" :tone="alertStateTone(state)" />
-        <ElButton size="large" :loading="detail.loading.value" @click="reloadAll">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="detail.loading.value" @click="reloadAll">刷新</ElButton>
       </template>
     </PageHeader>
 

@@ -445,7 +445,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
   <div class="w-page">
     <PageHeader title="巡检结果" :note="pageNote">
       <template #actions>
-        <ElButton size="large" :loading="list.loading.value" @click="list.reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="list.reload">刷新</ElButton>
       </template>
     </PageHeader>
 

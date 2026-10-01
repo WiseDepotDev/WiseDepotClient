@@ -185,7 +185,7 @@ const emptyText = computed(() =>
   <div class="w-page">
     <PageHeader title="消息详情" note="告警与通知的全文">
       <template #actions>
-        <ElButton size="large" :loading="detail.loading.value" @click="detail.reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="detail.loading.value" @click="detail.reload">刷新</ElButton>
       </template>
     </PageHeader>
 

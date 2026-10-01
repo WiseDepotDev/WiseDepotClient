@@ -422,7 +422,14 @@ function goManualRecord(): void {
   <div class="w-page">
     <PageHeader :title="pageTitle" :note="pageNote">
       <template #actions>
-        <ElButton size="large" type="primary" :disabled="!hasTarget || busy" :loading="taskLoading" @click="reloadTask">
+        <ElButton
+          class="w-hide-compact"
+          size="large"
+          type="primary"
+          :disabled="!hasTarget || busy"
+          :loading="taskLoading"
+          @click="reloadTask"
+        >
           刷新
         </ElButton>
       </template>

@@ -151,7 +151,7 @@ async function confirm(): Promise<void> {
           :text="data?.status === 1 ? '已锁定' : '正常'"
           :tone="data?.status === 1 ? 'warning' : 'success'"
         />
-        <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
       </template>
     </PageHeader>
 

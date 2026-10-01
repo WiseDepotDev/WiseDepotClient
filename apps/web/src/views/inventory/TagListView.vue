@@ -251,7 +251,7 @@ function openDetail(row: TagRow): void {
   <div class="w-page">
     <PageHeader title="标签管理" :note="total !== undefined ? `共 ${total} 个标签` : '条码 / RFID / NFC 标签'">
       <template #actions>
-        <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
         <ElButton size="large" @click="openCreate">新建标签</ElButton>
         <ElButton size="large" :disabled="selected.length === 0" @click="openBatch('unbind')">
           批量解绑（{{ selected.length }}）

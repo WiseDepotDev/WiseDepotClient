@@ -155,7 +155,7 @@ function openAlert(row: AlertItem): void {
   <div class="w-page">
     <PageHeader title="看板" note="库存、告警、巡检与设备的实时汇总">
       <template #actions>
-        <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
       </template>
     </PageHeader>
 

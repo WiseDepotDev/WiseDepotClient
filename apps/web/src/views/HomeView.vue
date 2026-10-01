@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue';
 import { useRouter } from 'vue-router';
+import { ElIcon } from 'element-plus';
 import {
+  ArrowRight,
   Bell,
   Box,
   Calendar,
@@ -159,6 +161,12 @@ function open(path: string): void {
     </p>
 
     <SectionBlock v-for="group in groups" :key="group.id" :title="group.label">
+      <!--
+        入口做成**分组列表**（图标 + 名称 + 说明 + 右箭头），不是卡片网格。
+        为什么：手机上卡片网格一张占 ~110px，18 个入口要滚好几屏；而"设置页那种列表"
+        才是现在大家认得的形状 —— 一行一件事，右侧箭头表示"点进去还有下一页"。
+        类名保持不变（`w-home__entry*`）：门禁与冒烟都按它们找元素，换布局不该换钩子。
+      -->
       <ul class="w-home__grid">
         <li v-for="leaf in group.leaves" :key="leaf.method">
           <button type="button" class="w-home__entry" @click="open(leaf.path)">
@@ -169,6 +177,7 @@ function open(path: string): void {
               <span class="w-home__entry-name">{{ leaf.label }}</span>
               <span class="w-home__entry-note">{{ leaf.note }}</span>
             </span>
+            <ElIcon class="w-home__entry-arrow" aria-hidden="true"><ArrowRight /></ElIcon>
           </button>
         </li>
       </ul>
@@ -199,33 +208,38 @@ function open(path: string): void {
 }
 
 /*
- * 功能入口：宽屏并排、窄屏一行一个。
- * `auto-fill + minmax(280px, 1fr)`：手机上一列、桌面两三列，不用写断点。
+ * 功能入口：**分组列表**（一列，行间一条淡分隔线），不是卡片网格。
  *
- * 280 而不是卡片通用的 `--w-size-card-min-width`(200)：这里的副标题是一整句说明，
- * 200px 下会折成三行（"库存总量、今日告警、/巡检进度与设备在线的实时/汇总"），
- * 一行高度对不齐、看着像排版坏了。宽一点换来每张卡两行以内。
+ * 形状照"设置页那种列表"来：整组一张圆角白底，行与行之间用最淡的描边分开，
+ * 每行是"图标 + 名称 + 说明 + 右箭头"。手机上 18 个入口从"滚好几屏"变成"一屏半"，
+ * 而且读起来是"一件事一行"，不是一堆并列的卡片。
  */
 .w-home__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--w-space-row-gap);
+  display: flex;
+  flex-direction: column;
   list-style: none;
   margin: 0;
   padding: 0;
+  background: var(--w-color-surface);
+  border: 1px solid var(--w-color-outline-subtle);
+  border-radius: var(--w-radius-card);
+  overflow: hidden;
+}
+
+.w-home__grid > li + li {
+  border-top: 1px solid var(--w-color-outline-subtle);
 }
 
 .w-home__entry {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--w-space-card-padding-compact);
   width: 100%;
   min-height: var(--w-space-touch-target-min);
   padding: var(--w-space-card-padding-compact);
   text-align: left;
-  background: var(--w-color-surface);
-  border: 1px solid var(--w-color-outline);
-  border-radius: var(--w-radius-card);
+  background: transparent;
+  border: none;
   color: inherit;
   font: inherit;
   cursor: pointer;
@@ -233,7 +247,6 @@ function open(path: string): void {
 
 .w-home__entry:active {
   background: var(--w-color-surface-alt);
-  border-color: var(--w-color-primary);
 }
 
 /*
@@ -254,10 +267,17 @@ function open(path: string): void {
   border-radius: var(--w-radius-chip);
 }
 
+/* 右箭头：`flex: 1` 把它推到行尾，这样名称/说明列有多长都不会挤到它 */
+.w-home__entry-arrow {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--w-color-on-surface-muted);
+}
+
 .w-home__entry-text {
   display: flex;
   flex-direction: column;
-  gap: var(--w-space-inline-gap);
+  gap: calc(var(--w-space-inline-gap) / 2);
   min-width: 0;
 }
 
@@ -268,9 +288,20 @@ function open(path: string): void {
   color: var(--w-color-on-surface);
 }
 
+/*
+ * 说明最多两行。
+ * 不设上限时，长句（"库存总量、今日告警、巡检进度与设备在线的实时汇总"）会把行撑到三行，
+ * 组内每行高度参差不齐、看着像排版坏了；限两行后一屏能多放两条入口。
+ * 被省略的部分点进去就能看到，所以截断在这里是安全的。
+ */
 .w-home__entry-note {
   color: var(--w-color-on-surface-muted);
   font-size: var(--w-type-body-small-size);
   line-height: var(--w-type-body-small-line);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>

@@ -108,7 +108,7 @@ function openDetail(row: PermissionRow): void {
   <div class="w-page">
     <PageHeader title="权限管理" :note="total !== undefined ? `共 ${total} 项权限` : '系统预置的权限清单'">
       <template #actions>
-        <ElButton size="large" :loading="list.loading.value" @click="list.reload">刷新</ElButton>
+        <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="list.reload">刷新</ElButton>
       </template>
     </PageHeader>
 
