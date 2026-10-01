@@ -22,7 +22,7 @@ import {
   User,
 } from '@element-plus/icons-vue';
 import { DOMAINS, type NavLeaf } from '@wise/layouts';
-import { useBridgeStore, useSessionStore } from '@wise/stores';
+import { useBridgeStore, useCurrentAccount } from '@wise/stores';
 import { PageHeader, SectionBlock, StatusChip, type StatusTone } from '@wise/ui';
 
 /**
@@ -43,7 +43,9 @@ import { PageHeader, SectionBlock, StatusChip, type StatusTone } from '@wise/ui'
  * 那些话在 29 屏全部迁完之后就是**过期信息**：明明能用的功能，界面上却说没上线。
  */
 const bridge = useBridgeStore();
-const session = useSessionStore();
+// 姓名取自**侧栏同一个出处**（`useCurrentAccount`）：冷启动恢复登录态之后
+// `session.username` 是空的（桥只持久化令牌、不持久化用户名），只看它会退化成一句"已登录"。
+const account = useCurrentAccount();
 const router = useRouter();
 
 /**
@@ -148,8 +150,7 @@ function open(path: string): void {
     </PageHeader>
 
     <p class="w-home__account">
-      <span v-if="session.username">当前账号：{{ session.username }}</span>
-      <span v-else>已登录</span>
+      <span>当前账号：{{ account.displayName }}</span>
       <span class="w-home__account-sep">·</span>
       <span>详情、结果明细这类页面需要先选一条记录，从各自列表点进去。</span>
     </p>

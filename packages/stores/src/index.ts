@@ -11,6 +11,7 @@ export {
   type UseMutationResult,
 } from './resource.js';
 export { useSessionStore, type SessionPayload } from './session.js';
+export { useCurrentAccount, type CurrentUser, type CurrentAccount } from './account.js';
 export {
   useUiStore,
   type ConfirmRequest,

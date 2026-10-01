@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElAvatar, ElButton, ElDrawer, ElIcon, ElMenu, ElMenuItem, ElSubMenu } from 'element-plus';
 import { Expand, Fold } from '@element-plus/icons-vue';
-import { useBridgeStore, useResource, useScanStore, useSessionStore } from '@wise/stores';
+import { useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
 import { useViewport } from '@wise/ui';
 import BridgeStatusChip from './BridgeStatusChip.vue';
 import PageSearch from './PageSearch.vue';
@@ -48,7 +48,6 @@ import {
 const route = useRoute();
 const router = useRouter();
 const bridge = useBridgeStore();
-const session = useSessionStore();
 const scan = useScanStore();
 const { isCompact } = useViewport();
 
@@ -91,42 +90,14 @@ function onMenuSelect(index: string): void {
 }
 
 // ---- 左下的账号块：头像 + 姓名 + 职位 ----
-
-interface CurrentUser {
-  readonly userId?: number;
-  readonly username?: string;
-  readonly nickname?: string;
-  readonly role?: string;
-}
-
-/**
- * ⚠️ 接线说明：`user.current` 在契约里是**策展过的**（`/api/users/current`，`USER_CURRENT`），
- * 但**旧 React 版从未接过它**（旧版只用了 `profile.get` + `user.list`）。
- * 本次为"姓名 + 职位"首次接线，**发布前需要拿真后端核一次响应字段**。
- * 取不到时全部退化到会话里的 username，绝不编一个职位。
- */
-const { data: currentUser } = useResource<CurrentUser>('user.current');
-
-const displayName = computed(
-  () => currentUser.value?.nickname ?? currentUser.value?.username ?? session.username ?? '未登录',
-);
-
-/** 角色码 → 业务叫法；**认不出的码原样显示**（它是服务端下发的数据，不是我们的文案）。 */
-function roleLabel(role: string | undefined): string {
-  switch (role) {
-    case 'ADMIN':
-      return '管理员';
-    case 'USER':
-      return '普通用户';
-    case undefined:
-    case '':
-      return '职位未登记';
-    default:
-      return role;
-  }
-}
-
-const roleText = computed(() => roleLabel(currentUser.value?.role));
+//
+// 姓名与职位的**唯一出处**是 `@wise/stores` 的 `useCurrentAccount()`：
+// 它优先取 `user.current`（服务端真值，冷启动恢复登录态后同样可用），
+// 再退化到会话里的 username。这里只负责画，不再自己算一份 ——
+// 两处各算一份的后果就是同一个人在两屏显示两个名字。
+const account = useCurrentAccount();
+const displayName = account.displayName;
+const roleText = account.roleText;
 const avatarText = computed(() => displayName.value.slice(0, 1));
 
 // ---- 手机：域内导航 ----

@@ -1121,13 +1121,58 @@ createApp → use(pinia) → attach(桥) → startProbe → await session.init()
 > 图标名拼错时那一格只是空着，数量、文案、点击全都没问题，而缺省退回 `Grid` 让"少一个图标"更看不出来。
 > 宽屏与手机两档都截图看过（3 列 / 1 列），不是只跑门禁。
 
+### 七、冷启动恢复登录态之后，界面说不出"我是谁"
+
+在 WSA 上冷启动看到应用中心写着 **「已登录」**（应该写账号名）。查下来是同一条病根的另一半：
+
+| 事实 | 依据 |
+| --- | --- |
+| 桥的 `username` 是**进程内字段**，登录响应经过时写一次 | `bridge/server/.../SessionManager.kt:34,54` |
+| 持久化的只有**令牌**，不含用户名 | 同上 `:43` `authenticated = tokens.accessToken() != null`；用户名不在持久化里 |
+| 所以冷启动恢复后 `authenticated == true` 而 `username == null` | 真机现象：界面只剩一句"已登录" |
+| 真值只能问服务端，且**恢复态下同样可用** | 实测 `GET /api/users/current` → `{"userId":1,"username":"admin","nickname":"系统管理员","role":"ADMIN"}` |
+
+**同一个概念原先有两个属主**（重复，迟早漂移）：
+
+- `AppFrame.vue` 自己算一份：`user.current.nickname → username → session.username → '未登录'`
+- `HomeView.vue` 只看 `session.username`，没有就写"已登录"
+
+于是同一台机器上会出现"侧栏写着系统管理员、首页写着已登录"。修法是**收成一个出处**：
+新增 `@wise/stores` 的 `useCurrentAccount()`（姓名 + 职位 + 取数状态），两个消费者都读它；
+`session.username` 降级为"登录后那一瞬"的同步兜底。顺带把兜底里那句 **'未登录' 改掉** ——
+恢复态下用户**是**已登录的，这话曾经会闪一帧假的。
+
+同时把 `AppFrame` 里那句欠账还了：注释写着「`user.current` 本次首次接线，**发布前需要拿真后端核一次响应字段**」——
+现在核过了（上表第 4 行的实测响应），字段与代码一致。
+
+> **不改桥**。把 `username` 一起持久化才是更彻底的做法，但那要动 `bridge/**`（协议与持久化状态，
+> 且当前那份 Kotlin 是用户未提交的在制品）——按界线只做 Web 侧，把结论记在这里。
+
+#### 顺带查实的一处**口径分歧**（本轮不改，只记账）
+
+"角色码 → 业务叫法"在客户端有**三份**拷贝：`packages/stores/src/account.ts`、`me/UserListView.vue`、
+`me/ProfileView.vue`（后两处注释里自己写着"与另一屏同一份口径"）。三份彼此一致（`ADMIN` → 管理员、
+`USER` → 普通用户、认不出的原样显示），所以**客户端内部没有漂移**；但与服务端自己的映射不一致：
+
+| 出处 | `USER` 的说法 |
+| --- | --- |
+| 服务端 `UserApplicationService#mapRoleCodeToName` | **访客** |
+| 服务端 `RoleMapper#mapRoleNameToCode` | 操作员 / 访客 / 其它 → 都压成 `USER`（**有损**） |
+| 客户端三处 | 普通用户 |
+
+而且假桥里的角色码是 `OPERATOR` / `VIEWER` —— 服务端**只产出** `ADMIN` / `USER`（`RoleMapper` 全表），
+于是开发态侧栏显示的是裸码 `OPERATOR`。这不是谎言（界面本来就规定"认不出的码原样显示"），
+但**假桥教给界面的词表是服务端不会说的**。三份拷贝 + 词表分歧一起收口涉及两屏与 72 条 `check:me-mock`，
+单独一轮做，本轮只留下这份证据。
+
 ### 本轮验收证据（真跑）
 
 | 项 | 命令 | 结果 |
 | --- | --- | --- |
 | 门禁 | `pnpm check` | **25 条全绿** |
 | 类型 | `pnpm typecheck` | exit 0，0 错误 |
-| 构建 | `pnpm build` + `check:budget` | 首屏 **96.0KB gzip**、65 chunk 全 ≤130KB |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **96.0KB gzip**、66 chunk 全 ≤130KB |
 | 渲染门禁 | `pnpm check:render` | **31 用例全绿**（注册表每一屏都渲染得出且有页头标题） |
-| 双端冒烟 | `pnpm check:web-smoke` | **226/226**（原 217 + 空库自证 8 条 + 图标 1 条） |
+| 双端冒烟 | `pnpm check:web-smoke` | **227/227**（原 217 + 空库自证 8 条 + 图标 1 条 + 账号同源 1 条） |
+| 真机 | WSA 冷启动 | 重打包 `assembleDebug` + `adb install -r` 后应用正常启动、桥连到真后端；<br>**"恢复态账号名"这一条没能在 WSA 上截到图**（WSA 前台被抢 + WebView 恢复滚动位置），<br>该性质由冒烟里的"首页账号名 == 侧栏账号名"两条断言守住 |
 

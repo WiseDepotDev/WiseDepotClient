@@ -230,7 +230,31 @@ if (!loginReady) {
   const home = await waitFor(`document.querySelector('.w-home') ? document.querySelector('.w-home').innerText.slice(0, 600) : null`, 20_000);
   check('登录后进入主框架（应用中心）', home !== null);
   if (home) {
-    check('主框架显示真实会话账号', /admin/.test(home), home.replace(/\s+/g, ' ').slice(0, 80));
+    /*
+     * 账号名：判据是"**首页与侧栏是同一个**"，不是写死某个字符串。
+     *
+     * 原先两处各算一份（侧栏读 `user.current`、首页只看 `session.username`），于是冷启动恢复
+     * 登录态之后会出现"侧栏写着系统管理员、首页写着已登录" —— 同一个人两个说法。
+     * 写死字符串只会把某一处的实现固化下来，"两处一致"才是要守的性质。
+     */
+    const homeAccount = await cdp.evaluate(
+      `document.querySelector('.w-home__account')?.innerText.trim().replace(/\\s+/g, ' ') ?? ''`,
+      { awaitPromise: false },
+    );
+    const sidebarName = await cdp.evaluate(
+      `document.querySelector('.w-sidebar__account-name')?.innerText.trim() ?? ''`,
+      { awaitPromise: false },
+    );
+    check(
+      '首页账号行写出当前账号（退化成一句"已登录"就是丢了名字）',
+      /^当前账号：.+/.test(homeAccount) && !/当前账号：已登录/.test(homeAccount),
+      homeAccount.slice(0, 60),
+    );
+    check(
+      '首页与侧栏的账号名来自同一个出处',
+      sidebarName !== '' && homeAccount.includes(sidebarName),
+      `home="${homeAccount.slice(0, 40)}" sidebar="${sidebarName}"`,
+    );
     check(
       '应用中心按域分组（运营/库存/现场/管理）',
       ['运营', '库存', '现场', '管理'].every((d) => home.includes(d)),
