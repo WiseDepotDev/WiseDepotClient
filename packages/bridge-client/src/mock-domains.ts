@@ -54,9 +54,14 @@ interface Inventory {
 
 interface Tag {
   tagId: number;
-  barcode: string;
-  rfid: string;
-  nfcUid: string;
+  /**
+   * 三个标识字段**都可为空**：真后端 `tag.update` 的空白串语义就是"清空"（`isBlank() ? null : value`），
+   * 所以它们必须能被赋 `undefined` —— 本项目开着 `exactOptionalPropertyTypes`，
+   * 写法上要显式带上 `| undefined`（同下面 `productId` 那条注释的道理）。
+   */
+  barcode?: string | undefined;
+  rfid?: string | undefined;
+  nfcUid?: string | undefined;
   status: number;
   /**
    * 绑定信息。**显式写成 `| undefined`**：本项目开着 `exactOptionalPropertyTypes`，
@@ -754,18 +759,138 @@ export class DomainMock {
         }
         return {} as T;
       }
-      case 'tag.batchUnbind': {
-        const tagIds = Array.isArray(p['tagIds']) ? (p['tagIds'] as number[]) : [];
-        for (const t of this.tags) {
-          if (tagIds.includes(t.tagId)) {
-            t.status = 0;
-            t.productId = undefined;
-            t.productName = undefined;
-            t.productCode = undefined;
-            t.updateTime = nowIso();
+      /**
+       * **复刻服务端的"不可达"**，而不是"帮它实现一遍"。
+       *
+       * 2026-10-03 真后端实测（`tools/bench/inventory-tag-probe.mjs`）：
+       * `tag.batchUnbind` / `tag.batchQuery` 的服务端签名是 `@RequestBody List<…>`（整个 body 就是数组），
+       * 而网关的信封校验要求 body 是**对象**（`Envelope` 只收 `JsonObject`）——
+       * 于是两种形态都 400：`{tagIds:[…]}` → `VAL-REQUEST-1001`，裸数组 `[8]` → 同样 `VAL-REQUEST-1001`。
+       *
+       * 假桥原先**能正常批量解绑**，于是开发态一切正常、真机上怎么点都失败 ——
+       * 这正是"假桥比服务端聪明"那类偏差（本仓已在 `inventory.search` 与分页参数上各付过一次学费）。
+       * 所以这里如实抛同一个错：开发态就能看见"这条路走不通"，界面也就不会依赖它。
+       */
+      case 'tag.batchUnbind':
+      case 'tag.batchQuery':
+        throw new BridgeError({
+          code: 'VAL-REQUEST-1001',
+          messageKey: 'error.validation',
+          details: '请求体解析失败（服务端这两个端点收的是裸 JSON 数组，与信封结构不兼容 —— 见 mock-domains 里这段说明）',
+        });
+      /**
+       * 新建标签。**三个服务端事实逐条复刻**：
+       *   1. 带 `productId` 建出来的标签 `status` **仍是 0**（`TagApplicationService:80-95` 不按 productId 推导状态）——
+       *      表现为"有商品却显示未绑定"。界面因此不在新建表单里带商品，绑定统一走 `tag.bind`；
+       *   2. DTO 上一个校验注解都没有（所有校验在服务层，而服务层只查了必填标识）；
+       *   3. `status` 没有任何取值范围校验（`0/1/2` 只是注释）。
+       */
+      case 'tag.create': {
+        const barcode = typeof p['barcode'] === 'string' ? p['barcode'].trim() : '';
+        const nfcUid = typeof p['nfcUid'] === 'string' ? p['nfcUid'].trim() : '';
+        const rfid = typeof p['rfid'] === 'string' ? p['rfid'].trim() : '';
+        if (barcode === '' && nfcUid === '' && rfid === '') {
+          throw new BridgeError({ code: 'VAL-0001', messageKey: 'error.validation', details: '条形码、NFC 与 RFID 至少要填一个' });
+        }
+        const productId = id('productId');
+        const product = this.products.find((x) => x.productId === productId);
+        const created: Tag = {
+          tagId: this.next(),
+          barcode: barcode === '' ? undefined : barcode,
+          nfcUid: nfcUid === '' ? undefined : nfcUid,
+          rfid: rfid === '' ? undefined : rfid,
+          // 即使传了 productId，status 也是 0（见上面第 1 条）
+          status: typeof p['status'] === 'number' ? (p['status'] as number) : 0,
+          productId: product?.productId,
+          productName: product?.productName,
+          productCode: product?.productCode,
+          createTime: nowIso(),
+          updateTime: nowIso(),
+        };
+        this.tags.unshift(created);
+        return created as T;
+      }
+      /**
+       * 改标签。**空白串 = 清空**（`TagApplicationService:137,146,155` 用 `isBlank() ? null : value`），
+       * `null` / 字段缺省 = **保留**。
+       *
+       * 与 `product.update`（空白 = 保留原值）**相反**，与 `warehouse.update`（`!= null` 就写）同族。
+       * 界面上把输入框清空再提交，就真的把这个字段清了库 —— 所以表单必须预填当前值。
+       *
+       * `productId` 单独可改、`status` 单独可改，服务端**没有联动校验**（能造出"未绑定但已入库"这类失配，
+       * 简报 §6 坑 10）。界面因此不暴露这两个字段的编辑，绑定/解绑统一走 `tag.bind` / `tag.unbind`。
+       */
+      case 'tag.update': {
+        const row = this.tags.find((t) => t.tagId === id('tagId'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '标签不存在' });
+        }
+        for (const key of ['barcode', 'nfcUid', 'rfid'] as const) {
+          if (key in p) {
+            const raw = p[key];
+            if (raw === undefined || raw === null) continue; // 缺省 / null = 保留
+            const text = typeof raw === 'string' ? raw.trim() : '';
+            row[key] = text === '' ? undefined : text; // 空白串 = 清空
           }
         }
-        return {} as T;
+        if (typeof p['status'] === 'number') row.status = p['status'] as number;
+        if (typeof p['productId'] === 'number') {
+          const product = this.products.find((x) => x.productId === (p['productId'] as number));
+          row.productId = product?.productId;
+          row.productName = product?.productName;
+          row.productCode = product?.productCode;
+        }
+        row.updateTime = nowIso();
+        return row as T;
+      }
+      case 'tag.delete': {
+        const index = this.tags.findIndex((t) => t.tagId === id('tagId'));
+        if (index < 0) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '标签不存在' });
+        }
+        this.tags.splice(index, 1);
+        // 服务端成功时 `payload.data` 是 **null**（`TagController:73` 的 `success(null)`），不是 `{}`
+        return null as T;
+      }
+      /**
+       * 绑定：**`productId` 是 query 参数**（`TagController:139` `@RequestParam("productId")`，
+       * 契约里 `paramStyle: 'query'` 专门登记过）。按 body 传会得到
+       * 「缺少必需的请求参数: productId」——真后端实测过（`tools/bench/inventory-tag-probe.mjs`）。
+       *
+       * 服务端 SQL 强制把 `status` 覆写成 1（`TagRepository:192`），重复绑定是幂等的，
+       * 把已绑 A 的标签绑到 B 会**静默改嫁**。
+       */
+      case 'tag.bind': {
+        const row = this.tags.find((t) => t.tagId === id('tagId'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '标签不存在' });
+        }
+        const productId = id('productId');
+        if (productId === undefined) {
+          throw new BridgeError({ code: 'VAL-0001', messageKey: 'error.validation', details: '缺少必需的请求参数: productId' });
+        }
+        const product = this.products.find((x) => x.productId === productId);
+        if (!product) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '商品不存在' });
+        }
+        row.productId = product.productId;
+        row.productName = product.productName;
+        row.productCode = product.productCode;
+        row.status = 1; // 服务端强制覆写
+        row.updateTime = nowIso();
+        return row as T;
+      }
+      case 'tag.unbind': {
+        const row = this.tags.find((t) => t.tagId === id('tagId'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '标签不存在' });
+        }
+        row.productId = undefined;
+        row.productName = undefined;
+        row.productCode = undefined;
+        row.status = 0; // 服务端 SQL：SET product_id=NULL, status=0
+        row.updateTime = nowIso();
+        return row as T;
       }
 
       // ---- 出入库单 ----

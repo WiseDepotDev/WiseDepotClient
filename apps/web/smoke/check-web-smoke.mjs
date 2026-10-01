@@ -1423,6 +1423,130 @@ check(
   `${boundChips.join('/')} picked=${picked}`,
 );
 
+// ---- 批量解绑：服务端那个"批量"接口**调不通**，界面必须逐条发 tag.unbind ----
+await clearCalls();
+await cdp.evaluate(
+  `(() => {
+     const boxes = [...document.querySelectorAll('.el-table__body .el-checkbox input')];
+     boxes[1]?.click();
+     boxes[2]?.click();
+     return boxes.length;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(400);
+await clickByText('批量解绑（2）');
+await sleep(500);
+await clickByText('确认解绑');
+await sleep(1500);
+const unbindCalls = await callsWithPrefix('tag.unbind');
+const unbindCount = unbindCalls.split(' | ').filter((x) => x !== '').length;
+const batchUnbindCalls = await callsWithPrefix('tag.batchUnbind');
+check(
+  '批量解绑逐条发 tag.unbind（服务端的 tag.batchUnbind 两种 body 都 400，真后端实测）',
+  unbindCount === 2 && batchUnbindCalls === '',
+  `tag.unbind×${unbindCount} / batchUnbind="${batchUnbindCalls}"`,
+);
+const unbindNotice = await text('.w-inv-notice');
+check('批量解绑给出成功回执（做完没反应会让人重复点）', /已解绑 2 个标签/.test(unbindNotice), unbindNotice.slice(0, 30));
+
+// ---- 新建标签：至少一个标识；空字段不传（传空串在服务端是"写进去"）----
+const fillDialogInput = (title, index, value) =>
+  cdp.evaluate(
+    `(() => {
+       const visible = (el) => el.offsetParent !== null || el.getClientRects().length > 0;
+       const dlg = [...document.querySelectorAll('.el-dialog')].find(
+         (d) => d.querySelector('.el-dialog__title')?.innerText.trim() === ${JSON.stringify(title)} && visible(d),
+       );
+       const input = dlg ? [...dlg.querySelectorAll('.el-input__inner')][${index}] : null;
+       if (!input) return false;
+       const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
+       setter.call(input, ${JSON.stringify(value)});
+       input.dispatchEvent(new Event('input', { bubbles: true }));
+       return true;
+     })()`,
+    { awaitPromise: false },
+  );
+
+await clearCalls();
+await clickByText('新建标签');
+await sleep(500);
+await clickByText('创建标签');
+await sleep(300);
+check('新建标签要求至少填一个标识', /至少要填一个/.test(await text('.el-dialog .w-inv-error')), (await text('.el-dialog .w-inv-error')).slice(0, 40));
+await fillDialogInput('新建标签', 0, 'SMOKE-TAG-1');
+await sleep(200);
+await clickByText('创建标签');
+await sleep(1200);
+const createCalls = await callsWithPrefix('tag.create');
+check('新建标签真的调了 tag.create 且带上了条码', createCalls.includes('SMOKE-TAG-1'), createCalls.slice(0, 80));
+check('新建标签给出回执', /标签已创建/.test(await text('.w-inv-notice')), (await text('.w-inv-notice')).slice(0, 40));
+
+// ---- 标签详情：绑定 / 改标识 / 删除，**且不能用重取复核**（服务端 getTag 有缓存、写操作不失效它）----
+await cdp.evaluate(`(location.hash = '#/inventory/tags')`, { awaitPromise: false });
+await sleep(600);
+await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!row;
+   })()`,
+  { awaitPromise: false },
+);
+await waitFor(`document.querySelector('.w-page-header__title') && location.hash.includes('/inventory/tags/') ? true : null`, 20_000, 200);
+await sleep(600);
+
+await clickByText('绑定商品');
+await sleep(600);
+await cdp.evaluate(
+  `(() => {
+     const wrapper = document.querySelector('.el-dialog .el-select__wrapper');
+     wrapper?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!wrapper;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(500);
+await cdp.evaluate(
+  `(() => {
+     const opt = document.querySelector('.el-select-dropdown__item');
+     opt?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!opt;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(300);
+await clickByText('确认绑定');
+await sleep(1200);
+const bindNotice = await text('.w-tag-notice');
+check('详情绑定给出回执', /已绑定/.test(bindNotice), bindNotice.slice(0, 40));
+/*
+ * 这条是本批的关键：服务端 `getTag` 带 `@Cacheable(1800)`，而 bind/unbind/update/delete
+ * 都**没有** `@CacheEvict` —— 写成功后若 `reload()`，拿回来的是**旧值**，界面会一秒钟把刚写的抹回去。
+ * 所以断言"状态立刻变了"，钉住"用写操作的响应更新显示"这个做法。
+ */
+const statusAfterBind = await text('.w-page-header .w-chip');
+check('绑定后状态**立刻**变成已绑定（用写操作的响应，不等缓存过期）', /已绑定/.test(statusAfterBind), statusAfterBind);
+
+await clickByText('改标识');
+await sleep(600);
+await fillDialogInput('修改标签标识', 0, 'SMOKE-BC-9');
+await sleep(200);
+await clickByText('保存');
+await sleep(1200);
+const kvAfterEdit = await text('.w-card');
+check('改标识后立刻显示新条码（同理：不吃服务端那份旧缓存）', /SMOKE-BC-9/.test(kvAfterEdit), kvAfterEdit.replace(/\s+/g, ' ').slice(0, 70));
+
+const beforeDelete = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, {
+  awaitPromise: false,
+});
+await clickByText('删除标签');
+await sleep(600);
+const deleteClicked = await clickByText('确认删除');
+await sleep(1500);
+const afterDeleteHash = await cdp.evaluate('location.hash', { awaitPromise: false });
+check('删除后回到标签列表（列表走的是另一条读路径，能看到真实结果）', deleteClicked === true && afterDeleteHash === '#/inventory/tags', `${deleteClicked} / ${afterDeleteHash} / before=${beforeDelete}`);
+
 // ---- 出入库单：状态机 ----
 await cdp.evaluate(`(location.hash = '#/inventory/stock-orders')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '出入库单' ? true : null`, 20_000, 200);

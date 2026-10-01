@@ -90,6 +90,17 @@ for (const file of files) {
         problems += 1;
       }
     }
+    /*
+     * Markdown 的 `**` 在 HTML 里不会加粗，会**原样显示**成两个星号。
+     *
+     * 本仓的注释与简报里大量用 `**强调**`，把它抄进用户可见文案非常容易漏 ——
+     * 本轮就漏过两次（标签详情的弹窗提示、以及一处早就存在的设备详情说明），
+     * 都是用户会直接看到 `**只能查看**` 这种字样。所以在这里拦住。
+     */
+    if (text.includes('**')) {
+      console.error(`✗ ${rel} 文案里出现 Markdown 的 **（会被原样显示）：「${text.slice(0, 60)}」`);
+      problems += 1;
+    }
     for (const id of contractIds) {
       if (text.includes(id)) {
         console.error(`✗ ${rel} 文案里出现桥方法 id「${id}」—— 业务用户不该看到技术术语`);

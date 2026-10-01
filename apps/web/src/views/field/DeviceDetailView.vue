@@ -162,7 +162,7 @@ const paramItems = computed<KeyValueItem[]>(() => {
 
       <SectionBlock title="运行参数（只读）">
         <div class="w-card">
-          <p class="w-device-hint">这些参数在客户端**只能查看**：调整要由设备侧完成。</p>
+          <p class="w-device-hint">这些参数在客户端只能查看：调整要由设备侧完成。</p>
           <KeyValuePanel :items="paramItems" />
         </div>
       </SectionBlock>

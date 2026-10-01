@@ -245,6 +245,72 @@ try {
     check('再删同一条 → RES-0004「明细不存在」', removeGhost.ok === false && removeGhost.details.includes('明细不存在'));
     check('种子那条 tag 1 没被误删', call(mock, 'stockOrder.detail', { orderId: 8001 }).value.items.some((x) => x.tagId === 1));
   }
+
+  // ---- 8. 标签读写：**假桥必须和服务端一样笨**（这几条的判据全部来自真后端实测） ----
+  {
+    const mock = new DomainMock();
+
+    // 8.1 batchUnbind / batchQuery 在真后端上结构性不可达（两种 body 形态都 400）——
+    //     假桥原先能正常批量解绑，于是开发态一切正常、真机上怎么点都失败。
+    const batchUnbind = call(mock, 'tag.batchUnbind', { tagIds: [1] });
+    check(
+      '假桥复刻 tag.batchUnbind 的不可达（服务端要裸数组、网关要信封 → 两态都 400）',
+      batchUnbind.ok === false && batchUnbind.code === 'VAL-REQUEST-1001',
+      JSON.stringify(batchUnbind).slice(0, 120),
+    );
+    const batchQuery = call(mock, 'tag.batchQuery', { barcodes: ['X'] });
+    check('tag.batchQuery 同族，同样不可达', batchQuery.ok === false && batchQuery.code === 'VAL-REQUEST-1001', JSON.stringify(batchQuery).slice(0, 120));
+
+    // 8.2 新建：三个标识至少一个；**带 productId 时 status 仍是 0**（服务端不按商品推导状态）
+    // 用**假桥里真实存在的第一个 productId**：写死 7 是不行的（真后端首个商品恰好是 7，假桥不是）——
+    // 这次一开始就是写死了 7，`tag.bind` 因"商品不存在"失败，而断言 detail 写的是
+    // `JSON.stringify(bound.value ?? {})`，失败分支只打印出一个 `{}`，看不出真因。
+    const PRODUCT_ID = call(mock, 'product.list', { page: 1, pageSize: 1 }).value.rows[0].productId;
+    const empty = call(mock, 'tag.create', {});
+    check('三个标识全空 → 拒绝', empty.ok === false, JSON.stringify(empty).slice(0, 120));
+    const created = call(mock, 'tag.create', { barcode: 'T-CHECK-1', productId: PRODUCT_ID });
+    check('新建标签成功并回 DTO', created.ok === true && typeof created.value?.tagId === 'number', JSON.stringify(created).slice(0, 140));
+    check(
+      '带 productId 建出来的标签 status 仍是 0（"有商品却显示未绑定"的根源）',
+      created.value?.status === 0,
+      `status=${created.value?.status}`,
+    );
+    const newId = created.value.tagId;
+
+    // 8.3 绑定：productId 是查询参数；绑定后 status 被服务端**强制覆写**成 1
+    const bindNoProduct = call(mock, 'tag.bind', { tagId: newId });
+    check('tag.bind 缺 productId → 报"缺少必需的请求参数"', bindNoProduct.ok === false && bindNoProduct.details.includes('productId'), bindNoProduct.details);
+    const bound = call(mock, 'tag.bind', { tagId: newId, productId: PRODUCT_ID });
+    check(
+      '绑定成功且 status 被覆写为 1',
+      bound.ok === true && bound.value?.status === 1,
+      bound.ok ? JSON.stringify(bound.value ?? {}).slice(0, 120) : `失败 ${bound.code} ${bound.details}`,
+    );
+
+    // 8.4 改标识：**空白串 = 清空**（与 product.update 的"空白=保留"相反）
+    const blanked = call(mock, 'tag.update', { tagId: newId, barcode: '' });
+    check(
+      'tag.update 的空白串 = 清空（不是"保留原值"）',
+      blanked.ok === true && (blanked.value?.barcode === undefined || blanked.value?.barcode === null),
+      `barcode=${JSON.stringify(blanked.value?.barcode)}`,
+    );
+    const kept = call(mock, 'tag.update', { tagId: newId, rfid: 'RFID-CHECK' });
+    check('没传的字段保留原值（缺省 = 保留）', kept.ok === true && kept.value?.nfcUid === undefined, JSON.stringify(kept.value ?? {}).slice(0, 120));
+
+    // 8.5 解绑：清 productId 并打回 status 0
+    const unbound = call(mock, 'tag.unbind', { tagId: newId });
+    check(
+      '解绑后 productId 清空、status 回 0',
+      unbound.ok === true && (unbound.value?.productId ?? null) === null && unbound.value?.status === 0,
+      JSON.stringify(unbound.value ?? {}).slice(0, 120),
+    );
+
+    // 8.6 删除：成功时 payload.data 是 **null**（不是 {}）——别拿"拿到对象"当成功判据
+    const deleted = call(mock, 'tag.delete', { tagId: newId });
+    check('删除成功且 data 为 null（服务端是 success(null)）', deleted.ok === true && deleted.value === null, JSON.stringify(deleted).slice(0, 120));
+    const gone = call(mock, 'tag.detail', { tagId: newId });
+    check('删掉的标签查不到了（假桥的 detail 有兜底，所以这里只要求找不到刚建的那条）', gone.value?.tagId !== newId, JSON.stringify(gone.value ?? {}).slice(0, 120));
+  }
 } catch (error) {
   console.error(`✗ 护栏执行失败：${error?.stack ?? error}`);
   process.exit(1);
