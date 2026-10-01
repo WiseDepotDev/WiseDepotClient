@@ -32,7 +32,7 @@ const CLIENT_ROOT = path.resolve(GEN_DIR, '..', '..');
 const WORKSPACE_ROOT = path.resolve(CLIENT_ROOT, '..');
 const LEGACY_ROOT = path.join(WORKSPACE_ROOT, '.archive', 'wise-depot-android-refactor');
 const CONTRACT_TS = path.join(CLIENT_ROOT, 'packages', 'contract', 'src', 'generated', 'bridgeContract.ts');
-const REGISTRY_TS = path.join(CLIENT_ROOT, 'packages', 'features', 'src', 'registry.tsx');
+const REGISTRY_TS = path.join(CLIENT_ROOT, 'apps', 'web', 'src', 'views', 'registry.ts');
 const OVERLAY_JSON = path.join(CLIENT_ROOT, 'tools', 'gen', 'bridge-overlay.json');
 const OUT = path.join(CLIENT_ROOT, 'docs', 'feature-parity.md');
 
@@ -122,7 +122,7 @@ function readBridgeMethods() {
 }
 
 /**
- * registry.tsx 里**已登记**的桥方法 id —— 迁移状态的唯一判据。
+ * `apps/web/src/views/registry.ts` 里**已登记**的桥方法 id —— 迁移状态的唯一判据。
  *
  * 为什么读源码而不是读一份手写的进度表：手写表会和代码漂移，
  * 而漂移的方向永远是"文档说迁完了、代码还没接"。读注册表则相反：
@@ -133,12 +133,13 @@ function readRegistryMethods() {
         throw new Error(`找不到屏注册表：${REGISTRY_TS}`);
     }
     const text = fs.readFileSync(REGISTRY_TS, 'utf8');
-    const at = text.indexOf('const REGISTRY');
+    const at = text.indexOf('SCREEN_REGISTRY');
     if (at < 0) {
-        throw new Error('registry.tsx 里找不到 `const REGISTRY` 声明，生成器需要同步更新。');
+        throw new Error('registry.ts 里找不到 `SCREEN_REGISTRY` 声明，生成器需要同步更新。');
     }
     const body = text.slice(at);
-    return new Set([...body.matchAll(/^\s*'([^']+)':\s*[\w.]+,\s*$/gm)].map((m) => m[1]));
+    // Vue 注册表每一行长这样：`'message.list': () => import('./me/MessageListView.vue'),`
+    return new Set([...body.matchAll(/^\s*'([^']+)':\s*\(\)\s*=>/gm)].map((m) => m[1]));
 }
 
 /**
@@ -150,39 +151,39 @@ function readRegistryMethods() {
  * **不允许留空**：留空等于"忘了"，而忘了正是这份清单要防的事。
  */
 const LEGACY_SCREEN_MAP = {
-    'AlertDetailScreen.kt': { file: 'overview/AlertDetailScreen.tsx', methods: ['alert.detail'] },
-    'AlertListScreen.kt': { file: 'overview/AlertListScreen.tsx', methods: ['alert.list'] },
+    'AlertDetailScreen.kt': { file: 'overview/AlertDetailView.vue', methods: ['alert.detail'] },
+    'AlertListScreen.kt': { file: 'overview/AlertListView.vue', methods: ['alert.list'] },
     'CameraScanScreen.kt': { note: '壳能力（相机 + 解码在原生侧），不映射桥方法' },
-    'CreateInspectionTaskScreen.kt': { file: 'field/InspectionTaskCreateScreen.tsx', methods: ['inspection.taskCreate'] },
-    'DashboardScreen.kt': { file: 'overview/DashboardScreen.tsx', methods: ['dashboard.summary'] },
-    'DeviceDetailScreen.kt': { file: 'field/DeviceDetailScreen.tsx', methods: ['device.detail'] },
-    'DeviceListScreen.kt': { file: 'field/DeviceListScreen.tsx', methods: ['device.list'] },
-    'InspectionDetailScreen.kt': { file: 'field/InspectionTaskDetailScreen.tsx', methods: ['inspection.taskDetail'] },
-    'InspectionListScreen.kt': { file: 'field/InspectionTaskListScreen.tsx', methods: ['inspection.taskList'] },
-    'InventoryDetailScreen.kt': { file: 'inventory/InventoryDetailScreen.tsx', methods: ['inventory.detail'] },
-    'InventoryManagementScreen.kt': { file: 'inventory/InventoryListScreen.tsx', methods: ['inventory.list'] },
-    'InventoryScreen.kt': { file: 'inventory/InventoryListScreen.tsx', methods: ['inventory.list'] },
-    'InventorySearchScreen.kt': { file: 'inventory/InventoryListScreen.tsx', methods: ['inventory.search'] },
+    'CreateInspectionTaskScreen.kt': { file: 'field/InspectionTaskCreateView.vue', methods: ['inspection.taskCreate'] },
+    'DashboardScreen.kt': { file: 'overview/DashboardView.vue', methods: ['dashboard.summary'] },
+    'DeviceDetailScreen.kt': { file: 'field/DeviceDetailView.vue', methods: ['device.detail'] },
+    'DeviceListScreen.kt': { file: 'field/DeviceListView.vue', methods: ['device.list'] },
+    'InspectionDetailScreen.kt': { file: 'field/InspectionTaskDetailView.vue', methods: ['inspection.taskDetail'] },
+    'InspectionListScreen.kt': { file: 'field/InspectionTaskListView.vue', methods: ['inspection.taskList'] },
+    'InventoryDetailScreen.kt': { file: 'inventory/InventoryDetailView.vue', methods: ['inventory.detail'] },
+    'InventoryManagementScreen.kt': { file: 'inventory/InventoryListView.vue', methods: ['inventory.list'] },
+    'InventoryScreen.kt': { file: 'inventory/InventoryListView.vue', methods: ['inventory.list'] },
+    'InventorySearchScreen.kt': { file: 'inventory/InventoryListView.vue', methods: ['inventory.search'] },
     'LoginScreen.kt': {
-        file: 'auth/LoginScreen.tsx',
+        file: 'auth/LoginView.vue',
         methods: [],
-        outside: '登录屏不是可导航目的地，由 App.tsx 的会话闸门直接渲染，因此不登记在屏注册表里',
+        outside: '登录屏不是可导航目的地，由 App.vue 的会话闸门直接渲染，因此不登记在屏注册表里',
     },
-    'MainScreen.kt': { note: '被 AppFrame / MobileShell / DesktopShell 取代（壳不再是一个屏）' },
-    'ManualRecordScreen.kt': { file: 'field/InspectionManualRecordScreen.tsx', methods: ['inspection.manualRecord'] },
-    'MessageDetailScreen.kt': { file: 'me/MessageDetailScreen.tsx', methods: ['message.detail'] },
-    'MessageListScreen.kt': { file: 'me/MessageListScreen.tsx', methods: ['message.list'] },
+    'MainScreen.kt': { note: '被 AppFrame.vue 的桌面/手机两套布局取代（壳不再是一个屏）' },
+    'ManualRecordScreen.kt': { file: 'field/InspectionManualRecordView.vue', methods: ['inspection.manualRecord'] },
+    'MessageDetailScreen.kt': { file: 'me/MessageDetailView.vue', methods: ['message.detail'] },
+    'MessageListScreen.kt': { file: 'me/MessageListView.vue', methods: ['message.list'] },
     'NfcLoginScreen.kt': { note: '壳能力（NFC 读取在原生侧），不映射桥方法' },
-    'ProductManagementScreen.kt': { file: 'inventory/ProductListScreen.tsx', methods: ['product.list'] },
-    'ProfileScreen.kt': { file: 'me/ProfileScreen.tsx', methods: ['profile.get'] },
+    'ProductManagementScreen.kt': { file: 'inventory/ProductListView.vue', methods: ['product.list'] },
+    'ProfileScreen.kt': { file: 'me/ProfileView.vue', methods: ['profile.get'] },
     'SkeletonScreen.kt': { note: '被 ListStateHost 四态（加载/错误/空/有数据）取代' },
-    'StockOrderCreateScreen.kt': { file: 'inventory/StockOrderCreateScreen.tsx', methods: ['stockOrder.create'] },
-    'StockOrderDetailScreen.kt': { file: 'inventory/StockOrderDetailScreen.tsx', methods: ['stockOrder.detail'] },
-    'StockOrderListScreen.kt': { file: 'inventory/StockOrderListScreen.tsx', methods: ['stockOrder.list'] },
-    'TagDetailScreen.kt': { file: 'inventory/TagDetailScreen.tsx', methods: ['tag.detail'] },
-    'TagManagementScreen.kt': { file: 'inventory/TagListScreen.tsx', methods: ['tag.list'] },
-    'UserManagementScreen.kt': { file: 'me/UserListScreen.tsx', methods: ['user.list'] },
-    'WarehouseManagementScreen.kt': { file: 'inventory/WarehouseListScreen.tsx', methods: ['warehouse.list'] },
+    'StockOrderCreateScreen.kt': { file: 'inventory/StockOrderCreateView.vue', methods: ['stockOrder.create'] },
+    'StockOrderDetailScreen.kt': { file: 'inventory/StockOrderDetailView.vue', methods: ['stockOrder.detail'] },
+    'StockOrderListScreen.kt': { file: 'inventory/StockOrderListView.vue', methods: ['stockOrder.list'] },
+    'TagDetailScreen.kt': { file: 'inventory/TagDetailView.vue', methods: ['tag.detail'] },
+    'TagManagementScreen.kt': { file: 'inventory/TagListView.vue', methods: ['tag.list'] },
+    'UserManagementScreen.kt': { file: 'me/UserListView.vue', methods: ['user.list'] },
+    'WarehouseManagementScreen.kt': { file: 'inventory/WarehouseListView.vue', methods: ['warehouse.list'] },
 };
 
 /** 旧路由 id → 它落到的桥方法（19 条扁平目的地，覆盖必须完整）。 */
@@ -253,7 +254,7 @@ function render() {
     push('');
     push('> **本文件由 ' + code('tools/gen/gen-feature-parity.js') + ' 生成，禁止手改。**');
     push('> 重跑：' + code('pnpm gen:parity') + '；校验：' + code('pnpm gen:parity --check') + '。');
-    push('> 「迁移状态」**不是人回填的**：它由 ' + code('packages/features/src/registry.tsx') +
+    push('> 「迁移状态」**不是人回填的**：它由 ' + code('apps/web/src/views/registry.ts') +
         ' 里已登记的桥方法机械推导。接一屏，状态自己变；没接，就一直显示缺口。');
     push('');
     push('## 0. 口径与来源');

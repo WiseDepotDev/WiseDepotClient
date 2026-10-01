@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import react from '@vitejs/plugin-react';
 import ElementPlus from 'unplugin-element-plus/vite';
 
 /**
@@ -19,13 +18,12 @@ import ElementPlus from 'unplugin-element-plus/vite';
  * 3. **路由级懒加载是硬要求**：每个域路由 `() => import()`，
  *    `check:budget` 按"首屏 ≤150KB gzip / 单路由 chunk ≤130KB gzip"卡。
  *
- * React 插件在 V1 期间保留（旧屏还在树上做对照），V6 删除。
+ * V6：React 插件与 `vendor-react` 分包规则已随 React 旧屏一起删除（回滚点 tag `v0-react-freeze`）。
  */
 export default defineConfig({
   base: './',
   plugins: [
     vue(),
-    react(),
     /*
      * Element Plus 的按需样式：把 `import { ElButton } from 'element-plus'`
      * 自动补成同时 import 该组件的 CSS。
@@ -60,9 +58,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: (id) => {
-          if (id.includes('node_modules/react')) {
-            return 'vendor-react';
-          }
           if (
             id.includes('node_modules/vue/') ||
             id.includes('node_modules/@vue/') ||

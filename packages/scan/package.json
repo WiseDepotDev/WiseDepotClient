@@ -9,11 +9,5 @@
   "exports": {
     ".": "./src/index.ts",
     "./assembler": "./src/assembler.ts"
-  },
-  "peerDependencies": {
-    "react": "^19.0.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.1.0"
   }
 }

@@ -46,7 +46,13 @@ const SERVER = path.join(
     CLIENT_ROOT, 'bridge', 'server', 'src', 'main', 'kotlin', 'com', 'huicang', 'wise', 'bridge', 'server', 'BridgeServer.kt',
 );
 const TS_TYPES = path.join(CLIENT_ROOT, 'packages', 'bridge-client', 'src', 'types.ts');
-const TS_SESSION = path.join(CLIENT_ROOT, 'packages', 'features', 'src', 'session.ts');
+/*
+ * V6：这两个"界面侧拥有者"改指 Vue 侧 ——
+ *   · 会话订阅：`packages/stores/src/session.ts`（React 版那份已随 packages/features 删除）
+ *   · 错误码转人话：`packages/stores/src/dto.ts` 的 `humanize`（"码 → 人话"的唯一拥有者）
+ * 断言的内容一字未改：换的是**载体**，不是标准。
+ */
+const TS_SESSION = path.join(CLIENT_ROOT, 'packages', 'stores', 'src', 'session.ts');
 
 let failures = 0;
 let total = 0;
@@ -113,8 +119,12 @@ check(
 
 check(
     '订阅后走的是 reload（重新问 bridge.session，而不是自己推断登录态）',
-    // 回调里带括号（`() => reload()`），所以不能止于第一个 `)`
-    /subscribe\(BRIDGE_EVENT_SESSION_EXPIRED\s*,\s*\([^)]*\)\s*=>\s*reload\(\)/.test(tsSession),
+    /*
+     * 判据是"回调里真的调了 reload()"，**不是**"用了哪种写法"：
+     * 表达式体 `() => reload()` 与块体 `() => { void reload(); }` 行为等价，
+     * 而旧正则只认表达式体 —— 那是把"形式"当成了"责任"（V6 改指 Vue 侧时踩到，Vue 版用的正是块体）。
+     */
+    /subscribe\(\s*BRIDGE_EVENT_SESSION_EXPIRED[\s\S]{0,200}?\breload\(\)/.test(tsSession),
     '登录判定的唯一来源是 bridge.session，前端不该自己推断',
 );
 
@@ -128,7 +138,7 @@ check(
  * 判据落在 `humanize` 这一处（错误码 → 人话的**唯一**拥有者），
  * 不去扫注释：注释里写清楚故障经过是**好事**，不该被门禁禁止。
  */
-const HUMANIZE = path.join(CLIENT_ROOT, 'packages', 'features', 'src', 'shared', 'api.ts');
+const HUMANIZE = path.join(CLIENT_ROOT, 'packages', 'stores', 'src', 'dto.ts');
 const humanize = readFileSync(HUMANIZE, 'utf8');
 
 check(

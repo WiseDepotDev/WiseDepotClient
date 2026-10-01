@@ -2,7 +2,7 @@
 
 > **本文件由 `tools/gen/gen-feature-parity.js` 生成，禁止手改。**
 > 重跑：`pnpm gen:parity`；校验：`pnpm gen:parity --check`。
-> 「迁移状态」**不是人回填的**：它由 `packages/features/src/registry.tsx` 里已登记的桥方法机械推导。接一屏，状态自己变；没接，就一直显示缺口。
+> 「迁移状态」**不是人回填的**：它由 `apps/web/src/views/registry.ts` 里已登记的桥方法机械推导。接一屏，状态自己变；没接，就一直显示缺口。
 
 ## 0. 口径与来源
 
@@ -18,35 +18,35 @@
 
 | # | 屏文件 | 行数 | 新域 | 迁移状态 |
 | --- | --- | --- | --- | --- |
-| 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 已迁 · `overview/AlertDetailScreen.tsx` |
-| 2 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertListScreen.kt` | 317 | overview | 已迁 · `overview/AlertListScreen.tsx` |
+| 1 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertDetailScreen.kt` | 211 | overview | 已迁 · `overview/AlertDetailView.vue` |
+| 2 | `feature/alert/src/main/java/com/huicang/wise/ui/alert/AlertListScreen.kt` | 317 | overview | 已迁 · `overview/AlertListView.vue` |
 | 3 | `core/ui/src/main/java/com/huicang/wise/ui/camera/CameraScanScreen.kt` | 255 | **待归类** | 壳能力（相机 + 解码在原生侧），不映射桥方法 |
-| 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 已迁 · `field/InspectionTaskCreateScreen.tsx` |
-| 5 | `feature/dashboard/src/main/java/com/huicang/wise/ui/dashboard/DashboardScreen.kt` | 116 | overview | 已迁 · `overview/DashboardScreen.tsx` |
-| 6 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceDetailScreen.kt` | 251 | field | 已迁 · `field/DeviceDetailScreen.tsx` |
-| 7 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceListScreen.kt` | 211 | field | 已迁 · `field/DeviceListScreen.tsx` |
-| 8 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionDetailScreen.kt` | 402 | field | 已迁 · `field/InspectionTaskDetailScreen.tsx` |
-| 9 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionListScreen.kt` | 276 | field | 已迁 · `field/InspectionTaskListScreen.tsx` |
-| 10 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryDetailScreen.kt` | 195 | inventory | 已迁 · `inventory/InventoryDetailScreen.tsx` |
-| 11 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryManagementScreen.kt` | 331 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
-| 12 | `app/src/main/java/com/huicang/wise/ui/main/InventoryScreen.kt` | 234 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
-| 13 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventorySearchScreen.kt` | 272 | inventory | 已迁 · `inventory/InventoryListScreen.tsx` |
-| 14 | `feature/auth/src/main/java/com/huicang/wise/ui/login/LoginScreen.kt` | 273 | system（登录不在一级域内） | 已迁 · `auth/LoginScreen.tsx`（登录屏不是可导航目的地，由 App.tsx 的会话闸门直接渲染，因此不登记在屏注册表里） |
-| 15 | `app/src/main/java/com/huicang/wise/ui/main/MainScreen.kt` | 277 | **待归类** | 被 AppFrame / MobileShell / DesktopShell 取代（壳不再是一个屏） |
-| 16 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/ManualRecordScreen.kt` | 267 | **待归类** | 已迁 · `field/InspectionManualRecordScreen.tsx` |
-| 17 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageDetailScreen.kt` | 337 | me | 已迁 · `me/MessageDetailScreen.tsx` |
-| 18 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageListScreen.kt` | 396 | me | 已迁 · `me/MessageListScreen.tsx` |
+| 4 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/CreateInspectionTaskScreen.kt` | 306 | **待归类** | 已迁 · `field/InspectionTaskCreateView.vue` |
+| 5 | `feature/dashboard/src/main/java/com/huicang/wise/ui/dashboard/DashboardScreen.kt` | 116 | overview | 已迁 · `overview/DashboardView.vue` |
+| 6 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceDetailScreen.kt` | 251 | field | 已迁 · `field/DeviceDetailView.vue` |
+| 7 | `feature/device/src/main/java/com/huicang/wise/ui/device/DeviceListScreen.kt` | 211 | field | 已迁 · `field/DeviceListView.vue` |
+| 8 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionDetailScreen.kt` | 402 | field | 已迁 · `field/InspectionTaskDetailView.vue` |
+| 9 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/InspectionListScreen.kt` | 276 | field | 待迁（需 `inspection.taskList`） |
+| 10 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryDetailScreen.kt` | 195 | inventory | 已迁 · `inventory/InventoryDetailView.vue` |
+| 11 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventoryManagementScreen.kt` | 331 | inventory | 已迁 · `inventory/InventoryListView.vue` |
+| 12 | `app/src/main/java/com/huicang/wise/ui/main/InventoryScreen.kt` | 234 | inventory | 已迁 · `inventory/InventoryListView.vue` |
+| 13 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/InventorySearchScreen.kt` | 272 | inventory | 待迁（需 `inventory.search`） |
+| 14 | `feature/auth/src/main/java/com/huicang/wise/ui/login/LoginScreen.kt` | 273 | system（登录不在一级域内） | 已迁 · `auth/LoginView.vue`（登录屏不是可导航目的地，由 App.vue 的会话闸门直接渲染，因此不登记在屏注册表里） |
+| 15 | `app/src/main/java/com/huicang/wise/ui/main/MainScreen.kt` | 277 | **待归类** | 被 AppFrame.vue 的桌面/手机两套布局取代（壳不再是一个屏） |
+| 16 | `feature/inspection/src/main/java/com/huicang/wise/ui/inspection/ManualRecordScreen.kt` | 267 | **待归类** | 已迁 · `field/InspectionManualRecordView.vue` |
+| 17 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageDetailScreen.kt` | 337 | me | 已迁 · `me/MessageDetailView.vue` |
+| 18 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageListScreen.kt` | 396 | me | 已迁 · `me/MessageListView.vue` |
 | 19 | `feature/auth/src/main/java/com/huicang/wise/ui/nfc/NfcLoginScreen.kt` | 235 | system（登录不在一级域内） | 壳能力（NFC 读取在原生侧），不映射桥方法 |
-| 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 已迁 · `inventory/ProductListScreen.tsx` |
-| 21 | `feature/user/src/main/java/com/huicang/wise/ui/user/ProfileScreen.kt` | 363 | me | 已迁 · `me/ProfileScreen.tsx` |
+| 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 已迁 · `inventory/ProductListView.vue` |
+| 21 | `feature/user/src/main/java/com/huicang/wise/ui/user/ProfileScreen.kt` | 363 | me | 已迁 · `me/ProfileView.vue` |
 | 22 | `core/ui/src/main/java/com/huicang/wise/ui/components/SkeletonScreen.kt` | 200 | **待归类** | 被 ListStateHost 四态（加载/错误/空/有数据）取代 |
-| 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 已迁 · `inventory/StockOrderCreateScreen.tsx` |
-| 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 已迁 · `inventory/StockOrderDetailScreen.tsx` |
-| 25 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderListScreen.kt` | 252 | inventory | 已迁 · `inventory/StockOrderListScreen.tsx` |
-| 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 已迁 · `inventory/TagDetailScreen.tsx` |
-| 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 已迁 · `inventory/TagListScreen.tsx` |
-| 28 | `feature/user/src/main/java/com/huicang/wise/ui/user/UserManagementScreen.kt` | 219 | me | 已迁 · `me/UserListScreen.tsx` |
-| 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 已迁 · `inventory/WarehouseListScreen.tsx` |
+| 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 已迁 · `inventory/StockOrderCreateView.vue` |
+| 24 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderDetailScreen.kt` | 423 | inventory | 已迁 · `inventory/StockOrderDetailView.vue` |
+| 25 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderListScreen.kt` | 252 | inventory | 已迁 · `inventory/StockOrderListView.vue` |
+| 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 已迁 · `inventory/TagDetailView.vue` |
+| 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 已迁 · `inventory/TagListView.vue` |
+| 28 | `feature/user/src/main/java/com/huicang/wise/ui/user/UserManagementScreen.kt` | 219 | me | 已迁 · `me/UserListView.vue` |
+| 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 已迁 · `inventory/WarehouseListView.vue` |
 
 ## 2. 旧路由目录（AppRoute.kt）
 
@@ -58,11 +58,11 @@
 | 4 | `device/list` | field | 已迁 · （未填新屏路径） |
 | 5 | `inspection/create` | field | 已迁 · （未填新屏路径） |
 | 6 | `inspection/detail` | field | 已迁 · （未填新屏路径） |
-| 7 | `inspection/list` | field | 已迁 · （未填新屏路径） |
+| 7 | `inspection/list` | field | 待迁（需 `inspection.taskList`） |
 | 8 | `inventory/detail` | inventory | 已迁 · （未填新屏路径） |
 | 9 | `inventory/management` | inventory | 已迁 · （未填新屏路径） |
 | 10 | `inventory/product` | inventory | 已迁 · （未填新屏路径） |
-| 11 | `inventory/search` | inventory | 已迁 · （未填新屏路径） |
+| 11 | `inventory/search` | inventory | 待迁（需 `inventory.search`） |
 | 12 | `inventory/tag` | inventory | 已迁 · （未填新屏路径） |
 | 13 | `message/detail` | me | 已迁 · （未填新屏路径） |
 | 14 | `message/list` | me | 已迁 · （未填新屏路径） |
@@ -330,11 +330,11 @@
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 25 |
+| ├ 已迁（依赖的桥方法全部已登记） | 23 |
 | ├ 部分迁（新屏在了，但还有方法没接） | 0 |
-| ├ 待迁（一个方法都没接） | 0 |
+| ├ 待迁（一个方法都没接） | 2 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
-| 旧路由已覆盖 | 19 / 19 |
-| 已登记屏（registry 条目数） | 34 |
+| 旧路由已覆盖 | 17 / 19 |
+| 已登记屏（registry 条目数） | 28 |
 
 ✓ 每一块旧屏都在 `LEGACY_SCREEN_MAP` 里有归宿（含"无对应物"的说明），无遗漏。

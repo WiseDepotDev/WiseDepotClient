@@ -79,29 +79,18 @@ for (const file of walk(UI_ROOT)) {
   }
 }
 
-/**
- * 迁移期的**副本不许漂移**。
+/*
+ * V6 收口：「两份副本不许漂移」这条规则**已退役**（不是被删掉，而是它守的对象没有了）。
  *
- * `stockOrderState.ts` / `inspectionState.ts` 是纯业务规则（类型/状态归一化 + 状态流转），没有框架依赖，
- * 所以 Vue 版是**逐字节拷贝**过来的。两份并存期间，任何一方被改动而另一方没跟上，
- * 就会出现"同一个单据/任务在两个壳里状态不一样"—— 而 `check:stockorder` 只盯着 React 那份。
- * 这里把它们钉成一致；React 版删除（V6）后这条自动失效。
+ * 迁移期 `stockOrderState.ts` / `inspectionState.ts` 在 React 与 Vue 各存一份（纯规则、无框架依赖），
+ * 靠逐字节比对防止"同一个单据/任务在两个壳里判定不一样"。React 版已删（回滚点 tag `v0-react-freeze`），
+ * **唯一所有者是 `apps/web/src/views/**` 那一份**，由 `check:stockorder` / `check:state` 直接测。
+ *
+ * 为什么不留着：留着的话两侧文件少一边时循环会 `continue` ——
+ * 那是一条**永远绿的假门禁**，比没有更糟（它会让人以为"副本一致性"还被守着）。
+ * 将来若又出现第二份副本，正确做法是重新写一条**会在不一致时失败**的比对，
+ * 而不是把这段恢复回来（它现在的语义已经是"任一侧不存在就跳过"）。
  */
-const RULE_PAIRS = [
-  ['packages/features/src/inventory/stockOrderState.ts', 'apps/web/src/views/inventory/stockOrderState.ts'],
-  ['packages/features/src/field/inspectionState.ts', 'apps/web/src/views/field/inspectionState.ts'],
-];
-for (const [a, b] of RULE_PAIRS) {
-  const pa = path.join(CLIENT_ROOT, a);
-  const pb = path.join(CLIENT_ROOT, b);
-  if (!fs.existsSync(pa) || !fs.existsSync(pb)) {
-    continue; // 任一侧已被删除（V6 收尾），不再要求一致
-  }
-  if (!fs.readFileSync(pa).equals(fs.readFileSync(pb))) {
-    console.error(`✗ ${a} 与 ${b} 内容不一致 —— 纯规则模块的副本必须逐字节相同`);
-    problems += 1;
-  }
-}
 
 if (problems > 0) {
   console.error(`check-store: 扫描 ${scanned} 个 .vue，发现 ${problems} 处问题。`);

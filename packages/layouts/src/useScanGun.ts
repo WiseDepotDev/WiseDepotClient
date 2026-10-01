@@ -28,8 +28,19 @@ export interface UseScanGunOptions extends ScanAssemblerOptions {
  * 它可能在桥连上之后才变成 true。
  */
 export function useScanGun(options: UseScanGunOptions): void {
-  const host: Pick<Window, 'addEventListener' | 'removeEventListener'> =
-    options.target ?? window;
+  /*
+   * 没有 window 时（SSR / 无头渲染）**直接不挂监听**，而不是抛异常。
+   *
+   * 为什么要有这条：屏与外壳会在"没有浏览器"的环境里被渲染一遍（`check:vue-render`），
+   * 一上来读 `window` 会让整屏 setup 抛错、渲染直接失败 —— 而这条渲染门禁恰恰是
+   * 用来抓"渲染期崩溃"的。同一个标准本仓已经用过：`useViewport` 在无 window 时退化为桌面档。
+   * 真实运行环境里 `window` 一定在，所以这里只是**换一种失败方式**：不监听，而不是崩。
+   */
+  const host: Pick<Window, 'addEventListener' | 'removeEventListener'> | undefined =
+    options.target ?? (typeof window === 'undefined' ? undefined : window);
+  if (host === undefined) {
+    return;
+  }
 
   /**
    * 每次 `enabled` 变化都重建 assembler：它内部有"上一次按键时间"这类状态，

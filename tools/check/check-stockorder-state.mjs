@@ -20,7 +20,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const ENTRY = path.join(CLIENT_ROOT, 'packages', 'features', 'src', 'inventory', 'stockOrderState.ts');
+/**
+ * 被测模块：**Vue 侧那一份**（`apps/web/src/views/inventory/stockOrderState.ts`）。
+ *
+ * V6 之前测的是 `packages/features/src/inventory/stockOrderState.ts`（React 版的副本），
+ * 两份靠 `check-store` 的逐字节一致规则绑在一起。React 版删掉之后新所有者是 `apps/web` 那份，
+ * 门禁必须跟着改指，否则它测的就是一个不存在的文件。
+ */
+const ENTRY = path.join(CLIENT_ROOT, 'apps', 'web', 'src', 'views', 'inventory', 'stockOrderState.ts');
 
 const outDir = mkdtempSync(path.join(tmpdir(), 'wise-stockorder-'));
 const outFile = path.join(outDir, 'stockOrderState.cjs');

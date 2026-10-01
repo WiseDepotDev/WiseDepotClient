@@ -14,7 +14,7 @@
 import { createServer } from 'vite';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Cdp, launchChrome, sleep } from '../spike/lib/cdp.mjs';
+import { Cdp, launchChrome, sleep } from './lib/cdp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(here, '..');
@@ -304,13 +304,21 @@ if (!previewReady) {
 console.log('\n5/6 双端外壳与导航…');
 
 /*
- * 预热：把所有懒加载路由各走一遍，然后整页重载。
+ * 预热：把所有懒加载路由各走一遍。
  *
  * 为什么必须做：开发态下 Vite 会在**第一次遇到新依赖时**做依赖预打包并整页 reload，
  * 而路由是懒加载的 —— 于是"跑到一半页面自己刷新、会话丢了"。
- * 先走一遍把所有 chunk 与依赖都摸出来，再重载一次拿到干净状态，后面就不会再被 reload 打断。
+ * 先走一遍把所有 chunk 与依赖都摸出来，后面就不会再被 reload 打断。
  * （`optimizeDeps.include` 只能覆盖已知的顶层依赖，覆盖不了按需 import 出来的子树。）
+ *
+ * **顺序很关键：必须先登录再预热。** 这段原先跑在 `ensureSignedIn()` **之前**，
+ * 而没登录时每一次 `location.hash` 都会被会话闸门挡回 `#/login` —— 一个路由 chunk 都没加载，
+ * 于是"预热"什么都没预热到：依赖要到后面某个阶段才被发现 → Vite 补优化 → 整页 reload → 会话丢，
+ * 从那一阶段开始后面全红（实测：5/6 阶段中途掉回 `#/login`，后半段 34 条断言连片失败）。
+ * 顺带把末尾那次 `location.reload()` 去掉：它的目的是"拿干净状态"，代价却是把会话再丢一次，
+ * 而现在预热发生在登录之后，没必要付这个代价。
  */
+await ensureSignedIn();
 {
   const WARMUP = [
     '#/',
@@ -342,10 +350,7 @@ console.log('\n5/6 双端外壳与导航…');
     await cdp.evaluate(`(location.hash = '${hash}')`, { awaitPromise: false });
     await sleep(350);
   }
-  await cdp.evaluate(`(location.reload())`, { awaitPromise: false });
-  await sleep(2500);
 }
-await ensureSignedIn();
 await cdp.evaluate(`(location.hash = '#/')`, { awaitPromise: false });
 await sleep(600);
 

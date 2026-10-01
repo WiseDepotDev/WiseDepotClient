@@ -21,15 +21,17 @@ const path = require('path');
 
 const CLIENT_ROOT = path.resolve(__dirname, '..', '..');
 
-/** 已知遗留（待 V6 删除）。**新增条目必须同时给出删除它的批次**，否则不要加。 */
-const ALLOWED = new Set([
-  'apps/web/src/App.tsx', // V6 删除
-  'apps/web/src/main.tsx', // V6 删除
-  'apps/web/vite.config.ts', // V6 移除 react 插件
-  'apps/web/package.json', // V6 移除 react/react-dom 依赖
-  'package.json', // 根 devDependencies 里的 react/react-dom，V6 清理
-  'pnpm-lock.yaml', // 锁文件随依赖走
-]);
+/**
+ * 已知遗留：**已清空**（V6 收口）。
+ *
+ * 迁移期这里列着 6 条"待删的 React 遗留"，门禁的作用是"防止一边说在换 Vue、一边新写的屏又 import React"。
+ * React 版已于 V6 删除（回滚点 tag `v0-react-freeze`），所以这张表清空 ——
+ * 从此这条门禁的语义变成**零容忍的"0 React"**：任何 .tsx/.jsx 文件、任何 react 依赖声明都会立刻失败。
+ *
+ * 为什么保留这张空表而不是删掉这个判断：将来若真要临时引 React（例如内嵌第三方 React 组件），
+ * 正确的做法是**先在这里写一行并说明删除批次**，而不是悄悄把门禁改绿。
+ */
+const ALLOWED = new Set([]);
 
 const SKIP_DIR = new Set(['node_modules', 'dist', 'build', '.git', 'spike', 'smoke', 'release', '.gradle']);
 

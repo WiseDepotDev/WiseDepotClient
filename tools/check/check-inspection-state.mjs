@@ -23,7 +23,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const ENTRY = path.join(CLIENT_ROOT, 'packages', 'features', 'src', 'field', 'inspectionState.ts');
+/**
+ * 被测模块：**Vue 侧那一份**（`apps/web/src/views/field/inspectionState.ts`）。
+ *
+ * V6 之前这里测的是 `packages/features/src/field/inspectionState.ts`（React 版的副本），
+ * 两份靠 `check-store` 的逐字节一致规则绑在一起。React 版删掉之后，
+ * **新所有者就是 `apps/web` 那份**，门禁必须跟着改指 —— 否则它测的是一个已经不存在的副本，
+ * 会以"文件读不到"的方式静默失效（或者更糟：报没有意义的错）。
+ */
+const ENTRY = path.join(CLIENT_ROOT, 'apps', 'web', 'src', 'views', 'field', 'inspectionState.ts');
 
 const outDir = mkdtempSync(path.join(tmpdir(), 'wise-insp-state-'));
 const outFile = path.join(outDir, 'inspectionState.cjs');

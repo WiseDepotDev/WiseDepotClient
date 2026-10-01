@@ -2,7 +2,7 @@
   "name": "wisedepot-client",
   "private": true,
   "version": "1.0.0",
-  "description": "慧仓智控新客户端：React Web UI + 单份 Kotlin/Netty 桥（桌面 Electron / 手机 Android 双宿主）",
+  "description": "慧仓智控新客户端：Vue 3 Web UI（桌面 Electron / 手机 Android 双宿主）+ 单份 Kotlin/Netty 桥",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=20"
@@ -25,8 +25,7 @@
     "check:parity": "node tools/gen/gen-feature-parity.js --check",
     "check:tokens": "node tools/gen/gen-tokens.js --check",
     "check:css": "node tools/check/check-css-vars.js",
-    "check:ui": "node tools/check/check-ui-language.js",
-    "check:render": "node tools/check/check-shell-render.mjs",
+    "check:render": "node tools/check/check-vue-render.mjs",
     "check:state": "node tools/check/check-inspection-state.mjs",
     "check:nav-state": "node tools/check/check-nav-state.mjs",
     "check:inspection-mock": "node tools/check/check-inspection-mock.mjs",
@@ -44,7 +43,7 @@
     "bench:backend": "node tools/bench/bridge-roundtrip.mjs --backend-url http://127.0.0.1:18080",
     "bench:desktop": "node tools/bench/desktop-host.mjs",
     "bench:mobile": "node tools/bench/mobile-spike.mjs",
-    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:theme && pnpm check:css && pnpm check:el-theme && pnpm check:store && pnpm check:enabled-option && pnpm check:no-react && pnpm check:navigation-web && pnpm check:ui-web && pnpm check:ui && pnpm check:render && pnpm check:state && pnpm check:nav-state && pnpm check:inspection-mock && pnpm check:me-mock && pnpm check:scan && pnpm check:stockorder && pnpm check:navigation && pnpm check:transport && pnpm check:timeout-budget && pnpm check:session && pnpm check:refetch",
+    "check": "pnpm check:contract && pnpm check:contract:legacy && pnpm check:parity && pnpm check:tokens && pnpm check:theme && pnpm check:css && pnpm check:el-theme && pnpm check:store && pnpm check:enabled-option && pnpm check:no-react && pnpm check:navigation-web && pnpm check:ui-web && pnpm check:render && pnpm check:state && pnpm check:nav-state && pnpm check:inspection-mock && pnpm check:me-mock && pnpm check:scan && pnpm check:stockorder && pnpm check:navigation && pnpm check:transport && pnpm check:timeout-budget && pnpm check:session && pnpm check:refetch",
     "check:full": "pnpm check && pnpm bench && pnpm bench:w3 && pnpm bench:querystyle && pnpm bench:inspection && pnpm bench:stockorder && pnpm bench:persist && pnpm bench:desktop && pnpm bench:mobile",
     "dev": "pnpm --filter @wise/web dev",
     "build": "pnpm --filter @wise/web build",
@@ -62,11 +61,6 @@
   },
   "devDependencies": {
     "@wise/bridge-client": "workspace:*",
-    "@wise/shells": "workspace:*",
-    "esbuild": "^0.25.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "@wise/patterns": "workspace:*",
-    "@wise/features": "workspace:*"
+    "esbuild": "^0.25.0"
   }
 }
