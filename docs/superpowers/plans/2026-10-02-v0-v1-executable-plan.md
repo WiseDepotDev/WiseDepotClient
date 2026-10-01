@@ -983,3 +983,24 @@ Retirement Decision:
 | 双端冒烟 | `pnpm check:web-smoke` | **183/183** |
 | 文档一致性 | `gen:parity` + `check:parity` | 商品屏的映射补上 `product.update` 后重生成、校验通过 |
 
+### 四、仓库**编辑**（`warehouse.update`）—— 同款做法，但语义**相反**
+
+`WarehouseApplicationService#updateWarehouse` 四个字段都是 **`!= null` 就写**：
+也就是**传空串 = 清空**，而不是"保留原值"—— 与 `product.update`（`productName/Code/unit` 用 `isBlank`）**正相反**。
+
+把两者写成同一套，界面上就会出现"清空地址没生效"或"只改名字却把地址擦了"这类**静默差异**。
+所以：假桥分别实现两种语义，`check:inventory-mock` 里两边的用例**并排**放着（商品：空串保留；仓库：空串清空），
+谁改成另一套都会红。顺带把 DTO 里本来就有、但界面一直没维护的 `description` 补进表单与列表（V6 前它是"只读字段"）。
+
+冒烟加 5 条：编辑弹窗标题 / 预填（含描述）/ 保存真的调用 `warehouse.update` 且带 `id` / 列表显示新描述且名称编码没被擦掉 / 原有删除断言仍成立。
+
+### 本轮最终验收（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **25 条全绿**（`check:inventory-mock` 现 31 用例） |
+| 类型 | `pnpm typecheck` | exit 0，0 错误 |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **95.2KB gzip**、62 chunk 全 ≤130KB |
+| 双端冒烟 | `pnpm check:web-smoke` | **188/188** |
+| 文档一致性 | `gen:parity` + `check:parity` | 商品屏与仓库屏的映射都补上 update 后重生成、校验通过 |
+

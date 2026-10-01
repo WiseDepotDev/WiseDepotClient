@@ -27,6 +27,8 @@ interface Warehouse {
   warehouseName: string;
   warehouseCode: string;
   address: string;
+  /** 服务端 `WarehouseDTO` 里本来就有这一项，前端表单也从 V6 之后开始维护它。 */
+  description: string;
 }
 
 interface Inventory {
@@ -173,8 +175,8 @@ export class DomainMock {
   ];
 
   private readonly warehouses: Warehouse[] = [
-    { warehouseId: 1, warehouseName: '华东中心仓', warehouseCode: 'EC-01', address: '上海市青浦区' },
-    { warehouseId: 2, warehouseName: '华南备件仓', warehouseCode: 'SC-02', address: '广州市黄埔区' },
+    { warehouseId: 1, warehouseName: '华东中心仓', warehouseCode: 'EC-01', address: '上海市青浦区', description: '常温区，负责华东片区' },
+    { warehouseId: 2, warehouseName: '华南备件仓', warehouseCode: 'SC-02', address: '广州市黄埔区', description: '备件专区' },
   ];
 
   private readonly inventory: Inventory[] = [
@@ -620,8 +622,35 @@ export class DomainMock {
           warehouseName: name,
           warehouseCode: code,
           address: String(p['address'] ?? ''),
+          description: String(p['description'] ?? ''),
         });
         return {} as T;
+      }
+      /**
+       * 仓库更新。**语义与商品不一样，别照抄**（`WarehouseApplicationService#updateWarehouse`）：
+       * 四个字段都是 **`!= null` 就写** —— 传空串等于**清空**该字段，而不是"保留原值"
+       * （商品那边 `productName/productCode/unit` 用的是 `isBlank`，空串/空白 = 保留）。
+       * 把两者写成同一个，界面上就会出现"清空地址没生效"或"只改名字却把地址擦了"这类静默差异。
+       */
+      case 'warehouse.update': {
+        // 路径参数名是 id（契约 /api/warehouse/{id}），与删除一致
+        const row = this.warehouses.find((x) => x.warehouseId === id('id'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '仓库不存在' });
+        }
+        if (p['warehouseName'] !== undefined && p['warehouseName'] !== null) {
+          row.warehouseName = String(p['warehouseName']);
+        }
+        if (p['warehouseCode'] !== undefined && p['warehouseCode'] !== null) {
+          row.warehouseCode = String(p['warehouseCode']);
+        }
+        if (p['address'] !== undefined && p['address'] !== null) {
+          row.address = String(p['address']);
+        }
+        if (p['description'] !== undefined && p['description'] !== null) {
+          row.description = String(p['description']);
+        }
+        return { ...row } as T;
       }
       case 'warehouse.delete': {
         // 参数名是 id（契约 /api/warehouse/{id}）

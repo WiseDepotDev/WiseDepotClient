@@ -1079,11 +1079,60 @@ check(
   JSON.stringify(deleteError),
 );
 
-// ---- 仓库管理：删除的参数名是 id ----
+// ---- 仓库管理：编辑（`!= null` 就写语义）+ 删除的参数名是 id ----
 await cdp.evaluate(`(location.hash = '#/inventory/warehouses')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '仓库管理' ? true : null`, 20_000, 200);
 await waitRows(2);
 check('仓库列表 2 行', (await rowsNow()) === 2, `rows=${await rowsNow()}`);
+
+/*
+ * ---- 编辑仓库：预填 → 改描述 → 保存 ----
+ *
+ * `warehouse.update` 的语义与商品**相反**（四个字段都是 `!= null` 就写，传空串是清空），
+ * 所以这条既验"改了生效"，也验"没动过的字段还在"。
+ */
+await clearCalls();
+const whEditOpened = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '编辑');
+     if (!btn) return false;
+     btn.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(500);
+check('仓库行内「编辑」能打开弹窗', whEditOpened === true);
+const whDialog = await cdp.evaluate(
+  `(() => {
+     const dialog = [...document.querySelectorAll('.el-dialog')].reverse().find((d) => d.offsetParent !== null);
+     return {
+       title: dialog?.querySelector('.el-dialog__title')?.innerText.trim() ?? '',
+       values: [...(dialog?.querySelectorAll('input') ?? [])].map((i) => i.value),
+     };
+   })()`,
+  { awaitPromise: false },
+);
+check('编辑弹窗标题是「编辑仓库」', whDialog.title === '编辑仓库', whDialog.title);
+check(
+  '仓库表单预填了当前值（含 DTO 里的描述字段）',
+  whDialog.values[0] === '华东中心仓' && whDialog.values[1] === 'EC-01' && whDialog.values[3] === '常温区，负责华东片区',
+  JSON.stringify(whDialog.values),
+);
+await fillDialogInputs(['华东中心仓', 'EC-01', '上海市青浦区', '常温区·已复核']);
+await sleep(200);
+await clickByText('保存');
+await sleep(900);
+const whCalls = await callsWithPrefix('warehouse.update');
+check('保存真的调用了 warehouse.update（路径参数名 id）', whCalls.includes('warehouse.update') && whCalls.includes('"id"'), whCalls);
+const whRowText = await text('.el-table__body tbody tr.el-table__row');
+check(
+  '列表显示新描述，且名称/编码没被擦掉',
+  /常温区·已复核/.test(whRowText) && /华东中心仓/.test(whRowText) && /EC-01/.test(whRowText),
+  whRowText.slice(0, 60),
+);
+
 await cdp.evaluate(
   `(() => {
      const row = document.querySelector('.el-table__body tbody tr.el-table__row');

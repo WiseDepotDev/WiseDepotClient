@@ -46,7 +46,7 @@
 | 26 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagDetailScreen.kt` | 365 | inventory | 已迁 · `inventory/TagDetailView.vue` |
 | 27 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/TagManagementScreen.kt` | 441 | inventory | 已迁 · `inventory/TagListView.vue` |
 | 28 | `feature/user/src/main/java/com/huicang/wise/ui/user/UserManagementScreen.kt` | 219 | me | 已迁 · `me/UserListView.vue` |
-| 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 已迁 · `inventory/WarehouseListView.vue` |
+| 29 | `feature/warehouse/src/main/java/com/huicang/wise/ui/warehouse/WarehouseManagementScreen.kt` | 194 | field | 部分迁 · `inventory/WarehouseListView.vue`（缺 `warehouse.update`） |
 
 ## 2. 旧路由目录（AppRoute.kt）
 
@@ -330,8 +330,8 @@
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 22 |
-| ├ 部分迁（新屏在了，但还有方法没接） | 1 |
+| ├ 已迁（依赖的桥方法全部已登记） | 21 |
+| ├ 部分迁（新屏在了，但还有方法没接） | 2 |
 | ├ 待迁（一个方法都没接） | 2 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
 | 旧路由已覆盖 | 17 / 19 |

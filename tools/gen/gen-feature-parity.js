@@ -184,7 +184,7 @@ const LEGACY_SCREEN_MAP = {
     'TagDetailScreen.kt': { file: 'inventory/TagDetailView.vue', methods: ['tag.detail'] },
     'TagManagementScreen.kt': { file: 'inventory/TagListView.vue', methods: ['tag.list'] },
     'UserManagementScreen.kt': { file: 'me/UserListView.vue', methods: ['user.list'] },
-    'WarehouseManagementScreen.kt': { file: 'inventory/WarehouseListView.vue', methods: ['warehouse.list'] },
+    'WarehouseManagementScreen.kt': { file: 'inventory/WarehouseListView.vue', methods: ['warehouse.list', 'warehouse.update'] },
 };
 
 /** 旧路由 id → 它落到的桥方法（19 条扁平目的地，覆盖必须完整）。 */

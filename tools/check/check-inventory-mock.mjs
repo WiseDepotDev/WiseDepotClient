@@ -175,6 +175,33 @@ try {
     const oldWord = call(mock, 'inventory.search', { keyword: '工业级 RFID 标签', type: 'PRODUCT' }).value;
     check('改名后旧名不再被搜到（数据只有一份）', Array.isArray(oldWord) && oldWord.every((x) => x.productName !== '工业级 RFID 标签'), JSON.stringify(oldWord).slice(0, 100));
   }
+
+  // ---- 6. 仓库更新：与商品**相反**的语义（`!= null` 就写 → 空串是清空） ----
+  {
+    const mock = new DomainMock();
+    const ghost = call(mock, 'warehouse.update', { id: 99999, warehouseName: 'x' });
+    check('更新不存在的仓库 → RES-0004「仓库不存在」', ghost.ok === false && ghost.code === 'RES-0004' && ghost.details.includes('仓库不存在'), JSON.stringify(ghost).slice(0, 140));
+    check('路径参数名是 **id**（不是 warehouseId）', call(mock, 'warehouse.update', { warehouseId: 1, warehouseName: 'x' }).ok === false, '用 warehouseId 竟然成功了 —— 参数名接错');
+
+    const renamed = call(mock, 'warehouse.update', { id: 1, warehouseName: '华东中心仓（新）', warehouseCode: 'EC-01A' });
+    check('改名与改编码生效', renamed.ok && renamed.value?.warehouseName === '华东中心仓（新）' && renamed.value?.warehouseCode === 'EC-01A', JSON.stringify(renamed.value ?? {}).slice(0, 120));
+    check(
+      '**没传的字段保持原值**（这一次是"没传"，不是"传空"）',
+      renamed.value?.address === '上海市青浦区' && renamed.value?.description === '常温区，负责华东片区',
+      JSON.stringify(renamed.value ?? {}).slice(0, 140),
+    );
+
+    const cleared = call(mock, 'warehouse.update', { id: 1, address: '', description: '' });
+    check(
+      '**传空串 = 清空**（与商品屏相反：商品那边空串是保留）',
+      cleared.value?.address === '' && cleared.value?.description === '',
+      JSON.stringify(cleared.value ?? {}).slice(0, 140),
+    );
+
+    const reread = call(mock, 'warehouse.list', {}).value.rows.find((w) => w.warehouseId === 1);
+    check('再查列表是新值（写真的落到数据上了）', reread?.warehouseName === '华东中心仓（新）' && reread?.address === '', JSON.stringify(reread ?? {}).slice(0, 140));
+    check('新建仓库带上了描述字段（DTO 里本来就有，之前界面没维护）', call(mock, 'warehouse.create', { warehouseName: '临时仓', warehouseCode: 'TMP-9', description: '临时' }).ok === true && call(mock, 'warehouse.list', {}).value.rows[0]?.description === '临时', 'description 没被写入');
+  }
 } catch (error) {
   console.error(`✗ 护栏执行失败：${error?.stack ?? error}`);
   process.exit(1);

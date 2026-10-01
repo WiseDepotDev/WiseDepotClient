@@ -5,7 +5,7 @@ import { asList, asTotal, humanize, useMutation, useNavStore, useResource, useRe
 import { ConfirmDialog, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
 
 /**
- * 仓库管理（`warehouse.list` + `warehouse.create` / `warehouse.delete`）。
+ * 仓库管理（`warehouse.list` + `warehouse.create` / `warehouse.update` / `warehouse.delete`）。
  *
  * ## 一个必须记住的参数名差异
  *
@@ -13,7 +13,12 @@ import { ConfirmDialog, PageHeader, PaginationBar, ResponsiveDataView, SectionBl
  * 不是 `warehouseId`。传错名字桥会报"参数不完整"，而后端根本收不到请求。
  * 这类错误在真机上表现为"点了没反应"，所以这条留在注释里。
  *
- * 仓库**编辑**不在本次范围（服务端有 `warehouse.update`，未验证不接线）。
+ * ## 更新语义与商品**不一样**（读服务端源码得来，别照抄商品屏）
+ *
+ * `WarehouseApplicationService#updateWarehouse` 四个字段都是 **`!= null` 就写**：
+ * 也就是说传空串是**清空**，而不是"保留原值"（商品那边 `productName/productCode/unit` 用的是 `isBlank` 语义）。
+ * 对界面的后果正好写进实现里：表单预填、用户清空哪个字段就真的清掉哪个 —— 所见即所得。
+ * 仓库名称与编码在**界面侧仍然必填**（创建请求上它们是 `@NotNull`，而清掉编码会让货位号失去来源）。
  */
 interface WarehouseRow {
   readonly warehouseId?: number;
@@ -29,8 +34,10 @@ const nav = useNavStore();
 const cache = useResourceCacheStore();
 const view = nav.viewStateOf('warehouse.list');
 
-const creating = ref(false);
-const form = ref({ warehouseName: '', warehouseCode: '', address: '' });
+const dialogOpen = ref(false);
+/** 正在编辑的那一行；`undefined` 表示"新增"。 */
+const editing = ref<WarehouseRow | undefined>(undefined);
+const form = ref({ warehouseName: '', warehouseCode: '', address: '', description: '' });
 const actionError = ref<string | undefined>(undefined);
 const confirmTarget = ref<WarehouseRow | undefined>(undefined);
 
@@ -40,35 +47,76 @@ const rows = computed(() => asList<WarehouseRow>(data.value));
 const total = computed(() => asTotal(data.value));
 
 const createMutation = useMutation('warehouse.create');
+const updateMutation = useMutation('warehouse.update');
 const deleteMutation = useMutation('warehouse.delete');
-const busy = computed(() => createMutation.pending.value || deleteMutation.pending.value);
+const busy = computed(
+  () => createMutation.pending.value || updateMutation.pending.value || deleteMutation.pending.value,
+);
+const dialogTitle = computed(() => (editing.value === undefined ? '新增仓库' : '编辑仓库'));
 
 const columns: readonly ColumnDef<WarehouseRow>[] = [
   { key: 'warehouseName', title: '仓库名称', compact: 'primary' },
-  { key: 'warehouseCode', title: '仓库编码', type: 'mono', width: 150, compact: 'secondary' },
-  { key: 'address', title: '地址' },
+  { key: 'warehouseCode', title: '仓库编码', type: 'mono', width: 140, compact: 'secondary' },
+  {
+    key: 'address',
+    title: '地址',
+    value: (r) => r.address ?? '',
+  },
+  {
+    key: 'description',
+    title: '描述',
+    width: 160,
+    value: (r) => r.description ?? '',
+  },
 ];
 
 function openCreate(): void {
   actionError.value = undefined;
-  form.value = { warehouseName: '', warehouseCode: '', address: '' };
-  creating.value = true;
+  editing.value = undefined;
+  form.value = { warehouseName: '', warehouseCode: '', address: '', description: '' };
+  dialogOpen.value = true;
 }
 
-async function submitCreate(): Promise<void> {
+/** 编辑：预填当前值。用户清空哪个字段，保存后就真的清掉哪个（服务端是 `!= null` 就写）。 */
+function openEdit(row: WarehouseRow): void {
+  actionError.value = undefined;
+  editing.value = row;
+  form.value = {
+    warehouseName: row.warehouseName ?? '',
+    warehouseCode: row.warehouseCode ?? '',
+    address: row.address ?? '',
+    description: row.description ?? '',
+  };
+  dialogOpen.value = true;
+}
+
+function closeDialog(): void {
+  dialogOpen.value = false;
+  editing.value = undefined;
+}
+
+async function submit(): Promise<void> {
   const f = form.value;
   if (f.warehouseName.trim() === '' || f.warehouseCode.trim() === '') {
     actionError.value = '仓库名称与编码必填：编码会印在货位号上，不能空。';
     return;
   }
   actionError.value = undefined;
+  const payload = {
+    warehouseName: f.warehouseName.trim(),
+    warehouseCode: f.warehouseCode.trim(),
+    address: f.address.trim(),
+    description: f.description.trim(),
+  };
   try {
-    await createMutation.run({
-      warehouseName: f.warehouseName.trim(),
-      warehouseCode: f.warehouseCode.trim(),
-      address: f.address.trim(),
-    });
-    creating.value = false;
+    const target = editing.value;
+    if (target === undefined || target.warehouseId === undefined) {
+      await createMutation.run(payload);
+    } else {
+      // 更新端点的路径参数名也是 `id`（与删除一致），不是 warehouseId
+      await updateMutation.run({ id: target.warehouseId, ...payload });
+    }
+    closeDialog();
     cache.invalidate('warehouse');
     reload();
   } catch (e) {
@@ -102,7 +150,7 @@ async function confirmDelete(): Promise<void> {
       </template>
     </PageHeader>
 
-    <p v-if="actionError && !creating" class="w-inv-error" role="alert">{{ actionError }}</p>
+    <p v-if="actionError && !dialogOpen" class="w-inv-error" role="alert">{{ actionError }}</p>
 
     <SectionBlock title="仓库列表">
       <StateHost
@@ -120,6 +168,7 @@ async function confirmDelete(): Promise<void> {
           :row-key="(r: WarehouseRow) => String(r.warehouseId ?? r.warehouseCode ?? '')"
         >
           <template #actions="{ row }">
+            <ElButton v-if="row.warehouseId !== undefined" size="small" text @click="openEdit(row)">编辑</ElButton>
             <ElButton v-if="row.warehouseId !== undefined" size="small" type="danger" text @click="confirmTarget = row">
               删除
             </ElButton>
@@ -135,7 +184,7 @@ async function confirmDelete(): Promise<void> {
       </StateHost>
     </SectionBlock>
 
-    <ElDialog v-model="creating" title="新增仓库" width="var(--w-size-dialog-max-width)" append-to-body>
+    <ElDialog :model-value="dialogOpen" :title="dialogTitle" width="var(--w-size-dialog-max-width)" append-to-body @update:model-value="(v: boolean) => (v ? (dialogOpen = true) : closeDialog())">
       <ElForm label-position="top">
         <ElFormItem label="仓库名称（必填）">
           <ElInput v-model="form.warehouseName" size="large" placeholder="例如：华东中心仓" />
@@ -144,13 +193,18 @@ async function confirmDelete(): Promise<void> {
           <ElInput v-model="form.warehouseCode" size="large" placeholder="例如：EC-01" />
         </ElFormItem>
         <ElFormItem label="地址">
-          <ElInput v-model="form.address" size="large" placeholder="例如：上海市青浦区…" />
+          <ElInput v-model="form.address" size="large" placeholder="例如：上海市青浦区…（留空即清空）" />
+        </ElFormItem>
+        <ElFormItem label="描述">
+          <ElInput v-model="form.description" size="large" placeholder="例如：常温区，负责华东片区（留空即清空）" />
         </ElFormItem>
       </ElForm>
       <p v-if="actionError" class="w-inv-error" role="alert">{{ actionError }}</p>
       <template #footer>
-        <ElButton size="large" :disabled="busy" @click="creating = false">取消</ElButton>
-        <ElButton size="large" type="primary" :loading="busy" :disabled="busy" @click="submitCreate">创建</ElButton>
+        <ElButton size="large" :disabled="busy" @click="closeDialog">取消</ElButton>
+        <ElButton size="large" type="primary" :loading="busy" :disabled="busy" @click="submit">
+          {{ editing === undefined ? '创建' : '保存' }}
+        </ElButton>
       </template>
     </ElDialog>
 
