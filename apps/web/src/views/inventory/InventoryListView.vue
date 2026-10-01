@@ -60,31 +60,102 @@ const { data, loading, error, reload } = useResource<unknown>('inventory.list', 
 const all = computed(() => asList<InventoryRow>(data.value));
 const total = computed(() => asTotal(data.value));
 
-/** 客户端筛选：关键词命中商品名/编码/货位；库存量按档过滤。 */
-const rows = computed(() =>
-  all.value.filter((r) => {
-    if (applied.value !== '') {
-      const hay = `${r.productName ?? ''}${r.productCode ?? ''}${r.location ?? ''}`.toLowerCase();
-      if (!hay.includes(applied.value.toLowerCase())) {
-        return false;
-      }
-    }
-    const q = r.quantity ?? 0;
-    if (filter.value === 'low') {
-      return q > 0 && q <= 10;
-    }
-    if (filter.value === 'locked') {
-      return r.status === 1;
-    }
-    return true;
-  }),
+/*
+ * ---------------------------------------------------------------- 服务端搜索
+ *
+ * 只在**有关键词时**发（`enabled` 门控），发的是 `inventory.search`。
+ *
+ * 为什么必须知道这个接口的真实语义（读服务端源码得到的，不是猜的）：
+ *   · 它要求 `keyword` + `type`（`PRODUCT` / `LOCATION`），**其它 type 一律回空数组**；
+ *   · `type=LOCATION` 走的是 `searchInventoryByLocation` —— 名字像"按货位搜"，
+ *     实际代码是 `productRepository.findByNameContaining(keyword)` 再取这些商品的库存行，
+ *     也就是**按商品名匹配、返回全量、不分区**；
+ *   · `type=PRODUCT` 是按商品名查商品，且**硬截断前 100 条**。
+ *
+ * 所以这里只把它用在它真的能做的事上：**按商品名跨页搜库存**。
+ * 关键词是编码/货位时服务端必然不命中，那种情况老实回退到"本页筛选"并把口径写在界面上 ——
+ * 不假装"就是没有"，因为货位/编码确实可能就在别的页上。
+ */
+const searchParams = computed(() =>
+  applied.value === '' ? {} : { keyword: applied.value, type: 'LOCATION' },
 );
+/**
+ * `enabled` 必须是**响应式**的：写 `applied.value !== ''` 会当场求值成常量 `false`，
+ * 之后永远不发请求（界面只显示空态、不报错也不转圈）—— 这条被 `check:enabled-option` 拦过一次。
+ */
+const hasKeyword = computed(() => applied.value !== '');
+const search = useResource<unknown>('inventory.search', searchParams, { enabled: hasKeyword });
+const searched = computed(() => asList<InventoryRow>(search.data.value));
 
-const emptyText = computed(() =>
-  applied.value !== '' || filter.value !== 'all'
-    ? '没有符合条件的库存记录，试试换个关键词或切回「全部」。'
-    : '暂无库存数据。请点击右上角刷新，或前往「商品管理」新增商品后再入库。',
-);
+/** 服务端这次到底命中了没有（决定用哪套口径、写哪句标签）。 */
+const serverHit = computed(() => search.data.value !== undefined && searched.value.length > 0);
+
+/** 关键词在**本页**的命中（服务端不命中时的回退口径）。 */
+function keywordHits(row: InventoryRow): boolean {
+  if (applied.value === '') {
+    return true;
+  }
+  const hay = `${row.productName ?? ''}${row.productCode ?? ''}${row.location ?? ''}`.toLowerCase();
+  return hay.includes(applied.value.toLowerCase());
+}
+
+/** 库存量档位过滤（与服务端搜索无关，两套口径都要过这一关）。 */
+function stockHits(row: InventoryRow): boolean {
+  const q = row.quantity ?? 0;
+  if (filter.value === 'low') {
+    return q > 0 && q <= 10;
+  }
+  if (filter.value === 'locked') {
+    return row.status === 1;
+  }
+  return true;
+}
+
+/**
+ * 三档口径，互斥且都能说出理由：
+ *   1. 没有关键词 → 服务端分页列表 + 档位过滤（原行为）
+ *   2. 有关键词且服务端命中 → 服务端返回的**跨页**结果 + 档位过滤
+ *   3. 有关键词但服务端没命中 → 回退到本页筛选（界面会写明"服务端没有商品名匹配"）
+ */
+const rows = computed(() => {
+  const source = applied.value === '' ? all.value : serverHit.value ? searched.value : all.value;
+  return source.filter((r) => stockHits(r) && (serverHit.value ? true : keywordHits(r)));
+});
+
+/** 当前**生效的那一路**取数状态：三态必须跟着它走，否则会出现"错的是 A、画的是 B"。 */
+const activeLoading = computed(() => (applied.value !== '' ? search.loading.value : loading.value));
+const activeError = computed(() => (applied.value !== '' ? search.error.value : error.value));
+function activeReload(): void {
+  if (applied.value !== '') {
+    search.reload();
+    return;
+  }
+  reload();
+}
+
+/** 搜索口径必须写在界面上：只按商品名、且服务端没命中时会退到本页。 */
+const scopeText = computed(() => {
+  if (applied.value === '') {
+    return '筛选本页';
+  }
+  if (search.loading.value) {
+    return `正在按商品名搜索「${applied.value}」…`;
+  }
+  if (serverHit.value) {
+    return `服务端按商品名搜索「${applied.value}」· 跨页 ${searched.value.length} 条`;
+  }
+  return `服务端没有商品名匹配；下面是本页含「${applied.value}」的记录`;
+});
+
+const emptyText = computed(() => {
+  if (applied.value !== '') {
+    return `全库与本页都没有商品名含「${applied.value}」的库存。服务端只按商品名搜索，试试换个商品名。`;
+  }
+  if (filter.value !== 'all') {
+    return '没有符合条件的库存记录，试试切回「全部」。';
+  }
+  return '暂无库存数据。请点击右上角刷新，或前往「商品管理」新增商品后再入库。';
+});
 
 function onFilter(next: Record<string, string>): void {
   filter.value = (next.stock === 'low' || next.stock === 'locked' ? next.stock : 'all') as StockFilter;
@@ -132,7 +203,8 @@ function openDetail(row: InventoryRow): void {
   <div class="w-page">
     <PageHeader title="库存查询" :note="total !== undefined ? `共 ${total} 条库存记录` : '按商品、编码或货位查找'">
       <template #actions>
-        <ElButton size="large" :loading="loading" @click="reload">刷新</ElButton>
+        <!-- 刷新的是**当前生效的那一路**：有关键词时刷的是搜索结果，不是分页列表 -->
+        <ElButton size="large" :loading="activeLoading" @click="activeReload">刷新</ElButton>
       </template>
     </PageHeader>
 
@@ -146,20 +218,21 @@ function openDetail(row: InventoryRow): void {
         @keydown.enter="onSearch"
       />
       <ElButton size="large" type="primary" @click="onSearch">查找</ElButton>
-      <span class="w-inventory__scope">筛选本页</span>
+      <!-- 搜索口径写在界面上：服务端只按商品名搜，没命中时退到本页 -->
+      <span class="w-inventory__scope">{{ scopeText }}</span>
     </div>
 
     <FilterBar :model-value="filterValues" :filters="filters" @update:model-value="onFilter" @reset="resetFilters" />
 
     <SectionBlock :title="`库存列表${applied ? `（含「${applied}」）` : ''}`">
       <StateHost
-        :loading="loading"
-        :error="error"
-        :error-text="error ? humanize(error) : undefined"
+        :loading="activeLoading"
+        :error="activeError"
+        :error-text="activeError ? humanize(activeError) : undefined"
         :empty="rows.length === 0"
         :empty-text="emptyText"
         skeleton="list"
-        @retry="reload"
+        @retry="activeReload"
       >
         <ResponsiveDataView
           :columns="columns"

@@ -495,6 +495,30 @@ export class DomainMock {
       // ---- 库存 ----
       case 'inventory.list':
         return this.page(this.inventory, params) as T;
+      /**
+       * 服务端搜索。**语义照抄**（读 `InventoryController#search` + `InventoryApplicationService` 得来）：
+       *   · `keyword` 与 `type` 都是必填；`type` 只认 `PRODUCT` / `LOCATION`，**其它值回空数组**（不是报错）；
+       *   · `PRODUCT` → 按**商品名**查商品，且服务端硬截断前 100 条；
+       *   · `LOCATION` → 名字像"按货位"，但代码是 `findByNameContaining(keyword)` 再取这些商品的库存行，
+       *     也就是**按商品名匹配的库存全量**（不分区、不截断）。
+       * 假桥必须复刻这三点，否则界面会以为"服务端能按货位搜"——那正是最容易写出假功能的地方。
+       */
+      case 'inventory.search': {
+        const keyword = String(p['keyword'] ?? '').trim();
+        const type = String(p['type'] ?? '').toUpperCase();
+        if (keyword === '') {
+          return [] as unknown as T;
+        }
+        const matchedProducts = this.products.filter((x) => x.productName.includes(keyword));
+        if (type === 'PRODUCT') {
+          return matchedProducts.slice(0, 100) as unknown as T;
+        }
+        if (type === 'LOCATION') {
+          const ids = matchedProducts.map((x) => x.productId);
+          return this.inventory.filter((inv) => ids.includes(inv.productId)) as unknown as T;
+        }
+        return [] as unknown as T;
+      }
       case 'inventory.detail': {
         const row = this.inventory.find((r) => r.inventoryId === id('inventoryId'));
         return (row ?? this.inventory[0]) as T;

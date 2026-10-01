@@ -354,6 +354,39 @@ await ensureSignedIn();
 await cdp.evaluate(`(location.hash = '#/')`, { awaitPromise: false });
 await sleep(600);
 
+/*
+ * 给假桥装一个"记录调用"的壳（幂等，后面各段都能用）。
+ *
+ * 为什么值得留着：有些缺陷**不报错也不转圈** —— 例如 `enabled` 被写成当场求值的常量，
+ * 资源就永远不发请求，界面只稳定显示一句空态文案，看起来像"后端没数据"。
+ * 有了这份调用记录，"该发的请求到底发没发"就能被断言抓住，而不是靠人盯界面。
+ */
+await cdp.evaluate(
+  `(() => {
+     const m = window.__bridgeMock;
+     if (!m.__wrapped) {
+       const orig = m.call.bind(m);
+       m.__calls = [];
+       m.call = (method, params) => {
+         m.__calls.push(method + ':' + JSON.stringify(params ?? null));
+         return orig(method, params);
+       };
+       m.__wrapped = true;
+     }
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+/** 清空调用记录（每段断言前先清，避免上一段的调用混进来）。 */
+const clearCalls = () => cdp.evaluate(`(window.__bridgeMock.__calls.length = 0, true)`, { awaitPromise: false });
+/** 读某一前缀的调用记录（用前先 `clearCalls()`）。返回 ` | ` 连接的纯文本 —— 不用 JSON.stringify：
+ *  它会把内层引号转义成 `\"`，断言里就得跟着写转义，既难读又容易假红（踩过一次）。 */
+const callsWithPrefix = (prefix) =>
+  cdp.evaluate(
+    `(window.__bridgeMock?.__calls ?? []).filter((c) => c.startsWith(${JSON.stringify(prefix)})).join(' | ')`,
+    { awaitPromise: false },
+  );
+
 const desktop = await cdp.evaluate(
   `({
      commandbar: !!document.querySelector('.w-commandbar'),
@@ -834,30 +867,71 @@ check('搜索框写明只搜页面名称', /不搜数据/.test(dropdownHint), dr
 console.log('\n8/8 库存域（库存 / 商品 / 仓库 / 标签 / 出入库单）…');
 await ensureSignedIn();
 
-// ---- 库存查询：客户端筛选 ----
+// ---- 库存查询：服务端搜索（按商品名，跨页）+ 本页筛选的回退口径 ----
 await cdp.evaluate(`(location.hash = '#/inventory/inventory')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '库存查询' ? true : null`, 20_000, 200);
 await waitRows(3);
 check('库存查询列表 3 行', (await rowsNow()) === 3, `rows=${await rowsNow()}`);
 
-// 关键词是客户端筛选，必须标注"筛选本页"
+// 没有关键词时仍然是"筛选本页"——服务端搜索只在有关键词时发生
 const scopeLabel = await text('.w-inventory__scope');
-check('搜索框标注"筛选本页"（不是服务端搜索）', scopeLabel === '筛选本页', scopeLabel);
+check('没有关键词时标注"筛选本页"', scopeLabel === '筛选本页', scopeLabel);
 
-await cdp.evaluate(
-  `(() => {
-     const input = document.querySelector('.w-inventory__search input');
-     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
-     setter.call(input, '液压');
-     input.dispatchEvent(new Event('input', { bubbles: true }));
-     return true;
-   })()`,
-  { awaitPromise: false },
-);
-await sleep(300);
-await clickByText('查找');
-await sleep(500);
+/** 往库存搜索框写词并点「查找」。 */
+const searchInventory = async (word) => {
+  await cdp.evaluate(
+    `(() => {
+       const input = document.querySelector('.w-inventory__search input');
+       const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
+       setter.call(input, ${JSON.stringify(word)});
+       input.dispatchEvent(new Event('input', { bubbles: true }));
+       return true;
+     })()`,
+    { awaitPromise: false },
+  );
+  await sleep(300);
+  await clickByText('查找');
+  await sleep(700);
+};
+
+await clearCalls();
+await searchInventory('液压');
 check('关键词筛选生效（液压 → 1 行）', (await rowsNow()) === 1, `rows=${await rowsNow()}`);
+
+/*
+ * 关键区别：这条查询必须**真的发给服务端**（`inventory.search`），而不是只筛当前页 ——
+ * 只筛当前页时，落在第 2 页的那条商品永远搜不到，用户看到的是"搜不到"。
+ */
+const invCalls = await callsWithPrefix('inventory.');
+check(
+  '关键词走的是服务端搜索（带 keyword 与 type=LOCATION）',
+  invCalls.includes('inventory.search') &&
+    invCalls.includes('"keyword":"液压"') &&
+    invCalls.includes('"type":"LOCATION"'),
+  invCalls,
+);
+const serverScope = await text('.w-inventory__scope');
+check('搜索口径写在界面上（服务端按商品名 · 跨页 N 条）', /服务端按商品名搜索「液压」· 跨页 1 条/.test(serverScope), serverScope);
+
+/*
+ * 口径边界：服务端**只按商品名匹配**（`findByNameContaining`，货位/编码/仓库都不认）。
+ * 关键词是货位时必须回退到本页筛选，并把这件事写在界面上 —— 否则用户会以为"全库都没有"。
+ */
+await searchInventory('B-02-04');
+const fallbackScope = await text('.w-inventory__scope');
+check(
+  '按货位搜：服务端不命中时回退本页，并把口径写清楚',
+  /服务端没有商品名匹配/.test(fallbackScope) && (await rowsNow()) === 1,
+  `${fallbackScope} rows=${await rowsNow()}`,
+);
+
+// 两头都没有 → 空态要给出可行动的下一步（"服务端只按商品名搜索"）
+await searchInventory('不存在的商品');
+check('搜不到时说明"服务端只按商品名搜索"', /服务端只按商品名搜索/.test(await text('.w-empty')), (await text('.w-empty')).slice(0, 40));
+
+// 清空关键词 → 回到分页列表与"筛选本页"
+await searchInventory('');
+check('清空关键词后回到分页列表', (await rowsNow()) === 3 && (await text('.w-inventory__scope')) === '筛选本页', `rows=${await rowsNow()}`);
 
 // ---- 库存详情：锁定流程（直接用有可用量的那条，避免受上一步筛选影响）----
 await cdp.evaluate(`(location.hash = '#/inventory/inventory/101')`, { awaitPromise: false });
