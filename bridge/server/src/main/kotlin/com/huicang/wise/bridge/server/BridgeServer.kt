@@ -106,6 +106,11 @@ class BridgeServer(
             platform = config.platform,
             local = config.local,
             session = session,
+            // 会话失效 → 广播。界面据此回到登录屏，而不是停在一个"看起来已登录、
+            // 点什么都被后端以误导性理由拒绝"的画面上。
+            // 用 lambda 捕获 this：emit() 读的是后面才初始化的 plain/channels，
+            // 但它在运行时才被调用，那时字段已经就位。
+            onSessionExpired = { emit(SessionManager.EVENT_SESSION_EXPIRED) },
         )
 
     private val channels: ChannelGroup = DefaultChannelGroup("wise-bridge", GlobalEventExecutor.INSTANCE)

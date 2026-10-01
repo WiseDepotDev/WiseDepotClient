@@ -18,6 +18,18 @@ export const BOOTSTRAP_PATH = '/__bridge.json';
 /** 握手路径，与 `BridgeProtocol.HANDSHAKE_PATH` 一致。 */
 export const HANDSHAKE_PATH = '/bridge';
 
+/**
+ * 会话失效事件主题，与 `SessionManager.EVENT_SESSION_EXPIRED` 一致。
+ *
+ * 为什么需要这条推送：桥清掉令牌时，界面正停在"已登录"的画面上，而
+ * `bridge.session` 只在挂载时被问过一次。没有推送，界面就永远不知道会话没了 ——
+ * 它会继续发请求，而后端对无令牌的请求先撞签名过滤器，回一个**误导性的**
+ * 「缺少必要的签名参数」400（真因是"没登录"）。
+ *
+ * 这是跨语言的线上契约串，改一边必须同时改另一边。
+ */
+export const BRIDGE_EVENT_SESSION_EXPIRED = 'session.expired';
+
 /** 引导契约：Web 启动后读到的第一份数据，见 Kotlin 侧 `BridgeBootstrap`。 */
 export interface BridgeBootstrap {
   /**

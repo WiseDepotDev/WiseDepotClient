@@ -32,6 +32,18 @@ class BridgeDispatcher(
     private val platform: PlatformPort,
     private val local: LocalMethodPort? = null,
     private val session: SessionManager,
+    /**
+     * 会话失效时的通知出口。
+     *
+     * 为什么必须由外面注入：分发器只负责"这个方法谁来处理"，它**不该知道**
+     * WebSocket 长什么样（那是传输层的事）。装配点在 `BridgeServer`，
+     * 它把这个回调接到 `emit(SessionManager.EVENT_SESSION_EXPIRED)` 上。
+     *
+     * 缺了它的后果是实测出来的：桥里已经没有会话，界面却还在已登录的画面上
+     * 继续发请求，而后端对无令牌请求给的是**误导性的**「缺少必要的签名参数」。
+     * 详见 `SessionManager.EVENT_SESSION_EXPIRED`。
+     */
+    private val onSessionExpired: () -> Unit = {},
 ) {
     suspend fun dispatch(
         method: String,
@@ -80,7 +92,17 @@ class BridgeDispatcher(
         // 只有"本来持有令牌却失效"才走这条；未登录时的 AUTH 失败（例如密码错）直接透传，
         // 否则会把"密码错误"也变成一次无谓的续期请求。
         if (result is BackendResult.Failed && SessionManager.isAuthFailure(result.code) && session.authenticated) {
-            result = if (session.refresh()) backend.call(call) else result.also { session.markExpired() }
+            result =
+                if (session.refresh()) {
+                    backend.call(call)
+                } else {
+                    // 续期也失败了 → 桥里已经没有会话。**必须告诉界面**，
+                    // 否则它会停在"已登录"的画面上继续发请求，而每条请求都会被后端
+                    // 以误导性的"缺少签名参数"拒掉（真因是没登录）。
+                    session.markExpired()
+                    onSessionExpired()
+                    result
+                }
         }
 
         // 登出：本地先行（后端不可达也必须能登出），但返回值仍如实反映后端结果

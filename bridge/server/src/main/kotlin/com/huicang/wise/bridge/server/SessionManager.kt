@@ -168,6 +168,23 @@ class SessionManager(
         const val REFRESH_METHOD_ID: String = "auth.refreshToken"
 
         /**
+         * 会话失效的**事件主题**。
+         *
+         * 为什么需要它：失效发生时，界面正停在"已登录"的画面上，
+         * 而 `bridge.session` 只在挂载时被问过一次 —— 没有推送，界面就永远不知道。
+         *
+         * 后果实测过（很隐蔽）：桥清掉令牌后，出站请求不再带 `Authorization`，
+         * 而非白名单端点会先撞上后端的签名过滤器，回一个
+         * **「缺少必要的签名参数」的 400**。那是个误导 —— 真正的原因是"没登录"，
+         * 却把用户和排障一起指向"签名是不是配错了"。
+         *
+         * Web 侧对应的订阅在 `packages/features/src/session.ts`
+         * （常量 `@wise/bridge-client` 的 `BRIDGE_EVENT_SESSION_EXPIRED`）。
+         * 这是跨语言的线上契约串，改一边必须同时改另一边。
+         */
+        const val EVENT_SESSION_EXPIRED: String = "session.expired"
+
+        /**
          * 登出类方法：**本地先行**。
          *
          * 为什么要这样：后端不可达时用户仍然必须能登出——否则一台离线设备会永远停在"已登录"。

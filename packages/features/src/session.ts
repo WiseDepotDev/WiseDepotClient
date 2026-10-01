@@ -1,4 +1,5 @@
-import type { Bridge } from '@wise/bridge-client';
+import { useEffect } from 'react';
+import { BRIDGE_EVENT_SESSION_EXPIRED, type Bridge } from '@wise/bridge-client';
 import { useBridgeCall } from './shared/useBridgeCall.js';
 
 /**
@@ -38,6 +39,21 @@ interface SessionPayload {
  */
 export function useSession(bridge: Bridge): Session {
   const { data, error, loading, reload } = useBridgeCall<SessionPayload>(bridge, 'bridge.session');
+
+  /*
+   * 桥说"会话失效了" → 重新问一次 `bridge.session`。
+   *
+   * 为什么必须有这一段：会话失效发生在**界面正停在已登录画面**的时候，
+   * 而 `bridge.session` 只在挂载时被问过一次 —— 没人重新问，界面就永远停在
+   * "看起来已登录"的状态上。此时桥里的令牌已经清掉，出站请求不再带
+   * `Authorization`，后端对这类请求先撞签名过滤器，回一个
+   * **「缺少必要的签名参数」的 400** —— 与真正的原因（没登录）完全无关，
+   * 用户和排障都会被指向错误方向。
+   *
+   * 重新问一次就会拿到 `authenticated: false`，`App.tsx` 的会话门据此切回登录屏。
+   * 判定「登录/不登录」的地方**只有** `bridge.session` 一处，这里不自己推断。
+   */
+  useEffect(() => bridge.subscribe(BRIDGE_EVENT_SESSION_EXPIRED, () => reload()), [bridge, reload]);
 
   // 拿不到会话只能按"未登录"处理 —— 与原语义一致：
   // 界面据此跳回登录，而不是继续点一堆必然失败的按钮。

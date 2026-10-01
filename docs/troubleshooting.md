@@ -152,6 +152,79 @@ OkHttp 还没抛，`OkHttpBackend` 里那个把失败原因写进日志的 `catc
 `bridge.timeout` 出现在界面上时，后端**可能根本没被责怪过** ——
 先去确认"这条错误是外层自己造的，还是内层报上来的"。
 
+### 第四轮：`HTTP-400`「请求被拒绝（可能缺少签名或参数）」
+
+第三轮修完之后，报错变得**准确**了，于是第四轮看到的是真因：
+
+```
+HTTP-400
+请求被拒绝（可能缺少签名或参数）
+```
+
+配合后端日志：
+
+```
+RequestSignatureFilter : Missing signature headers: Signature=null, Timestamp=null, Nonce=null, URI=/api/warehouse
+GET /api/warehouse -> 400 (0 ms)
+GET /api/device    -> 200 (1 ms)          ← 这条在白名单里
+```
+
+**第一件事是读过滤器，而不是猜签名怎么算。** 读 `RequestSignatureFilter` 第 41~45 行：
+
+```java
+String authorization = request.getHeader("Authorization");
+if (authorization != null && authorization.startsWith("Bearer ")) {
+    filterChain.doFilter(request, response);   // 有 Bearer 就整段跳过签名校验
+    return;
+}
+```
+
+**带 `Authorization: Bearer` 的请求根本不校验签名。** 所以这条 400 只有一个含义：
+**这条请求没带 Bearer**。而 `/api/device` 之所以 200，是因为它在 `isExcludedPath`
+的白名单里，跟签名无关 —— 光看两条日志的差别会得出错误结论。
+
+再往上游追，桥侧是这么发的：
+
+```kotlin
+tokens.accessToken()?.let { requestBuilder.header("Authorization", "Bearer $it") }
+```
+
+`accessToken()` 为 null → 不发这个头。**也就是：桥里已经没有会话了。**
+
+### 真因：令牌被清掉之后，界面还在"已登录"的画面上
+
+```
+后端令牌过期
+  → 请假（refreshToken）也失败
+  → SessionManager.markExpired() → clear()      ← 令牌没了
+  → 但界面停在已登录的画面（bridge.session 只在挂载时问过一次，没有任何推送）
+  → 后续请求不带 Authorization
+  → 非白名单端点撞上签名过滤器 → 误导性的 400
+```
+
+`SessionManager.authenticated` 与出站请求用的是**同一个令牌**，所以这两个状态本该一致；
+不一致的原因是**失效没有被上报**：桥里有 `BridgeServer.emit()`（通道早就有了），
+但**没有人接**。
+
+修法（两端，同一个 bug 类）：
+
+1. `SessionManager.EVENT_SESSION_EXPIRED = "session.expired"`；
+   `BridgeDispatcher` 新增 `onSessionExpired` 回调（分发器不该知道 WebSocket 长什么样，
+   所以由 `BridgeServer` 注入，接到 `emit(...)` 上）；
+2. Web 侧 `useSession` 订阅它 → `reload()` → 重新问 `bridge.session` →
+   拿到 `authenticated: false` → `App.tsx` 的会话门切回登录屏。
+   **登录判定的唯一来源仍然是 `bridge.session`**，前端不自己推断。
+3. 顺带把 `humanize` 里 `HTTP-400` 的文案从「可能缺少签名或参数」改成
+   不预设原因、但可执行的下一步 —— 那句话正是把用户和排障一起带偏的东西。
+
+回归：`pnpm check:session`（钉住的三处缺一不可，而且**都不会报错**）：
+跨语言的主题串必须相同、装配点必须接上（**当初缺的就是这一环**）、
+`useSession` 必须真的订阅、`humanize` 必须给出"重新登录"的指引。
+
+**这一轮的方法论**：一条错误信息看起来"很像某个原因"，不等于它就是那个原因。
+先读**产生这条错误的那段代码**（这里是过滤器的 `Bearer` 短路），
+它往往把可能性收敛到一个很窄的答案上 —— 比对着日志猜快得多。
+
 ---
 
 ## 三、Android 平台差异备忘（都是实测踩出来的）

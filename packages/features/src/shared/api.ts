@@ -74,7 +74,19 @@ export function humanize(error: BridgeError | undefined): string {
     return '没有权限执行该操作';
   }
   if (error.code === 'HTTP-400') {
-    return '请求被拒绝（可能缺少签名或参数）';
+    /*
+     * 这里**不能**断言"签名/参数有问题"。
+     *
+     * 实测（第三轮）：这条 400 更常见的原因是**会话已失效** —— 桥里没有令牌时
+     * 出站请求不带 `Authorization`，而后端的签名过滤器只对"带 Bearer"的请求放行，
+     * 于是回一句"缺少必要的签名参数"。把它说成签名问题，等于把用户和排障
+     * 一起指向一个不存在的问题（真因只是要重新登录）。
+     *
+     * 会话失效的正常路径已经不走这里了（桥会报 `error_session_expired` 并广播
+     * `session.expired`，界面直接回登录屏）。剩下落到 400 的，给一句
+     * 不预设原因、但可执行的下一步。措辞里也不出现"签名"这类技术词。
+     */
+    return '请求未被接受，请检查填写内容后重试';
   }
   if (error.code === 'BRIDGE_BACKEND_UNREACHABLE') {
     return '后端不可达，请检查网络或服务状态';
