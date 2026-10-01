@@ -126,6 +126,55 @@ try {
     check('搜索结果是**裸数组**（服务端返回 List，不是分页对象）', Array.isArray(rows));
     check('返回的行带完整字段（界面直接用，不需要再逐条取详情）', rows[0]?.warehouseName === '华南备件仓' && rows[0]?.location === 'B-02-04', `${rows[0]?.warehouseName}/${rows[0]?.location}`);
   }
+
+  // ---- 5. 商品更新：**部分更新**语义（空值保留原值，model 例外） ----
+  {
+    const mock = new DomainMock();
+    const ghost = call(mock, 'product.update', { productId: 99999, productName: 'x' });
+    check(
+      '更新不存在的商品 → RES-0004「产品不存在」',
+      ghost.ok === false && ghost.code === 'RES-0004' && ghost.details.includes('产品不存在'),
+      JSON.stringify(ghost).slice(0, 140),
+    );
+
+    // 只改单位：名称/编码/型号**必须保持原值**（部分更新）
+    const partial = call(mock, 'product.update', { productId: 1, unit: '箱' });
+    check('只传 unit 也能成功', partial.ok === true, JSON.stringify(partial).slice(0, 120));
+    check(
+      '**没传的字段保持原值**（不是被清空）',
+      partial.value?.productName === '工业级 RFID 标签' &&
+        partial.value?.productCode === 'RFID-UHF-01' &&
+        partial.value?.model === 'UHF-01',
+      JSON.stringify(partial.value ?? {}).slice(0, 120),
+    );
+    check('传了的字段真的改了', partial.value?.unit === '箱');
+
+    // 空白字符串同样算"没传"（服务端用 isBlank 判）
+    const blank = call(mock, 'product.update', { productId: 1, productName: '   ', productCode: '', unit: '' });
+    check(
+      '空白字符串 = 保留原值（服务端用 isBlank 判，不是"清空"）',
+      blank.value?.productName === '工业级 RFID 标签' && blank.value?.productCode === 'RFID-UHF-01' && blank.value?.unit === '箱',
+      JSON.stringify(blank.value ?? {}).slice(0, 120),
+    );
+
+    // model 是例外：不是 null 就写 → 空串等于清空型号
+    const clearModel = call(mock, 'product.update', { productId: 1, model: '' });
+    check('model 传空串 → 清空型号（其它三个字段不是这个规则）', clearModel.value?.model === '', `model=${clearModel.value?.model}`);
+
+    // 改名 + 改编码，然后**读回来**（防止只回显不落库）
+    const renamed = call(mock, 'product.update', { productId: 1, productName: '工业级 RFID 标签（新版）', productCode: 'RFID-UHF-02' });
+    check(
+      '改名与改编码生效',
+      renamed.value?.productName === '工业级 RFID 标签（新版）' && renamed.value?.productCode === 'RFID-UHF-02',
+      JSON.stringify(renamed.value ?? {}).slice(0, 120),
+    );
+    const reread = call(mock, 'product.list', {}).value.rows.find((r) => r.productId === 1);
+    check('再查列表是新值（写真的落到数据上了）', reread?.productName === '工业级 RFID 标签（新版）', JSON.stringify(reread ?? {}).slice(0, 120));
+
+    // 搜索按商品名匹配 —— 改名之后旧名不该再命中（避免"搜到幽灵"）
+    const oldWord = call(mock, 'inventory.search', { keyword: '工业级 RFID 标签', type: 'PRODUCT' }).value;
+    check('改名后旧名不再被搜到（数据只有一份）', Array.isArray(oldWord) && oldWord.every((x) => x.productName !== '工业级 RFID 标签'), JSON.stringify(oldWord).slice(0, 100));
+  }
 } catch (error) {
   console.error(`✗ 护栏执行失败：${error?.stack ?? error}`);
   process.exit(1);

@@ -174,7 +174,8 @@ const LEGACY_SCREEN_MAP = {
     'MessageDetailScreen.kt': { file: 'me/MessageDetailView.vue', methods: ['message.detail'] },
     'MessageListScreen.kt': { file: 'me/MessageListView.vue', methods: ['message.list'] },
     'NfcLoginScreen.kt': { note: '壳能力（NFC 读取在原生侧），不映射桥方法' },
-    'ProductManagementScreen.kt': { file: 'inventory/ProductListView.vue', methods: ['product.list'] },
+    // 商品屏现在也承担**编辑**（`product.update`）—— V6 之后补上的能力，写进映射免得文档落后于代码
+    'ProductManagementScreen.kt': { file: 'inventory/ProductListView.vue', methods: ['product.list', 'product.update'] },
     'ProfileScreen.kt': { file: 'me/ProfileView.vue', methods: ['profile.get'] },
     'SkeletonScreen.kt': { note: '被 ListStateHost 四态（加载/错误/空/有数据）取代' },
     'StockOrderCreateScreen.kt': { file: 'inventory/StockOrderCreateView.vue', methods: ['stockOrder.create'] },

@@ -996,6 +996,60 @@ await clickByText('创建');
 await sleep(800);
 check('新建商品后列表多一条', (await rowsNow()) === 4, `rows=${await rowsNow()}`);
 
+/*
+ * ---- 编辑：预填当前值 → 只改型号 → 保存 ----
+ *
+ * 这条盯的是服务端那个**部分更新**语义的两个面：
+ *   1. 表单必须预填（否则用户以为"只改型号"，实际把名称/编码一起清空了）；
+ *   2. 保存要把当前值一起发回去（界面侧不允许留空），改完列表里名称不能被擦掉。
+ */
+await clearCalls();
+const editOpened = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '编辑');
+     if (!btn) return false;
+     btn.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(500);
+check('行内「编辑」能打开弹窗', editOpened === true);
+const editDialog = await cdp.evaluate(
+  `(() => {
+     const dialog = [...document.querySelectorAll('.el-dialog')].reverse().find((d) => d.offsetParent !== null);
+     return {
+       title: dialog?.querySelector('.el-dialog__title')?.innerText.trim() ?? '',
+       values: [...(dialog?.querySelectorAll('input') ?? [])].map((i) => i.value),
+     };
+   })()`,
+  { awaitPromise: false },
+);
+check('编辑弹窗标题是「编辑商品」', editDialog.title === '编辑商品', editDialog.title);
+check(
+  '表单**预填**了当前值（不是空白）',
+  editDialog.values[0] === '测试物料' && editDialog.values[1] === 'TEST-001' && editDialog.values[2] === 'T-1',
+  JSON.stringify(editDialog.values),
+);
+
+await fillDialogInputs(['测试物料', 'TEST-001', 'T-9', '个']);
+await sleep(200);
+await clickByText('保存');
+await sleep(900);
+const editCalls = await callsWithPrefix('product.update');
+check(
+  '保存真的调用了 product.update 并带上 productId',
+  editCalls.includes('product.update') && editCalls.includes('"productId"'),
+  editCalls,
+);
+const editedRowText = await text('.el-table__body tbody tr.el-table__row');
+check(
+  '列表显示新型号，且名称没被部分更新语义擦掉',
+  /T-9/.test(editedRowText) && /测试物料/.test(editedRowText),
+  editedRowText.slice(0, 60),
+);
+
 // 删除被库存引用的商品（mock 会抛 VAL-0002）→ 界面要把服务端原文显示出来
 await cdp.evaluate(
   `(() => {

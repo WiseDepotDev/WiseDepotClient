@@ -37,7 +37,7 @@
 | 17 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageDetailScreen.kt` | 337 | me | 已迁 · `me/MessageDetailView.vue` |
 | 18 | `feature/message/src/main/java/com/huicang/wise/ui/message/MessageListScreen.kt` | 396 | me | 已迁 · `me/MessageListView.vue` |
 | 19 | `feature/auth/src/main/java/com/huicang/wise/ui/nfc/NfcLoginScreen.kt` | 235 | system（登录不在一级域内） | 壳能力（NFC 读取在原生侧），不映射桥方法 |
-| 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 已迁 · `inventory/ProductListView.vue` |
+| 20 | `feature/inventory/src/main/java/com/huicang/wise/ui/inventory/ProductManagementScreen.kt` | 355 | inventory | 部分迁 · `inventory/ProductListView.vue`（缺 `product.update`） |
 | 21 | `feature/user/src/main/java/com/huicang/wise/ui/user/ProfileScreen.kt` | 363 | me | 已迁 · `me/ProfileView.vue` |
 | 22 | `core/ui/src/main/java/com/huicang/wise/ui/components/SkeletonScreen.kt` | 200 | **待归类** | 被 ListStateHost 四态（加载/错误/空/有数据）取代 |
 | 23 | `feature/stock/src/main/java/com/huicang/wise/ui/stock/StockOrderCreateScreen.kt` | 501 | inventory | 已迁 · `inventory/StockOrderCreateView.vue` |
@@ -330,8 +330,8 @@
 | 口径 | 数量 |
 | --- | --- |
 | 旧屏总数 | 29 |
-| ├ 已迁（依赖的桥方法全部已登记） | 23 |
-| ├ 部分迁（新屏在了，但还有方法没接） | 0 |
+| ├ 已迁（依赖的桥方法全部已登记） | 22 |
+| ├ 部分迁（新屏在了，但还有方法没接） | 1 |
 | ├ 待迁（一个方法都没接） | 2 |
 | └ 无对应物（壳能力 / 被取代） | 4 |
 | 旧路由已覆盖 | 17 / 19 |

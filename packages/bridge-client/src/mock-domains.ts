@@ -560,6 +560,38 @@ export class DomainMock {
         });
         return {} as T;
       }
+      /**
+       * 商品更新。**语义照抄服务端 `InventoryApplicationService#updateProduct`**（这是关键）：
+       *   · 商品不存在 → NOT_FOUND「产品不存在」；
+       *   · `productName` / `productCode` / `unit` **为空或空白 = 保留原值**（部分更新，不是覆盖）；
+       *   · `productCode` 为空且库里原本也没有编码 → 服务端会生成 `"P" + 毫秒`；
+       *   · `model` **只要不是 null 就写**（所以传空串是"清空型号"，与上面三个不一样）。
+       * 少写"空值保留"这一条，界面就会出现"我只改了单位，名字却被清空了"——而且是静默的。
+       */
+      case 'product.update': {
+        const row = this.products.find((x) => x.productId === id('productId'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '产品不存在' });
+        }
+        const name = p['productName'];
+        if (typeof name === 'string' && name.trim() !== '') {
+          row.productName = name;
+        }
+        const code = p['productCode'];
+        if (typeof code === 'string' && code.trim() !== '') {
+          row.productCode = code;
+        } else if (row.productCode.trim() === '') {
+          row.productCode = `P${Date.now()}`;
+        }
+        if (p['model'] !== undefined && p['model'] !== null) {
+          row.model = String(p['model']);
+        }
+        const unit = p['unit'];
+        if (typeof unit === 'string' && unit.trim() !== '') {
+          row.unit = unit;
+        }
+        return { ...row } as T;
+      }
       case 'product.delete': {
         const productId = id('productId');
         const index = this.products.findIndex((x) => x.productId === productId);

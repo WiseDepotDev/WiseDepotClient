@@ -958,3 +958,28 @@ Retirement Decision:
 | 构建 | `pnpm build` + `check:budget` | 首屏 **94.9KB gzip**、62 chunk 全 ≤130KB |
 | 双端冒烟 | `pnpm check:web-smoke` | **178/178**（新增 5 条：服务端搜索确实被请求 / 命中口径 / 未命中回退口径 / 空态说法 / 清空回列表） |
 
+### 三、商品**编辑**（`product.update`）—— 又一次"先读服务端再动手"
+
+`product.update` 是**部分更新**，不是覆盖（`InventoryApplicationService#updateProduct`）：
+`productName` / `productCode` / `unit` **空白 = 保留原值**；只有 `model` 是"不是 null 就写"（传空串 = 清空型号）。
+
+这对界面有两个后果，都落进了实现：
+1. **表单必须预填**当前值 —— 否则用户以为"只改型号"，实际把名称/编码一起留空（服务端会静默保留旧值，
+   表面上"成功了"，但用户的心智模型是错的）；
+2. 名称与编码在**界面侧仍然必填**（虽然服务端允许留空）—— 服务端留空 = 悄悄保留旧值，
+   而用户清空输入框的意图显然是"改掉它"；与其让操作静默失效，不如当场拦住并说清。
+
+假桥按同一语义实现，`check:inventory-mock` 加 9 个用例钉住它：空值保留、空白串也算"没传"、
+`model` 空串清空、改完**读回来**是新值、改名后旧名不再被搜索命中（数据只有一份）。
+冒烟加 5 条：编辑弹窗标题 / 表单预填当前值 / 保存真的调用 `product.update` 且带 `productId` / 改完列表显示新值且名称没被擦掉。
+
+### 本轮最终验收（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **25 条全绿**（`check:inventory-mock` 现 24 用例） |
+| 类型 | `pnpm typecheck` | exit 0，0 错误 |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **95.0KB gzip**、62 chunk 全 ≤130KB |
+| 双端冒烟 | `pnpm check:web-smoke` | **183/183** |
+| 文档一致性 | `gen:parity` + `check:parity` | 商品屏的映射补上 `product.update` 后重生成、校验通过 |
+
