@@ -601,6 +601,41 @@ const detailChrome = await cdp.evaluate(
 check('手机档：详情屏不画分段控件（画了会三个都不高亮）', detailChrome.segment === 0, `segment=${detailChrome.segment}`);
 check('手机档：详情屏有「返回」', detailChrome.hasBack === true);
 
+// 窄档：点行仍然走详情路由（主从只在宽档生效 —— 手机上并排两栏谁都看不清）
+await cdp.evaluate(`(location.hash = '#/inventory/inventory')`, { awaitPromise: false });
+// 窄档出卡片、宽档出表格：两种都认，避免等到超时（超时会让后面的断言跑在空列表上）
+await waitFor(
+  `document.querySelector('.w-cardrow .w-card, .el-table__body tbody tr.el-table__row') ? true : null`,
+  20_000,
+  200,
+);
+await sleep(400);
+/*
+ * 注意窄档下 `ResponsiveDataView` 出的是**卡片**（`.w-cardrow > .w-card`），不是表格行 ——
+ * 第一版照抄宽档的 `.el-table__body tr` 选择器，结果 `row` 是 null、什么也没点到，
+ * 断言拿到的是"hash 没变"，看起来像"窄档没走详情路由"，其实是测试自己没点到。
+ */
+const clickedNarrowRow = await cdp.evaluate(
+  `(() => {
+     const card = document.querySelector('.w-cardrow .w-card') ?? document.querySelector('.w-card');
+     if (!card) return false;
+     card.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+check('手机档：卡片列表点得到（否则下面那条断言是假红）', clickedNarrowRow === true);
+await sleep(900);
+const narrowAfterRowClick = await cdp.evaluate(
+  `({ hash: location.hash, hasMasterDetail: !!document.querySelector('.w-masterdetail__detail') })`,
+  { awaitPromise: false },
+);
+check(
+  '手机档：点行仍然按 hash 进详情（主从只在宽档生效）',
+  /#\/inventory\/inventory\/\d+$/.test(narrowAfterRowClick.hash) && narrowAfterRowClick.hasMasterDetail === false,
+  JSON.stringify(narrowAfterRowClick),
+);
+
 /*
  * 动作坞**滚到底也压住内容**的回归护栏。
  *
@@ -1179,6 +1214,36 @@ check('搜不到时说明"服务端只按商品名搜索"', /服务端只按商�
 // 清空关键词 → 回到分页列表与"筛选本页"
 await searchInventory('');
 check('清空关键词后回到分页列表', (await rowsNow()) === 3 && (await text('.w-inventory__scope')) === '筛选本页', `rows=${await rowsNow()}`);
+
+/*
+ * ---- 桌面宽档的主从视图 ----
+ *
+ * 为什么这条值得单独盯：本仓 `<RouterView :key="route.fullPath">` 会强制整树重挂 ——
+ * 点行若走详情路由，**左栏会被销毁重建**（页码回 1、滚动位置丢），
+ * 表现是"点一行整屏闪一下"。所以宽档点行只改组件状态、不动路由。
+ * （窄档那条老路必须保留：手机上并排两个栏目谁都看不清，而且按 hash 导航
+ * 是深链 / 扫码 / 返回键的基础 —— 手机档那条断言在下面单独有一条。）
+ */
+const beforeWide = await cdp.evaluate('location.hash', { awaitPromise: false });
+await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!row;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(900);
+const afterWide = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     detailColumns: document.querySelectorAll('.w-masterdetail__detail').length,
+     hasPanel: !!document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+check('桌面宽档：点行不换路由（左栏不会被重挂）', afterWide.hash === beforeWide, `${beforeWide} → ${afterWide.hash}`);
+check('桌面宽档：右栏就地显示详情', afterWide.detailColumns === 1 && afterWide.hasPanel === true, JSON.stringify(afterWide));
 
 // ---- 库存详情：锁定流程（直接用有可用量的那条，避免受上一步筛选影响）----
 await cdp.evaluate(`(location.hash = '#/inventory/inventory/101')`, { awaitPromise: false });

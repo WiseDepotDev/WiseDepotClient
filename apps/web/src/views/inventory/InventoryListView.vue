@@ -5,14 +5,18 @@ import { ElButton, ElInput } from 'element-plus';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
 import {
   FilterBar,
+  MasterDetail,
   PageHeader,
   PaginationBar,
   ResponsiveDataView,
   SectionBlock,
   StateHost,
   StatusChip,
+  useViewport,
   type ColumnDef,
 } from '@wise/ui';
+
+import InventoryDetailPanel from './InventoryDetailPanel.vue';
 
 /**
  * 库存查询（`inventory.list`）。
@@ -205,10 +209,53 @@ const columns: readonly ColumnDef<InventoryRow>[] = [
   { key: 'updateTime', title: '更新时间', type: 'mono', width: 140, value: (r) => shortTime(r.updateTime) },
 ];
 
+/*
+ * ---------------------------------------------------------------- 主从视图
+ *
+ * 桌面**宽屏**（≥1440）时左列表右详情并排；窄屏/手机维持"点行进详情路由"。
+ *
+ * 三条必须交代清楚的事：
+ *
+ * 1. **右栏靠组件状态，不靠路由**。点行时若 push 详情路由，`<RouterView :key="route.fullPath">`
+ *    会把整棵子树重挂 —— 左栏的页码、滚动位置、已选状态全丢（`rememberScroll` 在本仓没人调用），
+ *    表现是"点一行整屏闪一下"。所以宽屏点行只改 `selectedId`。
+ * 2. **窄屏那条老路必须原样保留**：手机上并排两个栏目谁都看不清，
+ *    而且按 hash 导航是深链/扫码/返回键的基础。
+ * 3. **两栏用不同的列定义**：主从左栏只有 ~700px，而完整列定义里固定宽加起来 750px ——
+ *    硬塞会被 `.w-content` 的 `overflow-x: hidden` **裁掉**（不是出滚动条，是右半边直接没了）。
+ *    所以主从只保留"对单"最要紧的几列。
+ */
+const { isWide } = useViewport();
+const selectedId = ref<number | undefined>(undefined);
+
+/** 主从版列定义：商品 / 编码 / 货位 / 数量 / 状态。仓库与更新时间留给完整视图。 */
+const masterColumns: readonly ColumnDef<InventoryRow>[] = [
+  { key: 'productName', title: '商品', compact: 'primary' },
+  { key: 'productCode', title: '编码', type: 'mono', width: 140, value: (r) => r.productCode ?? '' },
+  { key: 'location', title: '货位', type: 'mono', width: 100, compact: 'secondary' },
+  { key: 'quantity', title: '数量', type: 'mono', width: 90, align: 'right', value: (r) => String(r.quantity ?? 0) },
+  {
+    key: 'status',
+    title: '状态',
+    type: 'status',
+    width: 100,
+    compact: 'chip',
+    value: (r) => (r.status === 1 ? '已锁定' : '正常'),
+    tone: (r) => (r.status === 1 ? 'warning' : 'success'),
+  },
+];
+
+const activeColumns = computed(() => (isWide.value ? masterColumns : columns));
+
 function openDetail(row: InventoryRow): void {
-  if (row.inventoryId !== undefined) {
-    void router.push({ name: 'inventory.detail', params: { inventoryId: String(row.inventoryId) } });
+  if (row.inventoryId === undefined) {
+    return;
   }
+  if (isWide.value) {
+    selectedId.value = row.inventoryId;
+    return;
+  }
+  void router.push({ name: 'inventory.detail', params: { inventoryId: String(row.inventoryId) } });
 }
 </script>
 
@@ -237,36 +284,62 @@ function openDetail(row: InventoryRow): void {
 
     <FilterBar :model-value="filterValues" :filters="filters" @update:model-value="onFilter" @reset="resetFilters" />
 
-    <SectionBlock :title="`库存列表${applied ? `（含「${applied}」）` : ''}`">
-      <StateHost
-        :loading="activeLoading"
-        :error="activeError"
-        :error-text="activeError ? humanize(activeError) : undefined"
-        :empty="rows.length === 0"
-        :empty-text="emptyText"
-        skeleton="list"
-        @retry="activeReload"
-      >
-        <ResponsiveDataView
-          :columns="columns"
-          :rows="rows"
-          :row-key="(r: InventoryRow) => String(r.inventoryId ?? `${r.productCode}-${r.location}`)"
-          clickable
-          @row-click="openDetail"
-        />
-        <PaginationBar
-          :page="view.page"
-          :page-size="PAGE_SIZE"
-          :total="total ?? all.length"
-          :loading="loading"
-          @update:page="(p: number) => (view.page = p)"
-        />
-      </StateHost>
-    </SectionBlock>
+    <MasterDetail>
+      <template #list>
+        <SectionBlock :title="`库存列表${applied ? `（含「${applied}」）` : ''}`">
+          <StateHost
+            :loading="activeLoading"
+            :error="activeError"
+            :error-text="activeError ? humanize(activeError) : undefined"
+            :empty="rows.length === 0"
+            :empty-text="emptyText"
+            skeleton="list"
+            @retry="activeReload"
+          >
+            <ResponsiveDataView
+              :columns="activeColumns"
+              :rows="rows"
+              :row-key="(r: InventoryRow) => String(r.inventoryId ?? `${r.productCode}-${r.location}`)"
+              clickable
+              @row-click="openDetail"
+            />
+            <PaginationBar
+              :page="view.page"
+              :page-size="PAGE_SIZE"
+              :total="total ?? all.length"
+              :loading="loading"
+              @update:page="(p: number) => (view.page = p)"
+            />
+          </StateHost>
+        </SectionBlock>
+      </template>
+      <template #detail>
+        <!--
+          右栏：选中了才渲染面板（没选中时不发一个必然是空的请求）；
+          未选中时给一句话说明怎么用，而不是留一片空白。
+        -->
+        <InventoryDetailPanel v-if="selectedId !== undefined" :inventory-id="selectedId" />
+        <div v-else class="w-inventory__pick">从左边点一条记录，这里显示它的明细。</div>
+      </template>
+    </MasterDetail>
   </div>
 </template>
 
 <style scoped>
+/*
+ * 主从右栏"还没选"时的提示。用 muted 小字而不是一片空白 ——
+ * 空白会让人以为"右栏坏了"，而它其实只是在等一次点击。
+ */
+.w-inventory__pick {
+  padding: var(--w-space-card-padding);
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  line-height: var(--w-type-body-small-line);
+  background: var(--w-color-surface-alt);
+  border: 1px dashed var(--w-color-outline);
+  border-radius: var(--w-radius-card);
+}
+
 .w-inventory__search {
   max-width: var(--w-space-detail-column-width);
 }

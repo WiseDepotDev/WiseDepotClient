@@ -28,3 +28,4 @@ export { default as FilterBar } from './business/FilterBar.vue';
 export { default as PaginationBar } from './business/PaginationBar.vue';
 export { default as ActionDock } from './business/ActionDock.vue';
 export { default as ConfirmDialog } from './business/ConfirmDialog.vue';
+export { default as MasterDetail } from './business/MasterDetail.vue';
