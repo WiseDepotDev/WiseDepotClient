@@ -127,6 +127,13 @@ export const DOMAINS: readonly NavDomain[] = [
     children: [
       { id: 'messages', label: '消息', short: '消息', primaryMethod: 'message.list', path: '/me/messages' },
       { id: 'users', label: '用户管理', short: '用户', primaryMethod: 'user.list', path: '/me/users' },
+      {
+        id: 'permissions',
+        label: '权限管理',
+        short: '权限',
+        primaryMethod: 'permission.list',
+        path: '/me/permissions',
+      },
       { id: 'profile', label: '个人设置', short: '设置', primaryMethod: 'profile.get', path: '/me/profile' },
     ],
   },

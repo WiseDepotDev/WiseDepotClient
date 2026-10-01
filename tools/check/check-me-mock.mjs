@@ -306,6 +306,63 @@ try {
       JSON.stringify(roles),
     );
   }
+
+  // ---- 12. 权限：net-new 的一族，判据全部来自 2026-10-03 真后端实测 ----
+  {
+    const mock = new MeMock();
+
+    const list = call(mock, 'permission.list', {});
+    check(
+      'permission.list 返回**裸数组**（服务端不分页）',
+      list.ok === true && Array.isArray(list.value) && list.value.length === 4,
+      Array.isArray(list.value) ? `${list.value.length} 条` : JSON.stringify(list).slice(0, 120),
+    );
+    check(
+      '权限种子与服务端逐字一致（user:view / user:create / user:edit / user:delete）',
+      ['user:view', 'user:create', 'user:edit', 'user:delete'].every((c) =>
+        (list.value ?? []).some((x) => x.permissionCode === c),
+      ),
+      (list.value ?? []).map((x) => x.permissionCode).join(','),
+    );
+
+    // tree 在真后端上**等于 list**：没有 parentId ⇒ 全是根、children 为 null。假桥不许自己编一棵树。
+    const tree = call(mock, 'permission.tree', {});
+    check(
+      'permission.tree 与 list 同形（无层级：全是根、children 为 null）',
+      tree.ok === true &&
+        tree.value.length === list.value.length &&
+        tree.value.every((x) => (x.children ?? null) === null && (x.parentId ?? null) === null),
+      JSON.stringify(tree.value?.[0] ?? {}).slice(0, 140),
+    );
+
+    const detail = call(mock, 'permission.detail', { id: 1 });
+    check('permission.detail 按主键取到', detail.ok === true && detail.value?.permissionCode === 'user:view', JSON.stringify(detail).slice(0, 120));
+    const detailMiss = call(mock, 'permission.detail', { id: 999 });
+    check('权限不存在 → RES-0004', detailMiss.ok === false && detailMiss.code === 'RES-0004', JSON.stringify(detailMiss).slice(0, 120));
+
+    const byCode = call(mock, 'permission.byCode', { code: 'user:edit' });
+    check('permission.byCode 按编码取到', byCode.ok === true && byCode.value?.permissionName === '用户编辑', JSON.stringify(byCode).slice(0, 120));
+    const byCodeMiss = call(mock, 'permission.byCode', { code: 'nope:code' });
+    check('编码不存在 → RES-0004 且回显编码', byCodeMiss.ok === false && byCodeMiss.details.includes('nope:code'), byCodeMiss.details);
+
+    /*
+     * **复刻服务端的 500**：真后端实测 `POST /api/permissions` → `HTTP 500 SYS-0001`
+     * （`permission.create_by` / `update_by` 是 NOT NULL 外键，服务层从不设置）。
+     * 假桥若让它成功，界面就会"开发态一切正常、真机上一建就 500"。
+     */
+    const created = call(mock, 'permission.create', { permissionName: '探针', permissionCode: 'probe:x' });
+    check(
+      'permission.create 复刻服务端 500（不是"帮它成功"）',
+      created.ok === false && created.code === 'SYS-0001',
+      JSON.stringify(created).slice(0, 120),
+    );
+
+    // update / delete **没实测过 → 不假装支持**（返回 undefined，由资源层如实报"未知方法"）
+    check(
+      'permission.update / permission.delete 不实现（未实测，不假装支持）',
+      mock.call('permission.update', {}) === undefined && mock.call('permission.delete', {}) === undefined,
+    );
+  }
 } catch (error) {
   console.error(`✗ 护栏执行失败：${error?.stack ?? error}`);
   process.exit(1);

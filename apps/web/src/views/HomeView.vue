@@ -14,6 +14,7 @@ import {
   Goods,
   Grid,
   List,
+  Lock,
   Odometer,
   OfficeBuilding,
   PriceTag,
@@ -69,6 +70,7 @@ const LEAF_NOTES: Readonly<Record<string, string>> = {
   'device.list': '设备在线、离线、故障与只读运行参数',
   'message.list': '设备告警、审批结果与任务提醒；标已读、清空',
   'user.list': '账号与基础资料：建号、重置密码、删除（需要验证码）',
+  'permission.list': '系统预置权限清单：按编码查找与查看明细（当前只读）',
   'profile.get': '账号信息、联系方式与安全设置',
 };
 
@@ -98,6 +100,7 @@ const LEAF_ICONS: Readonly<Record<string, Component>> = {
   'device.list': Cpu,
   'message.list': ChatDotRound,
   'user.list': User,
+  'permission.list': Lock,
   'profile.get': Setting,
 };
 

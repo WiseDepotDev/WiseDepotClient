@@ -55,6 +55,8 @@ export const SCREEN_REGISTRY: Readonly<Record<string, () => Promise<unknown>>> =
   'user.list': () => import('./me/UserListView.vue'),
   // 用户详情与用户列表是**同一屏**（React `registry.tsx:139` 也是这么映射的）：明细是列表屏里的一个面板
   'user.detail': () => import('./me/UserListView.vue'),
+  // 权限：net-new（旧 React 版从未接过这一族），清单 + 明细 + 按编码查找都在同一屏
+  'permission.list': () => import('./me/PermissionListView.vue'),
   'profile.get': () => import('./me/ProfileView.vue'),
 } as Readonly<Record<string, () => Promise<unknown>>>;
 

@@ -288,6 +288,35 @@ async function writeProbes(token, { firstProduct, firstWarehouse, rowsOf }) {
       queryObj.code !== 'RES-0000' && queryArr.code !== 'RES-0000',
       `对象→${queryObj.code} / 裸数组→${queryArr.code}`,
     );
+
+    // ---- permission.create / update / delete ----
+    //
+    // **只动自己新建的那一条**：默认那 4 条（user:view/create/edit/delete）被角色引用着，
+    // 拿它们去撞删除等于修库。所以这里只验证"能不能新建"，删也只删自己建的。
+    const perm = await http('POST', '/api/permissions', {
+      token,
+      body: { permissionName: `探针权限${stamp}`, permissionCode: `probe:${stamp}`, description: '探针' },
+    });
+    if (perm.code === 'RES-0000') {
+      const permId = perm.data?.permissionId ?? perm.data?.id;
+      record('permission.create 能建出权限', true, `id=${permId} ${brief(perm)}`);
+      observe('新建权限 DTO', JSON.stringify(perm.data).slice(0, 240));
+      const upd = await http('PUT', `/api/permissions/${permId}`, {
+        token,
+        body: { permissionName: `探针权限改${stamp}`, permissionCode: `probe:${stamp}` },
+      });
+      record('permission.update 能改名（code 只作必填占位，实际改不动）', upd.code === 'RES-0000', brief(upd));
+      const del = await http('DELETE', `/api/permissions/${permId}`, { token });
+      record('清理探针权限（delete 成功时 payload.data 是 null）', del.code === 'RES-0000' && del.data === null, brief(del));
+      const gone = await http('GET', `/api/permissions/${permId}`, { token });
+      observe('删除后复查', brief(gone));
+    } else {
+      record(
+        'permission.create 在真后端上可用（失败 ⇒ 界面不该提供"新建权限"）',
+        false,
+        `${brief(perm)} ← permission.create_by / update_by 是 NOT NULL 且外键到 user_core，而服务层从不设置它们`,
+      );
+    }
   } finally {
     // ---- 清理：探针数据必须删干净（删不掉就大声报出来，不能悄悄留下垃圾）----
     for (const [kind, id] of cleanup.reverse()) {

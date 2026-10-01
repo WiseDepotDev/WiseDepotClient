@@ -1459,3 +1459,50 @@ GET /api/tag?…      → status=0 productId=null  ← 真值
 新建标签"至少一个标识"拦住 / 新建标签真的带上了条码 / 新建回执 /
 详情绑定回执 / **绑定后状态立刻变**（钉住"不 reload"）/ **改标识后立刻显示新值**（同理）/ 删除后回列表。
 
+## V6 之后 · 第七轮：权限管理（net-new，2026-10-03）
+
+### 一、先确认这不是"移植缺口"
+
+在回滚点 tag `v0-react-freeze` 上全代码面搜 `permission`：**无输出**（唯一命中的是生成物
+`bridgeContract.ts` 自身）。旧 Android APP 同样零调用。所以这一族是**新做的**，
+每条口径都对着真后端重新核过（`tools/bench/inventory-tag-probe.mjs`）。
+
+### 二、三条实测事实，直接决定这一屏长什么样
+
+| 事实 | 证据 | 界面的决定 |
+| --- | --- | --- |
+| `permission.list` 返回**裸数组、不分页** | `PermissionController` 的 list 没有 `page`/`size` 参数；实测 4 条 | **不画分页条** —— 画一条点了没反应的装饰违反"不可用的按钮不得渲染" |
+| `permission.tree` 与 `list` **一模一样** | 实体与表都没有 `parentId`、`PermissionMapper` 也不填 ⇒ 四个节点全是根、`children` 是 `null`（实测 tree 4 个根 / children 非空 = false） | **不画树**：画出来是一排平行的根节点，那是把"没有层级"包装成"有层级"。界面上把这件事说出来 |
+| `permission.create` 实测 **HTTP 500 `SYS-0001`** | `permission.create_by` / `update_by` 是 `NOT NULL` 且外键到 `user_core`，而 `PermissionApplicationService#createPermission` 从不设置它们 | **不提供"新建权限"**；`update` / `delete` 因未实测（delete 会撞 `role_permission` 外键，默认四条被角色引用着，拿它们去试等于修库）也**一个写入口都不提供** |
+
+### 三、交付
+
+- 新导航叶子**权限管理**（管理域，`/me/permissions`）→ 叶子 **17 → 18**、已迁入屏 **29 → 30**。
+  首页应用中心**自动**多一个入口（含图标与一句话说明）—— 入口由 `DOMAINS` 生成，不手抄清单。
+- 新屏 `PermissionListView`：清单（`permission.list`）+ 按编码查找（`permission.byCode`）
+  + 点行取明细（`permission.detail`）。
+- 假桥补 `permission.list` / `tree` / `detail` / `byCode`；**`permission.create` 复刻服务端 500**；
+  `update` / `delete` **故意不实现**（没实测就不假装支持，由资源层如实报"未知方法"）。
+  权限种子与服务端逐字一致（`user:view` / `user:create` / `user:edit` / `user:delete`）。
+
+### 四、门禁与冒烟
+
+- `check:me-mock` **75 → 84 用例**：裸数组 / 种子逐字 / tree 与 list 同形 / detail 与 byCode
+  的命中与 404 / **create 复刻 500** / update 与 delete 不实现。
+- `check:web-smoke` **237 → 243**：清单 4 行 / 本屏无分页条 / **对照屏确实有分页条**
+  （证明上一条的选择器不是永远 0）/ 点行取到明细 / 按编码查找命中 / 不提供"新建权限"按钮。
+- `docs/feature-parity.md` 重新生成（`gen:parity`）。
+
+> 写"对照屏"那条断言时又踩了一次时序：库存屏的分页条在 `StateHost` **里面**，
+> 骨架屏阶段不渲染 —— 第一版没等数据落地就查，拿到的 `missing` 是加载中的假象。
+
+### 本轮验收证据（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **26 条全绿**（`check:me-mock` 现 84 用例） |
+| 类型 | `pnpm typecheck` | exit 0，0 错误 |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **97.0KB gzip**、69 chunk 全 ≤130KB |
+| 双端冒烟 | `pnpm check:web-smoke` | **243/243** |
+
+

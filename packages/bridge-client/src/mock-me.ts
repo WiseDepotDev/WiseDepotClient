@@ -57,6 +57,23 @@ interface RoleRow {
   description: string;
 }
 
+/**
+ * 权限行（`PermissionDTO`）。字段名取自真后端实测响应，**一个都不许改名**：
+ * `{permissionId, permissionName, permissionCode, parentId, parentName, description, children, createdAt, updatedAt}`。
+ * 其中 `parentId` / `parentName` / `children` 在真后端**永远是 null**（没有层级数据）。
+ */
+interface PermissionRow {
+  permissionId: number;
+  permissionName: string;
+  permissionCode: string;
+  parentId?: number | undefined;
+  parentName?: string | undefined;
+  description: string;
+  children?: PermissionRow[] | undefined;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
 interface ProfileRow {
   profileId: number;
   userId: number;
@@ -292,6 +309,22 @@ export class MeMock {
   private readonly findUser = (userId: number | undefined): UserRow | undefined =>
     this.users.find((u) => u.userId === userId);
 
+  /**
+   * 权限清单。**与服务端种子逐字一致**（`DataInitializer:245-248`：1 用户查看 user:view /
+   * 2 用户创建 user:create / 3 用户编辑 user:edit / 4 用户删除 user:delete）。
+   *
+   * 真后端实测（2026-10-03）：`permission.list` 返回**裸数组、不分页**；
+   * `permission.tree` 返回的东西与 list **一模一样**（实体与表都没有 `parentId`，
+   * `PermissionMapper` 也不填它 ⇒ 四个节点全是根、`children` 是 `null`）。
+   * 所以假桥也不许自己编出一棵树来 —— 界面据此不画树。
+   */
+  private readonly permissions: PermissionRow[] = [
+    { permissionId: 1, permissionName: '用户查看', permissionCode: 'user:view', description: '用户查看' },
+    { permissionId: 2, permissionName: '用户创建', permissionCode: 'user:create', description: '用户创建' },
+    { permissionId: 3, permissionName: '用户编辑', permissionCode: 'user:edit', description: '用户编辑' },
+    { permissionId: 4, permissionName: '用户删除', permissionCode: 'user:delete', description: '用户删除' },
+  ];
+
   /** 返回 `undefined` 表示"这个方法不归我管"，交给别的 mock / FIXTURES。 */
   call<T>(method: string, params: unknown): T | undefined {
     const p = (params ?? {}) as Record<string, unknown>;
@@ -309,6 +342,64 @@ export class MeMock {
         const me = this.findUser(1);
         return (me ?? this.users[0]) as T;
       }
+
+      // ---------------- 权限（net-new：旧 React 版从未接过这一族） ----------------
+
+      /**
+       * 权限清单。真后端实测（2026-10-03）：
+       *   · `permission.list` 返回**裸数组、不分页**（`PermissionController` 的 list 没有 page/size 参数）；
+       *   · `permission.tree` 返回的东西与它**一模一样** —— 实体与表都没有 `parentId`、
+       *     `PermissionMapper` 也不填它 ⇒ 四个节点全是根、`children` 是 `null`。
+       * 所以假桥把两者放在**同一个 case** 里：界面据此不画树（画出来的树是假的层级）。
+       */
+      case 'permission.list':
+      case 'permission.tree':
+        return this.permissions.map((x) => ({
+          ...x,
+          parentId: null,
+          parentName: null,
+          children: null,
+          createdAt: '2026-09-18T18:52:51.672049',
+          updatedAt: '2026-09-18T18:52:51.672049',
+        })) as T;
+
+      case 'permission.detail': {
+        const row = this.permissions.find((x) => x.permissionId === num('id'));
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '权限不存在' });
+        }
+        return { ...row, parentId: null, parentName: null, children: null } as T;
+      }
+
+      case 'permission.byCode': {
+        const wanted = str('code');
+        const row = this.permissions.find((x) => x.permissionCode === wanted);
+        if (!row) {
+          throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: `没有找到编码 ${wanted} 的权限` });
+        }
+        return { ...row, parentId: null, parentName: null, children: null } as T;
+      }
+
+      /**
+       * **复刻服务端的 500，而不是"帮它实现一遍"**。
+       *
+       * `permission.create` 在真后端上必然失败：`permission.create_by` / `update_by` 是 `NOT NULL`
+       * 且外键到 `user_core`，而 `PermissionApplicationService#createPermission` 从不设置它们
+       * （`Permission` 不继承 `BaseEntity`、没有 `@PrePersist`；`orm.xml` 也没有 entity-listeners）。
+       * 2026-10-03 实测：`POST /api/permissions` → `HTTP 500 SYS-0001 系统异常，请联系管理员`。
+       * 假桥若让它成功，界面就会在开发态一切正常、真机上一建就 500。
+       *
+       * **`permission.update` / `permission.delete` 这里故意不实现**：它们没有实测过
+       * （update 要拿真权限去改、delete 会撞 `role_permission` 外键 —— 默认那 4 条被角色引用着，
+       * 拿它们去撞删除等于修库）。没实测就不假装支持：返回 undefined，由资源层如实报"未知方法"。
+       * 界面上这三条都不提供入口。
+       */
+      case 'permission.create':
+        throw new BridgeError({
+          code: 'SYS-0001',
+          messageKey: 'error.system',
+          details: '服务端权限写入接口当前不可用',
+        });
 
       // ---------------- 消息 ----------------
       case 'message.list': {

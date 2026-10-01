@@ -265,7 +265,7 @@ if (!loginReady) {
 
   const hubEntries = await cdp.evaluate(`document.querySelectorAll('.w-home__entry').length`, { awaitPromise: false });
   // 17 = 当前导航叶子数（运营 2 / 库存 6 / 现场 5 / 管理 3 + 巡检计划与其它；加叶子时这条要跟着改）
-  check('功能入口数量 = 导航叶子数（一级功能 17 个）', hubEntries === 17, `entries=${hubEntries}`);
+  check('功能入口数量 = 导航叶子数（一级功能 18 个）', hubEntries === 18, `entries=${hubEntries}`);
   const hubFirst = await cdp.evaluate(`document.querySelector('.w-home__entry')?.innerText.trim() ?? ''`, {
     awaitPromise: false,
   });
@@ -289,7 +289,7 @@ if (!loginReady) {
   );
   check(
     '每个入口都画出了图标（不是只有名字）',
-    hubIcons.total === 17 && hubIcons.withIcon === hubIcons.total,
+    hubIcons.total === 18 && hubIcons.withIcon === hubIcons.total,
     `withIcon=${hubIcons.withIcon}/${hubIcons.total}`,
   );
 
@@ -2541,6 +2541,67 @@ const sidebarAccount = await cdp.evaluate(
   { awaitPromise: false },
 );
 check('列表刷新不会把侧栏账号区的名字/职位弄丢', sidebarAccount.name === '现场操作员' && sidebarAccount.role !== '', JSON.stringify(sidebarAccount));
+
+// ---- 权限管理：只读清单 + 按编码查找（net-new，旧 React 版从未接过这一族）----
+await cdp.evaluate(`(location.hash = '#/me/permissions')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '权限管理' ? true : null`, 20_000, 200);
+await waitFor(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length === 4 ? true : null`, 15_000, 200);
+const permRows = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, {
+  awaitPromise: false,
+});
+check('权限清单 4 行（与服务端种子一致）', permRows === 4, `rows=${permRows}`);
+check(
+  '权限屏不画分页条（服务端 permission.list 不分页，画了就是点了没反应的装饰）',
+  (await cdp.evaluate(`document.querySelectorAll('.w-pagination').length`, { awaitPromise: false })) === 0,
+);
+/*
+ * 分页条的实现类名要先确认过再断言，否则"0 个"是假的（选择器写错也会得到 0）。
+ * 所以上面那条与下面这条配对：拿一个**确实有分页条**的屏做对照，证明选择器是对的。
+ */
+await cdp.evaluate(`(location.hash = '#/inventory/inventory')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '库存查询' ? true : null`, 20_000, 200);
+// 分页条在 `StateHost` 里面（骨架屏阶段不渲染），所以要等数据落地的行出现之后再查 ——
+// 第一版没等，拿到的 `missing` 是加载中的假象。
+await waitFor(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length > 0 ? true : null`, 15_000, 200);
+const pagerProbe = await cdp.evaluate(`document.querySelector('.w-pagination') ? 'found' : 'missing'`, { awaitPromise: false });
+check('对照：库存查询屏确实有分页条（证明上面那个选择器不是永远 0）', pagerProbe === 'found', pagerProbe);
+
+await cdp.evaluate(`(location.hash = '#/me/permissions')`, { awaitPromise: false });
+await waitFor(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length === 4 ? true : null`, 15_000, 200);
+await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!row;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(900);
+const permDetail = await text('.w-kv');
+check('点行取到权限明细（permission.detail）', /用户查看|权限编码/.test(permDetail) && /user:view/.test(permDetail), permDetail.replace(/\s+/g, ' ').slice(0, 70));
+
+await cdp.evaluate(
+  `(() => {
+     const input = document.querySelector('.w-permission__search input');
+     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
+     setter.call(input, 'user:view');
+     input.dispatchEvent(new Event('input', { bubbles: true }));
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(200);
+await clickByText('查找');
+await sleep(900);
+const permFound = await text('.w-section .w-kv');
+check('按编码查找命中（permission.byCode）', /用户查看/.test(permFound), permFound.replace(/\s+/g, ' ').slice(0, 60));
+check(
+  '权限屏不提供"新建权限"按钮（服务端 permission.create 实测 500）',
+  (await cdp.evaluate(
+    `[...document.querySelectorAll('button')].some((b) => /新建权限|新增权限/.test(b.innerText))`,
+    { awaitPromise: false },
+  )) === false,
+);
 
 // ---- 个人资料：三块数据与三个写操作各自独立 ----
 await cdp.evaluate(`(location.hash = '#/me/profile')`, { awaitPromise: false });
