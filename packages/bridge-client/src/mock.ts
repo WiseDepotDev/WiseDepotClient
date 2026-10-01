@@ -91,6 +91,25 @@ export class MockTransport implements BridgeTransport {
     this.sessionExpired = false;
   }
 
+  /** 空库开关（开发态专用，见 `emptyDashboard()` 的说明）。 */
+  private dashboardEmpty = false;
+
+  /**
+   * 开发态：把看板切成**空库**（KPI 全 0、没有未处理告警、没有进行中任务）。
+   *
+   * 为什么需要它：真机上的空库是"数据被清过/刚初始化"的现场，平时碰不到；
+   * 而这时候界面最容易假装正常 —— 一屏 0 到底是**真的没有数据**，还是**字段接错了**，
+   * 只有把两个状态摆在一起看才知道。真后端 2026-10-01 就是这个状态
+   * （`/api/inventories` total=0、3 台设备全离线、当天无新告警），
+   * 但假桥平时给的是有数据的那份，所以要用开关把另一份调出来。
+   *
+   *   window.__bridgeMock.emptyDashboard(true)   // 切成空库（刷新后生效）
+   *   window.__bridgeMock.emptyDashboard(false)  // 切回有数据
+   */
+  emptyDashboard(on: boolean): void {
+    this.dashboardEmpty = on;
+  }
+
   get state(): ConnectionState {
     return 'open';
   }
@@ -166,6 +185,21 @@ export class MockTransport implements BridgeTransport {
     }
 
     const fixture = FIXTURES[method];
+
+    /*
+     * 空库态特判（开发态开关）。放在 FIXTURES 之前，因为要覆盖它那份有数据的静态版本。
+     * 形状与真后端 `DashboardSummaryDTO` 一致：字段全在，只是值都是 0 / 空数组。
+     */
+    if (method === 'dashboard.summary' && this.dashboardEmpty) {
+      return {
+        inventoryTotal: 0,
+        todayAlertCount: 0,
+        inspectionProgress: 0,
+        deviceOnlineCount: 0,
+        unprocessedAlerts: [],
+        currentTask: null,
+      } as T;
+    }
     /*
      * 只拦**有状态**的四个告警方法。
      *

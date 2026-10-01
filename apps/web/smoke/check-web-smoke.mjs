@@ -612,6 +612,58 @@ const dashAlertRows = await cdp.evaluate(
 );
 check('未处理告警渲染 2 行', dashAlertRows === 2, `rows=${dashAlertRows}`);
 
+/*
+ * 空库态：0 必须自证"是真没有"而不是"界面没接上"。
+ *
+ * 这不是假设出来的边界，是现场现状：2026-10-01 直连真后端实测
+ * `/api/inventories` total=0、`/api/device/statistics` 3 台全离线、
+ * `/api/dashboard/summary` 四个 KPI 全 0（当天确实没有新告警）。
+ * 假桥平时给的是有数据的那份，所以用 `emptyDashboard` 开关把另一份调出来 ——
+ * 真后端没法按需清库。
+ */
+const setEmptyDashboard = (on) =>
+  cdp.evaluate(`window.__bridgeMock?.emptyDashboard(${on === true}) ?? false`, { awaitPromise: false });
+const clickRefresh = () =>
+  cdp.evaluate(
+    `(() => {
+       const b = [...document.querySelectorAll('.w-page button')].find((n) => n.innerText.trim() === '刷新');
+       if (!b) return false;
+       b.click();
+       return true;
+     })()`,
+    { awaitPromise: false },
+  );
+const dashNotes = () =>
+  cdp.evaluate(
+    `[...document.querySelectorAll('.w-metric__note')].map((n) => n.innerText.trim()).join(' | ')`,
+    { awaitPromise: false },
+  );
+
+check('看板页头有刷新按钮（空库态要重取才生效）', (await clickRefresh()) === true);
+await setEmptyDashboard(true);
+await clickRefresh();
+await waitFor(`document.querySelector('.w-metric__value')?.innerText.trim() === '0' ? true : null`, 20_000, 200);
+
+const emptyNotes = await dashNotes();
+check('空库：库存总量 0 说明"还没有数据"', /库存表还没有数据/.test(emptyNotes), emptyNotes);
+check('空库：今日告警 0 说明"今天没有新告警"', /今天还没有新告警/.test(emptyNotes), emptyNotes);
+check('空库：巡检进度 0 说明来由（没有进行中的任务）', /当前没有进行中的任务/.test(emptyNotes), emptyNotes);
+check('空库：设备在线 0 说明"没有在线设备"', /当前没有在线设备/.test(emptyNotes), emptyNotes);
+check(
+  '空库：没有未处理告警时不摆假行',
+  (await cdp.evaluate(
+    `document.querySelectorAll('.w-datatable .el-table__body tbody tr.el-table__row').length`,
+    { awaitPromise: false },
+  )) === 0,
+);
+check('空库：当前任务区给出"没有进行中任务"', /当前没有进行中的巡检任务/.test(await text('.w-overview-muted')), await text('.w-overview-muted'));
+
+// 切回去，别把空库态留给后面的阶段（后续几步还会回到看板做布局断言）
+await setEmptyDashboard(false);
+await clickRefresh();
+await waitFor(`document.querySelector('.w-metric__value')?.innerText.trim() === '1284' ? true : null`, 20_000, 200);
+check('切回有数据后不再显示空库提示', !/还没有数据/.test(await dashNotes()), await dashNotes());
+
 // ---- 告警中心 ----
 await cdp.evaluate(`(location.hash = '#/overview/alerts')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '告警中心' ? true : null`, 20_000, 200);

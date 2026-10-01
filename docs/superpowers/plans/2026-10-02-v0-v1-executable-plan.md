@@ -1004,3 +1004,111 @@ Retirement Decision:
 | 双端冒烟 | `pnpm check:web-smoke` | **188/188** |
 | 文档一致性 | `gen:parity` + `check:parity` | 商品屏与仓库屏的映射都补上 update 后重生成、校验通过 |
 
+## V6 之后 · 第三轮：登录态、手机端、应用中心与"看板的 0"（2026-10-02）
+
+这一轮的四个提交（`761403f` / `8416eb9` / `2c1cb23` / `5a7daa1`）加上本轮第 5 件事一起记账。
+共同点：**四条都是"真机上才看得见"的问题** —— 开发态（有数据的假桥 + 桌面宽度）全部是绿的。
+
+### 一、登录态过期要自己回登录屏，且要能按需复现（`761403f`）
+
+需求是"登录过期后自动回登录屏重新登录"。这条链路上有三件事只有**真过期**才看得见，缺一个都会做假：
+
+1. 界面是否**自动**回登录屏（而不是等用户点一下才跳）；
+2. 登录屏有没有说明**为什么**被踢出来（不然用户以为是系统坏了）；
+3. 过期后 `bridge.session` 必须报"未登录"，否则界面会继续画上一份数据。
+
+真机上"登录过期"通常要等令牌自然到期，没法按需复现 —— 所以加了一个开发态开关
+`window.__bridgeMock.expireSession()` / `restoreSession()`，并推一条**真宿主会推的**同款事件
+（`BRIDGE_EVENT_SESSION_EXPIRED`）。这是 `setBackendDown` 的同款思路：**"状态显示是真的"这条，
+没有制造故障的开关就只能靠嘴说。**
+
+落地：`App.vue` 里 `watch(session.authenticated)`，从"已登录 → 未登录"且当前路由不是
+`meta.always` 时 `router.replace({name:'auth.login'})`；登录屏据此渲染 `.w-login__expired` 提示条。
+门禁 `check:session-expiry` 改指 `packages/stores`（V6 后会话状态的属主在 store，不在屏里）。
+
+### 二、手机端 UI 第一遍重排（`8416eb9`）
+
+真机上暴露的问题不是"不好看"，而是**结构重复与散架**：
+
+| 症状 | 根因 | 处理 |
+| --- | --- | --- |
+| 页面上方出现两行几乎一样的标题 | 手机壳的 `ContextHeader` 显示 `pageTitle`，而每屏自己又有一个 `PageHeader` | 手机壳改显示 **`domain.label`（域）**，屏内标题归 `PageHeader` |
+| 卡片与操作按钮挤成一列，一行一个字 | 卡片列表把操作区**嵌在**卡片按钮里 | `ResponsiveDataView` 改成 `<li class="w-cardrow">` 包住 `<button class="w-card">` + `.w-card__actions` 并列 |
+| 工具区散成三行 | 输入/下拉/日期各自独占一行 | `.w-toolbar > .el-input/.el-select/.el-date-editor { flex: 1 1 45%; min-width: 0 }` |
+| KV 面板左列宽窄不一，右侧被截 | 手机宽度下仍用桌面栅格 | `@media (max-width:599px)` 下 KV 收成 `auto minmax(0,1fr)` |
+| 分页条在没有下一页时仍给一个按钮 | 没判 `hasMore` | `PaginationBar` 无下一页不出按钮；单页时区间文案收成「共 N 条」 |
+
+### 三、"记住登录"在真机上不生效 —— 真缺陷，根因是**启动顺序**（`2c1cb23`）
+
+现象：WSA 冷启动落在 `#/login`，而宿主日志明明写着「已从本机恢复登录态」，
+且 `filesDir/bridge-session.enc`（436B）确实活着。**"凭据在"和"界面进了"是两件事。**
+
+根因：`main.ts` 里 `app.use(router)` 会**立即触发首次导航**，而它排在 `await session.init()`
+**之前** —— 路由守卫读到的 `authenticated` 还是初值 `false`，于是把用户判成未登录并打发到登录屏。
+启动顺序固化为：
+
+```
+createApp → use(pinia) → attach(桥) → startProbe → await session.init() → use(router) → router.isReady() → mount
+```
+
+教训：**"先挂路由再等状态"这类顺序问题，在桌面上会因为状态结算快而看不出来，只在真机冷启动上暴露。**
+验证方式是在 WSA 上冷启动截图（`wsa-06-persist-fixed.png`）。
+
+### 四、首页改成「应用中心」（`5a7daa1`）
+
+原来的首页是看板，而看板回答不了"我要的功能在哪"。改成**按域分组的应用中心**：
+分组来自 `@wise/layouts` 的 `DOMAINS`，每个叶子挂一行 `LEAF_NOTES`（按 `primaryMethod` 索引），
+点条目直接 `push(leaf.path)`。两点是刻意的：
+
+- **不做九宫格**：九宫格只放得下图标，说不清"这屏要带参数才能进"；
+- **入口不漂移**：条目由 `DOMAINS` 生成而不是手抄一份清单 —— 导航加一个叶子，首页自动多一个入口；
+  需要带参数的页（详情类）在页面上如实说明"从列表点进来"。
+
+### 五、看板的 4 个 0：直连真后端查清是"真没有"还是"没接对"（本轮）
+
+现场打开看板看到 **库存总量 0 / 今日告警 0 / 巡检进度 0% / 设备在线 0** —— 四个 0。
+这种画面有两种完全相反的成因，处置方式也相反：**库里真的没有**（去入数据）还是**字段没接对**（去改代码）。
+所以没有改代码，先直连真后端把口径查清（登录走 `deploy/.env.local` 的 Redis 取验证码答案，不打印任何密钥）：
+
+| 探针 | 真后端返回 | 结论 |
+| --- | --- | --- |
+| `GET /api/dashboard/summary` | `inventoryTotal:0, todayAlertCount:0, inspectionProgress:0, deviceOnlineCount:0`，但 `unprocessedAlerts` **非空**（1 条，2026-09-18） | 四个 KPI 都是 0，而告警列表有数据 → 不是"整屏没接到数据" |
+| `GET /api/inventories?page=1&pageSize=5` | `total=0` | **库存表确实是空的** |
+| `GET /api/inventories/statistics/total` | `0` | 同上（聚合与列表一致） |
+| `GET /api/inventories/statistics/by-location` | `[]` | 同上 |
+| `GET /api/inventories/alerts/low-stock` | `[]` | 同上 |
+| `GET /api/device/statistics` | `totalDevices:3, onlineDevices:0, offlineDevices:3` | **3 台设备全部离线** → `deviceOnlineCount:0` 是对的 |
+| `GET /api/inspection/task/page` | `total=7`，无 `status=1`（进行中）的任务 | 没有进行中任务 → `currentTask` 为空 |
+| 当天日期 | 2026-10-01，最新告警 2026-09-18 | **当天确实没有新告警** |
+
+**结论：客户端的字段映射与聚合没有缺陷，这四个 0 是真实数据。** 因此不做"把 0 变好看"的改动。
+
+但"一屏 0"本身仍然是个真问题：**0 不能自证**。所以只改展示层（`DashboardView.vue` 的 `metrics`
+加 `note`，数据全部来自本屏这一份 `dashboard.summary`，**不额外发请求、不改契约**）：
+
+| KPI 为 0 时 | 副标题 |
+| --- | --- |
+| 库存总量 | 库存表还没有数据 |
+| 今日告警（无未处理） | 今天还没有新告警 |
+| 今日告警（有历史未处理） | 另有 N 条未处理告警 ← **不能和上一句合并**，否则会被读成"没有告警" |
+| 巡检进度 | 当前没有进行中的任务 |
+| 设备在线 | 当前没有在线设备 |
+
+> 顺带记一条**服务端口径事实**（不改后端，只记下来）：`inspectionProgress` 读的是 Redis 键
+> `inspection:progress`（`DashboardApplicationService:72`），由进行中的任务写入；没有进行中任务时它天然是 0。
+> 所以"有 7 条历史任务、进度却是 0%"不是 bug。
+
+假桥平时给的是有数据的那份（`inventoryTotal: 1284`），所以加了开发态开关
+`window.__bridgeMock.emptyDashboard(true|false)` 把空库那一份调出来 —— 真后端没法按需清库。
+冒烟新增 8 条，**先把有数据态断言完，再切空库断言副标题，然后切回来重取**（不能把空库态留给后面还会回看板的阶段）。
+
+### 本轮验收证据（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 门禁 | `pnpm check` | **25 条全绿** |
+| 类型 | `pnpm typecheck` | exit 0，0 错误 |
+| 构建 | `pnpm build` + `check:budget` | 首屏 **96.0KB gzip**、64 chunk 全 ≤130KB |
+| 渲染门禁 | `pnpm check:render` | **31 用例全绿**（注册表每一屏都渲染得出且有页头标题） |
+| 双端冒烟 | `pnpm check:web-smoke` | **225/225**（原 217 + 空库自证 8 条） |
+

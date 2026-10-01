@@ -50,12 +50,57 @@ const alerts = computed(() => asList<AlertItem>(data.value?.unprocessedAlerts));
 const task = computed(() => data.value?.currentTask ?? null);
 const isEmpty = computed(() => data.value === undefined);
 
-const metrics = computed<MetricItem[]>(() => [
-  { key: 'inventory', label: '库存总量', value: String(data.value?.inventoryTotal ?? 0), tone: 'info' },
-  { key: 'alerts', label: '今日告警', value: String(data.value?.todayAlertCount ?? 0), tone: 'warning' },
-  { key: 'inspection', label: '巡检进度', value: `${data.value?.inspectionProgress ?? 0}%`, tone: 'success' },
-  { key: 'devices', label: '设备在线', value: String(data.value?.deviceOnlineCount ?? 0), tone: 'neutral' },
-]);
+/*
+ * 0 必须能自证。
+ *
+ * 真机联调时对着 4 个 0 分不清两件事：**库里真的没有** 还是 **字段没接对**。
+ * 这两种 0 在画面上长得一模一样，而它们的处置方式完全相反（一个去入数据、
+ * 一个去修代码）—— 所以凡是 0，就把"为什么是 0"用一句话写出来。
+ *
+ * 依据全部来自本屏这一份 `dashboard.summary`（不额外发请求，不改契约）：
+ * 2026-10-01 实测真后端就是这样返回的（库存表 0 条 / 设备 3 台全离线 / 当天无新告警）。
+ */
+const metrics = computed<MetricItem[]>(() => {
+  const total = data.value?.inventoryTotal ?? 0;
+  const alertsToday = data.value?.todayAlertCount ?? 0;
+  const progress = data.value?.inspectionProgress ?? 0;
+  const online = data.value?.deviceOnlineCount ?? 0;
+  const pending = alerts.value.length;
+  return [
+    {
+      key: 'inventory',
+      label: '库存总量',
+      value: String(total),
+      tone: 'info',
+      ...(total === 0 ? { note: '库存表还没有数据' } : {}),
+    },
+    {
+      key: 'alerts',
+      label: '今日告警',
+      value: String(alertsToday),
+      tone: 'warning',
+      // 今天没有新告警，但历史未处理的还挂着 —— 这两句不能混成一句，否则会被读成"没有告警"
+      ...(alertsToday === 0
+        ? { note: pending > 0 ? `另有 ${pending} 条未处理告警` : '今天还没有新告警' }
+        : {}),
+    },
+    {
+      key: 'inspection',
+      label: '巡检进度',
+      value: `${progress}%`,
+      tone: 'success',
+      // 进度由服务端按"进行中的任务"写入；没有进行中任务时它就是 0，需要说明来由
+      ...(progress === 0 && task.value === null ? { note: '当前没有进行中的任务' } : {}),
+    },
+    {
+      key: 'devices',
+      label: '设备在线',
+      value: String(online),
+      tone: 'neutral',
+      ...(online === 0 ? { note: '当前没有在线设备' } : {}),
+    },
+  ];
+});
 
 const taskItems = computed<KeyValueItem[]>(() => {
   const t = task.value;
