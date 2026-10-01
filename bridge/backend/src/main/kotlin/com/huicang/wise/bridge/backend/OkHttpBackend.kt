@@ -153,15 +153,50 @@ class OkHttpBackend(
         /** POST/PUT/PATCH 但参数走 query 时的占位 body（OkHttp 不允许这几种方法不带 body）。 */
         private const val EMPTY_JSON_BODY = "{}"
 
+        /*
+         * 三层超时，**必须严格递增**（内层永远先说话）：
+         *
+         *     建连 5s  <  读写 8s  <  整次调用 10s  <  Web 侧单次调用预算 15s
+         *
+         * 为什么不是"随便给三个数"：时间到了之后**谁先失败**，决定了界面上能看到什么。
+         * 内层先到时，OkHttp 抛出的是具体原因（ConnectException / SocketTimeoutException /
+         * UnknownHostException），经由下面的 catch 落成一条**带原因的日志** + 一个可重试的错误码；
+         * 外层先到时，Web 侧只会给出 `bridge.timeout`，而桥侧那条日志**一行都不会打**
+         * —— 排障就只能靠猜（第三轮用户复报时就是这个形状，见 docs/troubleshooting.md §二·补）。
+         *
+         * 旧值（`connect 5s / read 20s / write 20s`，且**没有整次调用的上限**）的问题正在这里：
+         * 读超时比 Web 侧预算还大，等于后端这一层永远轮不到先失败。
+         *
+         * 改这三个数要同步改 `packages/bridge-client/src/transport.ts` 的
+         * `BRIDGE_CALL_TIMEOUT_MS`，`tools/check/check-timeout-budget.mjs` 会跨语言对账。
+         */
+        const val CONNECT_TIMEOUT_MS = 5_000L
+        const val IO_TIMEOUT_MS = 8_000L
+        const val CALL_TIMEOUT_MS = 10_000L
+
         /**
          * 默认客户端。超时给得比较克制：作业现场的网络抖动多，
          * 但"卡住不返回"比"快速失败 + 重试按钮"更糟（UI 无反馈）。
          */
-        fun defaultClient(): OkHttpClient =
+        fun defaultClient(): OkHttpClient = clientWith(CONNECT_TIMEOUT_MS, IO_TIMEOUT_MS, CALL_TIMEOUT_MS)
+
+        /**
+         * 按给定毫秒数装配客户端 —— 只给测试用（同一套装配代码，换一组数）。
+         *
+         * 为什么留这个口子：`callTimeout` 是**行为**而不是配置项，只有真跑一次才知道它在不在
+         * （旧值漏掉的正是它）。拿生产值跑测试要等满 10 秒，所以测试用同一份装配代码、
+         * 按比例缩小的一组数，把"**哪一层先失败**"这件事钉住。
+         */
+        internal fun clientWith(
+            connectMs: Long,
+            ioMs: Long,
+            callMs: Long,
+        ): OkHttpClient =
             OkHttpClient.Builder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .writeTimeout(20, TimeUnit.SECONDS)
+                .connectTimeout(connectMs, TimeUnit.MILLISECONDS)
+                .readTimeout(ioMs, TimeUnit.MILLISECONDS)
+                .writeTimeout(ioMs, TimeUnit.MILLISECONDS)
+                .callTimeout(callMs, TimeUnit.MILLISECONDS)
                 .build()
     }
 }

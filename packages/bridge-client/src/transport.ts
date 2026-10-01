@@ -74,7 +74,30 @@ export interface WebSocketTransportOptions {
   readonly maxAttempts?: number;
 }
 
-const DEFAULTS = { callTimeoutMs: 15_000, connectTimeoutMs: 6_000, maxBackoffMs: 5_000, maxAttempts: 6 } as const;
+/**
+ * Web 侧单次调用的总预算（毫秒）—— **整条超时链的最外层**。
+ *
+ * 超时必须是一条有大小关系的链，而不是三处各写一个数（见 docs/troubleshooting.md §二·补 第三轮）：
+ *
+ * ```
+ * 后端建连 5000  <  后端读写 8000  <  后端整次调用 10000  <  这里的 15000
+ * ```
+ *
+ * **为什么要大小关系**：内层先到时，失败原因（连接被拒 / 读超时 / DNS）才回得来，
+ * 桥侧那条**带原因的日志**才会打；外层先到时，用户只看到一句"请求超时"，
+ * 而日志里一条失败记录都没有 —— 排障只能靠猜，第三轮就是这么卡住的。
+ *
+ * 这个数与 Kotlin 侧的三个常量由 `tools/check/check-timeout-budget.mjs` 跨语言对账：
+ * 改一边而不改另一边，门禁直接失败。
+ */
+export const BRIDGE_CALL_TIMEOUT_MS = 15_000;
+
+const DEFAULTS = {
+  callTimeoutMs: BRIDGE_CALL_TIMEOUT_MS,
+  connectTimeoutMs: 6_000,
+  maxBackoffMs: 5_000,
+  maxAttempts: 6,
+} as const;
 
 /**
  * 生产传输：`ws://127.0.0.1:{port}{HANDSHAKE_PATH}?token=…`。
