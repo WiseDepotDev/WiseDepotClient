@@ -125,6 +125,16 @@ export class CameraSession {
   }
 
   /**
+   * 当前流 —— 取景层要把它接到 `<video>.srcObject` 上。
+   *
+   * 暴露它而不是"让取景层自己调 `getUserMedia`"：那样就有**两个**持有者，
+   * 而"谁负责停"这件事一旦分成两处，必然出现"关了层流还在跑"。
+   */
+  get mediaStream(): MediaStreamLike | null {
+    return this.stream;
+  }
+
+  /**
    * 开一条流。
    *
    * **只在成功后才替换**：失败时保留原有流（若本来就在取景，一次"换摄像头"失败不该把画面弄黑）。

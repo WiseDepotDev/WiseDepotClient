@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, type Component } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElAvatar, ElButton, ElDrawer, ElIcon, ElMenu, ElMenuItem, ElSubMenu } from 'element-plus';
-import { ArrowLeft, Box, Cpu, Expand, Fold, Grid, Menu, Odometer, User } from '@element-plus/icons-vue';
+import { ArrowLeft, Box, Camera, Cpu, Expand, Fold, Grid, Menu, Odometer, User } from '@element-plus/icons-vue';
 import { useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
 import { useViewport } from '@wise/ui';
 import BridgeStatusChip from './BridgeStatusChip.vue';
+import CameraScanPanel from './CameraScanPanel.vue';
 import PageSearch from './PageSearch.vue';
 import ScanResultCard from './ScanResultCard.vue';
 import { useScanGun } from './useScanGun.js';
@@ -286,6 +287,39 @@ function handleScan(code: string): void {
 
 useScanGun({ enabled: canScanGun.value, onScan: handleScan });
 
+/**
+ * 相机扫码（B1/S2b3）。
+ *
+ * **入口只由能力位决定**，不看平台也不看断点：
+ *  · 桌面宿主声明 `scan.camera` → 出按钮；
+ *  · 手机侧那条能力是**主动撤销**的（`MainActivity.kt:203`："本机 WebView 打开相机会崩溃"）
+ *    → 一个像素都不出现。
+ * 让"手机上不显示"这件事由能力表说了算，是为了避免"平台字符串驱动"那种写法 ——
+ * 它会在 B2 真正用 CameraX 实现之后留下一处永远走不到的分支。
+ */
+const canScanCamera = computed(() => bridge.supports('scan.camera'));
+const cameraOpen = ref(false);
+
+/** 命中的码走**与扫码枪同一条**路由（三分支 + 结果卡），不新增第二套消费逻辑。 */
+function onCameraCode(code: string): void {
+  cameraOpen.value = false;
+  handleScan(code);
+}
+
+/**
+ * 切页就关掉取景层。
+ *
+ * 取景层是**当前这一屏的临时动作**，不是全局模式：不关的话，用户切到别的页面
+ * 会带着一个盖住整屏的画面（而且摄像头还开着）。这也是 brief §4 纪律③里
+ * "停流必须发生在切页"的落点 —— 本层是 `v-if`，关掉即卸载，卸载路径统一收尾。
+ */
+watch(
+  () => route.fullPath,
+  () => {
+    cameraOpen.value = false;
+  },
+);
+
 function onKeyDown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && scan.cardOpen) {
     scan.hideCard();
@@ -369,8 +403,22 @@ onBeforeUnmount(() => {
           <span class="w-commandbar__current">{{ pageTitle }}</span>
         </nav>
 
-        <!-- 右上角：页面跳转搜索 + Bridge 状态（**账号已从右上角移到左下角**） -->
+        <!-- 右上角：相机扫码 + 页面跳转搜索 + Bridge 状态（**账号已从右上角移到左下角**） -->
         <div class="w-commandbar__right">
+          <!--
+            相机扫码入口：只在宿主声明 `scan.camera` 时出现（能力声明即承诺）。
+            它排在搜索之前，因为"扫码"是现场频率最高的动作 —— 让人多找一眼就是浪费。
+          -->
+          <ElButton
+            v-if="canScanCamera"
+            class="w-commandbar__scan"
+            text
+            aria-label="相机扫码"
+            @click="cameraOpen = true"
+          >
+            <ElIcon><Camera /></ElIcon>
+            <span>扫码</span>
+          </ElButton>
           <PageSearch />
           <BridgeStatusChip />
         </div>
@@ -419,6 +467,20 @@ onBeforeUnmount(() => {
           @click="mobileDrawerOpen = true"
         >
           <ElIcon><Menu /></ElIcon>
+        </ElButton>
+        <!--
+          手机上的相机扫码入口：**同一个能力位**（手机不声明它，所以这里现在什么都不画）。
+          写成"能力位驱动"而不是"手机不画"，是为了 B2 用 CameraX 落地后这里**不用再改**。
+        -->
+        <ElButton
+          v-if="canScanCamera"
+          class="w-contextheader__action"
+          text
+          circle
+          aria-label="相机扫码"
+          @click="cameraOpen = true"
+        >
+          <ElIcon><Camera /></ElIcon>
         </ElButton>
         <!--
           这里原来有一个「刷新本页」按钮，**已经撤掉**：整仓改成了自动刷新
@@ -535,6 +597,15 @@ onBeforeUnmount(() => {
       </ul>
     </ElDrawer>
 
-    <ScanResultCard v-if="isCompact" />
+    <!--
+      结果卡：**两端都画**。
+      原先只画在手机档（`v-if="isCompact"`），而相机扫码恰恰只有桌面声明 ——
+      于是"扫到了却什么都不显示"。卡片的定位是 `position: fixed` 顶部浮层，
+      在桌面上落在顶栏下方，与手机上语义一致（扫完立刻知道这一下被系统收到了）。
+    -->
+    <ScanResultCard />
+
+    <!-- 取景层：盖在内容之上（z-index 40 > 结果卡 30）。关掉即卸载，流在卸载时收尾。 -->
+    <CameraScanPanel v-if="cameraOpen" @close="cameraOpen = false" @code="onCameraCode" />
   </div>
 </template>

@@ -57,6 +57,29 @@ function titleOf(html) {
   return m ? m[1].trim() : '';
 }
 
+/**
+ * 能力位驱动的"画 / 不画"断言（`present` / `absent`）。
+ *
+ * 只有渲染一次是不够的：一个"有没有能力都画出来"的入口在真机上表现为
+ * "点了没反应"，而在只渲染有能力的形态时**永远不会被这条门禁发现**。
+ * 所以每种能力形态各渲染一次，两边都断。
+ */
+function checkMarkers(item, html) {
+  /*
+   * **先去掉 HTML 注释**：Vue 的 SSR 会把模板里的 `<!-- … -->` 原样输出，
+   * 而本仓的模板注释写得很详细（"相机扫码入口：只在宿主声明 … 时出现"）——
+   * 直接对整份 HTML 做 includes 的话，注释里的字会让"没能力就不画"这条断言**永远失败**
+   * （第一版就是这么写的，红的是断言而不是实现）。
+   */
+  const text = html.replace(/<!--[\s\S]*?-->/g, '');
+  for (const token of item.present ?? []) {
+    check(`${item.name} 应出现「${token}」`, text.includes(token), '有该能力却没画出来');
+  }
+  for (const token of item.absent ?? []) {
+    check(`${item.name} 不应出现「${token}」`, !text.includes(token), '没有该能力却画了出来（点了没反应的入口）');
+  }
+}
+
 let server;
 try {
   server = await createServer({
@@ -98,6 +121,7 @@ try {
       const shellMarkers = ['慧仓智控', 'WISEDEPOT', 'w-commandbar', 'w-sidebar', '运营', '库存', '现场', '管理'];
       const missing = shellMarkers.filter((token) => !html.includes(token));
       check(item.name, missing.length === 0, missing.length > 0 ? `缺结构标记：${missing.join(', ')}` : '');
+      checkMarkers(item, html);
       continue;
     }
     const title = titleOf(html);
@@ -110,6 +134,7 @@ try {
       continue;
     }
     check(item.name, true);
+    checkMarkers(item, html);
   }
 } catch (error) {
   console.error(`✗ 渲染门禁执行失败：${error?.stack ?? error}`);

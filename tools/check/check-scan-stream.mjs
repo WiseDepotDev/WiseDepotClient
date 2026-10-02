@@ -69,8 +69,12 @@ const session = new CameraSession();
 check('初始没有流', session.active === false);
 const first = await session.start({ getUserMedia: async () => s1 }, 'cam-1');
 check('第一次 start 成功', first.ok === true && session.active === true);
+// 取景层要把流接到 `<video>.srcObject`，所以持有者必须**交得出**当前流 ——
+// 交不出的话，唯一的替代做法是取景层自己再调一次 getUserMedia，那就是两个持有者。
+check('拿得到当前流（不是只回答 active）', session.mediaStream === s1);
 const withDevice = calls;
 await session.start(media, 'cam-2');
+check('换过之后交出的就是新流', session.mediaStream === s2);
 check('第二次 start 成功后会停掉第一条流', s1.tracks.every((t) => t.stopped === 1), JSON.stringify(s1.tracks.map((t) => t.stopped)));
 check('旧流已不再是当前流', session.active === true);
 check('显式传了 deviceId 时约束里带 exact', JSON.stringify(withDevice[0]) === JSON.stringify({ video: { deviceId: { exact: 'cam-2' } } }), JSON.stringify(withDevice[0]));
@@ -84,6 +88,7 @@ check('start 失败后仍在取景（不把已有画面弄黑）', session.activ
 console.log('--- 3. 停流：幂等、每条 track 都停、单独 track 抛错不影响其它 ---');
 session.stop();
 check('stop 之后 active=false', session.active === false);
+check('停流之后**不再交出一条已死的流**（否则取景层会把它再挂回 video 上）', session.mediaStream === null);
 check('第二条流的每条 track 都被停掉', s2.tracks.every((t) => t.stopped === 1), JSON.stringify(s2.tracks.map((t) => t.stopped)));
 session.stop();
 check('重复 stop 不报错（切页/关层/失焦三处都会调）', session.active === false);

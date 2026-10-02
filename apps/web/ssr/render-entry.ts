@@ -93,13 +93,21 @@ export interface RenderCase {
   readonly html: string;
   /** 期望出现在页头里的标题（`undefined` 表示只要求非空）。 */
   readonly expectedTitle: string | undefined;
+  /** **必须出现**的结构标记（用于能力位驱动的分支）。 */
+  readonly present?: readonly string[];
+  /** **必须不出现**的结构标记（同上：证明"没这个能力就不画"）。 */
+  readonly absent?: readonly string[];
 }
 
 /**
  * 渲染一个组件：每个用例都用**独立的 pinia + 独立的假桥**，
  * 免得前一个用例的缓存/状态把后一个用例"渲染成功"这件事变成假象。
+ *
+ * `capabilities` 可覆盖：能力位驱动的分支（相机扫码入口）要能**两边都渲染一次** ——
+ * 只验"有入口"证明不了"没能力时不画入口"，而这一条正是本仓反复吃过的亏
+ * （画出点了没反应的入口）。
  */
-async function renderComponent(component: Component): Promise<string> {
+async function renderComponent(component: Component, capabilities: readonly string[] = CAPABILITIES): Promise<string> {
   const app = createSSRApp({ render: () => h(component) });
   const pinia = createPinia();
   app.use(pinia);
@@ -111,7 +119,7 @@ async function renderComponent(component: Component): Promise<string> {
    */
   app.provide(ID_INJECTION_KEY, { prefix: 1000, current: 0 });
   app.provide(ZINDEX_INJECTION_KEY, { current: 0 });
-  useBridgeStore().attach(fakeBridge(CAPABILITIES), 'ssr-check');
+  useBridgeStore().attach(fakeBridge(capabilities), 'ssr-check');
 
   /*
    * 路由必须装上：屏里普遍用 `useRoute()` 取参数、`useRouter()` 做跳转。
@@ -137,6 +145,23 @@ export async function renderCases(): Promise<readonly RenderCase[]> {
     name: 'AppFrame（桌面外壳）',
     html: await renderComponent(AppFrame as Component),
     expectedTitle: undefined,
+    // 能力表给全（上面的 CAPABILITIES 里有 scan.camera）—— 入口必须真的画出来。
+    // 用 `aria-label` 而不是可见文案：模板注释里也有"相机扫码"四个字（注释会被 SSR 输出）
+    present: ['aria-label="相机扫码"'],
+  });
+
+  /*
+   * 相机扫码入口的**反面**（B1/S2b3）。
+   *
+   * 这条用例存在的理由：入口是**能力位驱动**的 —— 有 `scan.camera` 才画。
+   * 只渲染"有能力"那一面的话，"手机/无相机设备上多出一个点了没反应的按钮"这类回归
+   * 只会在真机上被发现。这里把"没能力就一个字都不出现"变成构建期断言。
+   */
+  cases.push({
+    name: 'AppFrame（无 scan.camera 能力）',
+    html: await renderComponent(AppFrame as Component, ['scan.gun.keyboard']),
+    expectedTitle: undefined,
+    absent: ['aria-label="相机扫码"'],
   });
 
   for (const [method, loader] of Object.entries(SCREEN_REGISTRY)) {

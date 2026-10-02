@@ -103,6 +103,17 @@ export function errorTextOf(error: UiError | null | undefined, fallback = '操�
       return '本地服务未就绪，请完全退出应用后重新打开';
     case 'bridge.methodNotMocked':
       return '该功能在开发态假桥下不可用';
+    /*
+     * 相机扫码（B1）的三个码。它们既可能来自桥（Kotlin `BridgeErrorCodes`），
+     * 也可能来自 Web 侧 `getUserMedia` 失败后的映射（见 `scan-stream.ts`）——
+     * 用户看到的是同一句话，因为**出路是同一件事**：去系统设置 / 把占用相机的程序关掉。
+     */
+    case 'scan.cameraUnavailable':
+      return '没有可用的摄像头';
+    case 'scan.cameraDenied':
+      return '相机权限被拒绝，请在系统设置里允许使用相机';
+    case 'scan.cameraBusy':
+      return '摄像头正被其它程序占用';
     default:
       return `${fallback}（${error.code}）`;
   }
