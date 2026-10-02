@@ -408,7 +408,6 @@ function countFieldProps(label: string): Record<string, unknown> {
   <div class="w-page">
     <PageHeader title="录入巡检结果" note="把这次盘点的数量记到对应的巡检任务上；提交后任务即完成，差异不可撤销">
       <template #actions>
-        <ElButton size="large" :disabled="!hasTask || busy" :loading="taskLoading" @click="reloadTask">刷新</ElButton>
       </template>
     </PageHeader>
 

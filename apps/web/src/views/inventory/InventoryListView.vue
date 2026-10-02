@@ -265,7 +265,6 @@ function openDetail(row: InventoryRow): void {
     <PageHeader title="库存查询" :note="total !== undefined ? `共 ${total} 条库存记录` : '按商品、编码或货位查找'">
       <template #actions>
         <!-- 刷新的是**当前生效的那一路**：有关键词时刷的是搜索结果，不是分页列表 -->
-        <ElButton class="w-hide-compact" size="large" :loading="activeLoading" @click="activeReload">刷新</ElButton>
       </template>
     </PageHeader>
 

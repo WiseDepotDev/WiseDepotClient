@@ -53,6 +53,20 @@ export interface BridgeTransport {
   call<T>(method: string, params?: unknown, meta?: ReqMeta): Promise<T>;
   subscribe(topic: string, handler: (data: unknown) => void): () => void;
   onStateChange(handler: (state: ConnectionState) => void): () => void;
+  /**
+   * 验活：发一个**本地** ping（不经后端），确认这条连接真的还能收发。
+   *
+   * 为什么必须有它：WebSocket 会**半死** —— 应用被切到后台、机器休眠、NAT 超时，
+   * TCP 那头早就没了，本地 `readyState` 却还是 `OPEN`，`onclose` 永远不会来。
+   * 此时 `ensureOpen()` 认为"已经连着"，于是每次调用都发进黑洞，只能等满
+   * `callTimeoutMs` 才报错；而报错之后**没有人重连**，界面就永久停在旧数据上：
+   * 左栏能点、右栏内容不动 —— 用户报的正是这个。
+   *
+   * 返回 `false` 表示"这条连接不可信"（实现会**顺手丢掉它**，下一次调用重新建连）。
+   */
+  checkAlive(timeoutMs?: number): Promise<boolean>;
+  /** 丢弃当前连接（不问它是否愿意）：下一次调用重新建连。 */
+  reset(): void;
   close(): void;
 }
 
@@ -93,6 +107,15 @@ export interface WebSocketTransportOptions {
  * 改一边而不改另一边，门禁直接失败。
  */
 export const BRIDGE_CALL_TIMEOUT_MS = 15_000;
+
+/**
+ * 从后台回来时那次**验活**的预算（毫秒）。
+ *
+ * 为什么必需一个单独的小预算：半死的连接不会回包，用默认的 15 秒去试，
+ * 用户"切回来"要盯着旧数据看十几秒 —— 那正是这个 bug 的体感。
+ * 3 秒足够一次本地 loopback 往返（真机上实测 1–20ms），又短到值得等。
+ */
+export const BRIDGE_LIVENESS_TIMEOUT_MS = 3_000;
 
 const DEFAULTS = {
   callTimeoutMs: BRIDGE_CALL_TIMEOUT_MS,
@@ -175,6 +198,50 @@ export class WebSocketTransport implements BridgeTransport {
   }
 
   async call<T>(method: string, params?: unknown, meta?: ReqMeta): Promise<T> {
+    return await this.callWithBudget<T>(method, params, meta, this.opts.callTimeoutMs);
+  }
+
+  /**
+   * 验活（见 `BridgeTransport.checkAlive`）。
+   *
+   * 用的方法是桥的**内建** `bridge.ping`（`BridgeBuiltins.PING`）：不经后端、不改状态，
+   * 因此"验活"这件事本身不会给后端带来任何负载 —— 它测的正是"这条 WebSocket 还能不能收发"。
+   */
+  async checkAlive(timeoutMs: number = BRIDGE_LIVENESS_TIMEOUT_MS): Promise<boolean> {
+    try {
+      await this.callWithBudget('bridge.ping', undefined, undefined, timeoutMs);
+      return true;
+    } catch {
+      this.reset();
+      return false;
+    }
+  }
+
+  reset(): void {
+    const socket = this.socket;
+    this.socket = null;
+    this.attempts = 0;
+    if (socket) {
+      // 只掐"回包"通道：这条连接已经不可信，但它在建连途中时要能自己收尾
+      socket.onmessage = null;
+      if (socket.readyState === WebSocket.OPEN) {
+        // 已经 open 过 = 它的 settle 早结算完了，onclose 再走一遍重连分支只会多开一条连接
+        socket.onclose = null;
+      }
+      try {
+        socket.close();
+      } catch {
+        /* 已经掉了就算了 */
+      }
+    }
+    this.failPending();
+    if (this.currentState !== 'closed') {
+      // 不说"已断开"（用户没做错什么，而且下一次调用就会重连），说"重连中"才是真的
+      this.setState('reconnecting');
+    }
+  }
+
+  private async callWithBudget<T>(method: string, params: unknown, meta: ReqMeta | undefined, timeoutMs: number): Promise<T> {
     const id = `c-${++this.seq}`;
 
     /*
@@ -194,7 +261,7 @@ export class WebSocketTransport implements BridgeTransport {
         settled = true;
         this.pending.delete(id);
         reject(new BridgeError({ code: BridgeErrorCode.BACKEND_UNREACHABLE, messageKey: 'bridge.timeout', retryable: true }));
-      }, this.opts.callTimeoutMs);
+      }, timeoutMs);
 
       const fail = (e: unknown): void => {
         if (settled) {

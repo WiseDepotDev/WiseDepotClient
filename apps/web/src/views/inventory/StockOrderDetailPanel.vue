@@ -99,7 +99,7 @@ const canDoAudit = computed(() => canAudit(order.value));
 const reason = computed(() => {
   switch (status.value) {
     case 'unknown':
-      return '这张单据没有带状态信息，先刷新一次；如果一直没有，请联系管理员核对这张单据。';
+      return '这张单据没有带状态信息，界面会自动重取；如果一直没有，请联系管理员核对这张单据。';
     case 'approved':
     case 'completed':
       return `这张单据已经结束（${orderStatusText(order.value)}），不能再改动；如果要再出入库，请新建一张单。`;
@@ -328,7 +328,6 @@ watch(() => props.orderId, () => {
     >
       <template #actions>
         <StatusChip :text="orderStatusText(order)" :tone="statusTone" />
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
       </template>
     </PageHeader>
 

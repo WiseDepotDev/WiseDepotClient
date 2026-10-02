@@ -939,12 +939,24 @@ check('未处理告警渲染 2 行', dashAlertRows === 2, `rows=${dashAlertRows}
  */
 const setEmptyDashboard = (on) =>
   cdp.evaluate(`window.__bridgeMock?.emptyDashboard(${on === true}) ?? false`, { awaitPromise: false });
-const clickRefresh = () =>
+/**
+ * 页面上还剩几个**手动刷新**入口（页头按钮 / 手机顶栏图标 / 侧栏）。
+ *
+ * 用户的要求是"删除手动刷新按钮、所有内容持续自动更新"，
+ * 所以这个数必须是 0 —— 下面的断言与 `tools/check/check-auto-refresh.mjs` 一起盯着它。
+ */
+const refreshEntryCount = () =>
+  cdp.evaluate(
+    `[...document.querySelectorAll('.w-page button, .w-contextheader button, .w-sidebar button, .w-tabbar button')]
+       .filter((n) => (n.innerText ?? '').trim() === '刷新' || n.getAttribute('aria-label') === '刷新本页').length`,
+    { awaitPromise: false },
+  );
+/** 模拟"从后台回到前台"：自动刷新会在这时先验活、再把当前屏重取一次。 */
+const backToForeground = () =>
   cdp.evaluate(
     `(() => {
-       const b = [...document.querySelectorAll('.w-page button')].find((n) => n.innerText.trim() === '刷新');
-       if (!b) return false;
-       b.click();
+       document.dispatchEvent(new Event('visibilitychange'));
+       window.dispatchEvent(new Event('focus'));
        return true;
      })()`,
     { awaitPromise: false },
@@ -955,10 +967,21 @@ const dashNotes = () =>
     { awaitPromise: false },
   );
 
-check('看板页头有刷新按钮（空库态要重取才生效）', (await clickRefresh()) === true);
+check('看板页头已经没有「刷新」按钮（手动刷新整仓撤掉，改自动刷新）', (await refreshEntryCount()) === 0, `count=${await refreshEntryCount()}`);
 await setEmptyDashboard(true);
-await clickRefresh();
+/*
+ * 撤掉按钮之后，"空库态还能重取"必须由自动刷新兜住 ——
+ * 所以这里不再点按钮，而是模拟一次"回到前台"，看它自己有没有重取。
+ */
+await clearCalls();
+await backToForeground();
 await waitFor(`document.querySelector('.w-metric__value')?.innerText.trim() === '0' ? true : null`, 20_000, 200);
+const autoRefreshCalls = await callsWithPrefix('dashboard.summary');
+check(
+  '回到前台会自动重取当前屏（不需要点刷新）',
+  autoRefreshCalls.length > 0,
+  autoRefreshCalls.length > 0 ? autoRefreshCalls[0] : '（没有发出请求）',
+);
 
 const emptyNotes = await dashNotes();
 check('空库：库存总量 0 说明"还没有数据"', /库存表还没有数据/.test(emptyNotes), emptyNotes);
@@ -976,7 +999,7 @@ check('空库：当前任务区给出"没有进行中任务"', /当前没有进�
 
 // 切回去，别把空库态留给后面的阶段（后续几步还会回到看板做布局断言）
 await setEmptyDashboard(false);
-await clickRefresh();
+await backToForeground();
 await waitFor(`document.querySelector('.w-metric__value')?.innerText.trim() === '1284' ? true : null`, 20_000, 200);
 check('切回有数据后不再显示空库提示', !/还没有数据/.test(await dashNotes()), await dashNotes());
 
@@ -3108,10 +3131,13 @@ check(
 
 /*
  * 侧栏账号区的回归护栏：`refresh()` 曾经用 `cache.invalidate('user')` 做失效，
- * 那个前缀会连 `user.current` 一起删掉 —— 而资源层不会因为失效自动重取，
+ * 那个前缀会连 `user.current` 一起删掉 —— 而资源层"只删不管"时不会重取，
  * 于是左下角的名字/职位会掉回会话语义并**一直回不来**。这条断言盯着它。
+ *
+ * 现在触发方式改成"回到前台"（手动刷新按钮已经撤掉）：自动刷新重取当前屏，
+ * 页头那一行必须还在。
  */
-await clickByLabel('^刷新$');
+await backToForeground();
 await sleep(1200);
 const sidebarAccount = await cdp.evaluate(
   `({

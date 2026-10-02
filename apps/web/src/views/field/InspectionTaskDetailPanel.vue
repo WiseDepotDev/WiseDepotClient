@@ -451,20 +451,7 @@ watch(() => props.taskId, (next) => {
 
 <template>
   <div class="w-page" :class="{ 'w-page--inline': props.inline === true }">
-    <PageHeader :title="pageTitle" :note="pageNote">
-      <template #actions>
-        <ElButton
-          class="w-hide-compact"
-          size="large"
-          type="primary"
-          :disabled="!hasTarget || busy"
-          :loading="taskLoading"
-          @click="reloadTask"
-        >
-          刷新
-        </ElButton>
-      </template>
-    </PageHeader>
+    <PageHeader :title="pageTitle" :note="pageNote" />
 
     <!--
       「查看某个任务」按序号查询这一块两种挂载都留着。

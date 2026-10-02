@@ -434,3 +434,36 @@
 .w-shell__spacer {
   flex: 1;
 }
+
+/* ---------- 动效 ----------
+ *
+ * 壳这一层只加两样：**读数变化时轻亮一下**（桥芯片每 10 秒真的会变），
+ * 以及给可点控件补上过渡。时长走 `--w-motion-*` 令牌 ——
+ * 生成器在 `prefers-reduced-motion: reduce` 下会把它置成 0ms，系统偏好自动生效。
+ */
+
+@keyframes w-chip-tick {
+  from {
+    opacity: 0.45;
+    transform: translateY(-0.1rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * 桥芯片：**文案变了就重挂一次**（组件上挂了 `:key="text"`），于是这里放一个很轻的淡入。
+ * 为什么要做这个：右上角显示的是实时耗时，它每 10 秒都会变 ——
+ * 不动声色地换数字，用户根本注意不到"它一直在测"；轻亮一下就把"这是活的"说清楚了。
+ */
+.w-chip--live {
+  animation: w-chip-tick var(--w-motion-normal) ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-chip--live {
+    animation: none;
+  }
+}

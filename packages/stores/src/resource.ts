@@ -273,13 +273,47 @@ export interface UseResourceOptions {
    * 而"参数还没准备好"是另一件事；用 undefined 兼表两义会把无参方法一起误伤。
    */
   readonly enabled?: MaybeRefOrGetter<boolean> | undefined;
+  /**
+   * 要不要参与**自动刷新**（默认参与）。
+   *
+   * 退出的是"每 15 秒重取一次反而会把界面弄错"的资源，目前只有一类：
+   * 服务端把读结果 `@Cacheable` 了、而写操作**没有** `@CacheEvict` 的那种
+   * （`tag.detail` 就是：绑完/改完之后再读，拿回的是**旧值**）。
+   * 详情面板在这些地方刻意"用写操作的响应更新显示、不 reload"，
+   * 后台自动刷新会把那份旧值又盖回来。
+   *
+   * 注意它**只挡自动刷新**：写操作触发的失效重取、重连重取都不受影响。
+   */
+  readonly autoRefresh?: boolean | undefined;
 }
 
 export interface UseResourceResult<T> {
   readonly entry: ComputedRef<ResourceEntry<T>>;
   readonly data: ComputedRef<T | undefined>;
+  /**
+   * **首次**取数中（还没有任何数据可显示）—— 也就是"该画骨架"的那一刻。
+   *
+   * 为什么不是"正在请求"：现在是**自动刷新**在驱动界面，每 15 秒就会有一次后台请求。
+   * 若把后台请求也算成 loading，`StateHost` 会每 15 秒用骨架屏把内容换掉一次 ——
+   * 满屏闪烁。所以后台刷新期间**保留旧内容**（stale-while-revalidate），
+   * 需要区分时看 `refreshing`。
+   */
   readonly loading: ComputedRef<boolean>;
+  /**
+   * 后台刷新中（已有内容，正在取新的）。
+   *
+   * 与 `loading` 互斥，两个都是 false 就是"静止"。
+   */
+  readonly refreshing: ComputedRef<boolean>;
+  /**
+   * **会挡住内容**的错误：只有"一条数据都没有"时才交给它。
+   *
+   * 有旧内容的后台请求失败**不替换界面** —— 那会让一次网络抖动把好数据换成错误页；
+   * 失败仍然是真的，原始错误在 `lastError` 里，顶栏的桥芯片也会变成"异常"。
+   */
   readonly error: ComputedRef<BridgeError | undefined>;
+  /** 最近一次失败（不论界面上是否显示它）。 */
+  readonly lastError: ComputedRef<BridgeError | undefined>;
   readonly reload: () => void;
   readonly invalidate: () => void;
 }
@@ -354,6 +388,10 @@ export function useResource<T>(
    * 看"这次调用发出时是否 open"才能保证**每次断线最多重取一次**。
    */
   const off = bridge.onStateChange((state) => {
+    // 同样尊重 `enabled`：参数还没准备好的资源，重连也不该替它发请求
+    if (!enabled()) {
+      return;
+    }
     const current = cache.entryOf<T>(method, paramValue());
     if (
       shouldRefetchOnOpen(state, {
@@ -369,22 +407,46 @@ export function useResource<T>(
   }
 
   /*
-   * 外壳的「刷新本页」（手机顶栏那个全局刷新）→ 当前屏用到的**每一个**资源各重取一次。
+   * 自动刷新（可见时每 15 秒一次、回到前台/重新聚焦/网络恢复各一次）
+   * → 当前屏用到的**每一个**资源各重取一次。
    *
    * 只有挂载中的屏会订阅（`useResource` 在组件 setup 里调用），所以它刷的就是"这一屏"，
-   * 不会把别的屏也一起拖下水 —— 各屏自己那个「刷新」按钮因此可以撤掉，不必每屏各写一遍。
+   * 不会把别的屏也一起拖下水 —— 各屏自己那个「刷新」按钮因此已经撤掉，不必每屏各写一遍。
+   *
+   * `autoRefresh: false` 的资源退出这条（见 `UseResourceOptions.autoRefresh` 的说明）：
+   * 那是"服务端读缓存没有随写失效"的一类，被后台刷新盖回去会把刚写的东西变回旧值。
    */
   watch(useRefreshTick(), () => {
+    /*
+     * **也要看 `enabled`**：`enabled:false` 的语义是"参数还没准备好，不要发请求"，
+     * 而自动刷新是每 15 秒无条件摸一遍所有挂载中的资源 —— 不判就会周期性发出
+     * `user.detail#{userId: undefined}` 这类必然没人要的请求。
+     * （真机实测到过：用户列表没选中任何人，后台每 15 秒发一次 detail/roles。）
+     */
+    if (options?.autoRefresh === false || !enabled()) {
+      return;
+    }
     void cache.run<T>(method, paramValue()).catch(() => undefined);
   });
 
   return {
     entry,
     data: computed(() => entry.value.data),
-    // 派生值而不是内部 state：`enabled:false` 的首帧就该是"没在取数"，
-    // 否则会画出一块永远不落地的骨架（React 版同一处坑）
-    loading: computed(() => enabled() && entry.value.loading),
-    error: computed(() => entry.value.error),
+    /*
+     * 派生值而不是内部 state：`enabled:false` 的首帧就该是"没在取数"，
+     * 否则会画出一块永远不落地的骨架（React 版同一处坑）。
+     *
+     * 再叠一层"有旧数据就不算 loading"：自动刷新每 15 秒发一次后台请求，
+     * 若那也算 loading，`StateHost` 会周期性地把内容换成骨架屏 —— 满屏闪。
+     */
+    loading: computed(() => enabled() && entry.value.loading && entry.value.data === undefined),
+    refreshing: computed(() => enabled() && entry.value.loading && entry.value.data !== undefined),
+    /*
+     * 挡内容的错误只在"一条数据都没有"时给出去。
+     * 有旧内容的后台请求失败不该把好数据换成错误页（真的失败了看 `lastError` 与顶栏芯片）。
+     */
+    error: computed(() => (entry.value.data === undefined ? entry.value.error : undefined)),
+    lastError: computed(() => entry.value.error),
     reload: () => {
       void cache.run<T>(method, paramValue()).catch(() => undefined);
     },

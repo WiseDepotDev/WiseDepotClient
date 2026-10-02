@@ -218,7 +218,6 @@ function openDetail(row: DeviceRow): void {
   <div class="w-page">
     <PageHeader title="设备管理" :note="`${all.length} 台设备 · ${onlineText}`">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="list.reload">刷新</ElButton>
       </template>
     </PageHeader>
 

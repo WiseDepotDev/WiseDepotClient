@@ -158,7 +158,6 @@ const paramItems = computed<KeyValueItem[]>(() => {
     >
       <template #actions>
         <StatusChip :text="statusText(data)" :tone="statusTone" />
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
       </template>
     </PageHeader>
 

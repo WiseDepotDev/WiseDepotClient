@@ -17,6 +17,13 @@ export interface Bridge {
   /** 能力判定。**不要**判 `platform === 'desktop'`。 */
   supports(capability: string): boolean;
   call<T>(method: string, params?: unknown, meta?: ReqMeta): Promise<T>;
+  /**
+   * 验活：发一个本地 ping，`false` 表示这条连接可能是**半死**的（见 `BridgeTransport.checkAlive`）。
+   * 实现会顺手丢掉不可信的连接，下一次调用重新建连。
+   */
+  checkAlive(timeoutMs?: number): Promise<boolean>;
+  /** 丢弃当前连接（半死 / 不可信），下一次调用重新建连。 */
+  reset(): void;
   subscribe(topic: string, handler: (data: unknown) => void): () => void;
   onStateChange(handler: (state: ConnectionState) => void): () => void;
   close(): void;
@@ -54,6 +61,14 @@ class BridgeImpl implements Bridge {
 
   call<T>(method: string, params?: unknown, meta?: ReqMeta): Promise<T> {
     return this.transport.call<T>(method, params, meta);
+  }
+
+  checkAlive(timeoutMs?: number): Promise<boolean> {
+    return timeoutMs === undefined ? this.transport.checkAlive() : this.transport.checkAlive(timeoutMs);
+  }
+
+  reset(): void {
+    this.transport.reset();
   }
 
   subscribe(topic: string, handler: (data: unknown) => void): () => void {

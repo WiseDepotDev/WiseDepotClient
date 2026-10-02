@@ -189,7 +189,7 @@ const infoItems = computed<KeyValueItem[]>(() => {
 /** 空态要讲清"为什么空"：没带消息进来 vs 这条消息真的不在了，是两件事、两条出路。 */
 const emptyText = computed(() =>
   hasId.value
-    ? '这条消息已经不在了。它可能已被清理；回到消息列表刷新一下就能看到最新的收件箱。'
+    ? '这条消息已经不在了。它可能已被清理；回到消息列表就能看到最新的收件箱（列表会自动更新）。'
     : '还没有选择消息。从消息列表点开任意一条，就能在这里看到它的全文。',
 );
 </script>
@@ -198,7 +198,6 @@ const emptyText = computed(() =>
   <div class="w-page" :class="{ 'w-page--inline': props.inlineId !== undefined }">
     <PageHeader title="消息详情" note="告警与通知的全文">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="detail.loading.value" @click="detail.reload">刷新</ElButton>
       </template>
     </PageHeader>
 

@@ -84,7 +84,9 @@ const enabled = computed(() => params.value !== undefined);
 const { data, loading, error, reload } = useResource<TagDetail>(
   byCode.value ? 'tag.byCode' : 'tag.detail',
   params,
-  { enabled },
+  // 退出自动刷新：这个详情是服务端读缓存里会发霉的那一个（见下面 `display` 的说明），
+  // 每 15 秒后台重取会把写操作刚更新上去的值盖回旧值。
+  { enabled, autoRefresh: false },
 );
 
 /*
@@ -295,7 +297,6 @@ const items = computed<KeyValueItem[]>(() => {
     >
       <template #actions>
         <StatusChip :text="display?.status === 1 ? '已绑定' : '未绑定'" :tone="display?.status === 1 ? 'success' : 'neutral'" />
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
       </template>
     </PageHeader>
 

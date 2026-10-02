@@ -190,7 +190,7 @@ const gateText = computed(() => {
     return '正在确认任务状态…';
   }
   if (task.value === undefined) {
-    return '还没有取到任务信息，请点「刷新」重试';
+    return '还没有取到任务信息，界面会自动重取；也可以再点一次「查询」';
   }
   if (taskState.value === 'done') {
     return undefined;
@@ -424,7 +424,6 @@ function goTaskDetail(): void {
     <PageHeader title="手动补录巡检明细" note="把漏扫的 NFC 标签补录进已完成的巡检任务，一行一个标签">
       <template #actions>
         <ElButton size="large" :disabled="busy" @click="addRow">新增一行</ElButton>
-        <ElButton size="large" :disabled="!hasTask || busy" @click="reloadTask">刷新</ElButton>
       </template>
     </PageHeader>
 

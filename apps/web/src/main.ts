@@ -1,6 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import { useBridgeStore, useSessionStore } from '@wise/stores';
+import { useBridgeStore, useSessionStore, startAutoRefresh } from '@wise/stores';
 
 import App from './App.vue';
 import BootFailure from './views/BootFailure.vue';
@@ -50,9 +50,18 @@ async function start(): Promise<void> {
 
   const bridgeStore = useBridgeStore(pinia);
   bridgeStore.attach(result.bridge, result.origin);
-  // 起实时健康探测：顶栏的"Bridge · 正常 · 11ms"每 10 秒自己刷新，
+  // 起实时健康探测：顶栏的"Bridge · 11ms"每 10 秒自己刷新，
   // 且探测失败会把状态打成"异常"（不会因为上次成功而继续显示正常）
   bridgeStore.startProbe();
+
+  /*
+   * 起**自动刷新**：界面上已经没有任何手动刷新按钮，所有内容靠它保持最新 ——
+   * 可见时每 15 秒一次，回到前台 / 重新聚焦 / 网络恢复各补一次。
+   *
+   * `onResume` 里先验活再让屏重取：半死的 WebSocket 不会回包，
+   * 直接刷新会让每一屏都白等满调用超时 —— 那就是"后台挂久了回来右边内容卡住"。
+   */
+  startAutoRefresh({ onResume: () => bridgeStore.resumeAfterBackground() });
 
   // 先结算会话，再装路由（顺序见上面的注释：装路由 = 触发首次导航）
   const session = useSessionStore(pinia);

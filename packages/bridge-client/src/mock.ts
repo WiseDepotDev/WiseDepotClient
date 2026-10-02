@@ -345,6 +345,21 @@ export class MockTransport implements BridgeTransport {
     return () => set.delete(handler);
   }
 
+  /**
+   * 验活：假桥就是内存里的一个函数调用，**没有连接可死**，所以永远"活着"。
+   *
+   * 这里返回 true 不是敷衍：假桥真的不会半死，把真实传输那套"丢掉重连"搬过来
+   * 只会让开发态多出无意义的抖动。
+   */
+  async checkAlive(): Promise<boolean> {
+    return true;
+  }
+
+  /** 假桥没有连接可丢。 */
+  reset(): void {
+    /* 无操作 */
+  }
+
   close(): void {
     if (this.timer !== null) {
       window.clearInterval(this.timer);

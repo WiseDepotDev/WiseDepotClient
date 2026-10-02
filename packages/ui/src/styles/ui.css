@@ -673,8 +673,101 @@
   }
 }
 
+/* ---------- 动效 ----------
+ *
+ * 原则：**只做有因果的过渡**（换了一屏 / 换了一条 / 值变了），不做装饰性抖动。
+ *
+ * 时长一律走 `--w-motion-*` 令牌：生成器在 `prefers-reduced-motion: reduce` 下把它们置成
+ * `0ms`，所以"减弱动效"这个系统偏好是**跟着令牌自动生效**的，不必每处再写一遍媒体查询
+ * （文件末尾那条媒体查询只是把少数几条显式动画关干净）。
+ *
+ * 三条不能碰的红线：
+ *  1. **不要在"每次数据变化都会重建"的元素上挂 `animation`**：现在是自动刷新在驱动界面，
+ *     每 15 秒重建一次的元素若带动画，屏幕就会周期性地闪。
+ *     所以进场动画只挂在"页面"与"右栏容器"上 —— 它们的身份跟着路由/选中项，不跟着数据。
+ *  2. 列表行（`.w-cardrow > *`）只在**首次渲染**时淡入：Vue 按 `row-key` 复用节点，
+ *     后台刷新拿到同样的键就只是打补丁，不会重放动画。
+ *  3. 动画只动 `opacity` / `transform`：这两个属性不触发重排，列表长了也不会卡。
+ */
+
+@keyframes w-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes w-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * 换屏：路由一变就是一棵新树，轻轻淡入一下，避免"啪"地一下出现。
+ *
+ * **这里只能用 `opacity`，不能动 `transform`** —— 踩过一次，真机实测：
+ * `.w-page` 上只要有一条 `transform` 动画（哪怕动画结束后算出来是单位矩阵），
+ * 它就**成了 `position: fixed` 后代的包含块**，而手机档的动作坞 `.w-actiondock` 正是 fixed。
+ * 后果：动作坞不再贴视口底，而是贴到 `.w-page` 这个"很长的盒子"的底 ——
+ * 滚到底时它盖住最后一个内容块（冒烟里那条 `lastBottom <= dockTop` 直接变红）。
+ * 同理，`fill-mode: both` 也不会把包含块还回来：Chrome 里它的 computed transform 是
+ * `matrix(1, 0, 0, 1, 0, 0)`，不是 `none`。
+ */
+.w-page {
+  animation: w-fade-in var(--w-motion-normal) ease-out both;
+}
+
+/*
+ * 主从右栏换内容：左栏点一条，右栏轻轻上浮。
+ *
+ * 这一层用 `transform` 是安全的 —— 右栏只在宽档出现（`v-if="isWide"`），
+ * 而那一档的动作坞是静态布局（见 ActionDock 顶部说明）。将来若让右栏在窄档也出现，
+ * 这里必须一起降成纯透明度动画，否则同一个坑会再来一次。
+ */
+.w-masterdetail__detail > * {
+  animation: w-rise-in var(--w-motion-normal) ease-out both;
+}
+
+/* 卡片列表首次出现（含骨架 → 内容那一次切换） */
+.w-cardrow > *,
+.w-cardlist > li {
+  animation: w-fade-in var(--w-motion-fast) ease-out both;
+}
+
+/* 可点/可切换的控件：状态变化要有过渡，不然是"啪"一下跳色 */
+.w-card,
+.w-chip,
+.w-chip-item,
+.w-tabbar__item,
+.w-segment__item {
+  transition: background-color var(--w-motion-fast) ease-out, border-color var(--w-motion-fast) ease-out,
+    color var(--w-motion-fast) ease-out, box-shadow var(--w-motion-fast) ease-out;
+}
+
+/* 按下要有回应：手指在手套里也需要一个"点到了"的反馈 */
+.w-card:active,
+.w-chip-item:active,
+.w-tabbar__item:active,
+.w-segment__item:active {
+  transform: scale(0.985);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .w-skeleton__row {
+    animation: none;
+  }
+  .w-page,
+  .w-masterdetail__detail > *,
+  .w-cardrow > *,
+  .w-cardlist > li {
     animation: none;
   }
 }

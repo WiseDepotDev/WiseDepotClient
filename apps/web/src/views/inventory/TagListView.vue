@@ -319,7 +319,6 @@ function onPanelDeleted(): void {
   <div class="w-page">
     <PageHeader title="标签管理" :note="total !== undefined ? `共 ${total} 个标签` : '条码 / RFID / NFC 标签'">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
         <!-- 桌面档留在页头；手机档移到底部动作条 -->
         <ElButton class="w-hide-compact" size="large" @click="openCreate">新建标签</ElButton>
         <!--

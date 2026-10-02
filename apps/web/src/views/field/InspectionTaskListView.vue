@@ -262,7 +262,6 @@ function onPageChange(page: number): void {
   <div class="w-page">
     <PageHeader title="巡检任务" :note="note">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
         <!-- 桌面档留在页头；手机档移到底部动作条 -->
         <ElButton class="w-hide-compact" size="large" type="primary" @click="goCreate">新建巡检</ElButton>
       </template>

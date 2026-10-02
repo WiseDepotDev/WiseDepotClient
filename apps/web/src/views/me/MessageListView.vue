@@ -327,7 +327,6 @@ const emptyText = computed(() =>
   <div class="w-page">
     <PageHeader title="消息中心" :note="pageNote">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="refresh">刷新</ElButton>
       </template>
     </PageHeader>
 
@@ -362,7 +361,7 @@ const emptyText = computed(() =>
       进了内容槽就会被正在画的骨架一起藏掉。
     -->
     <p v-if="!hasReceiver && !me.loading.value" class="w-me-message-list__hint">
-      还没有认出当前登录的账号，暂时读不到这个账号的收件箱。请刷新重试，或重新登录后再进来。
+      还没有认出当前登录的账号，暂时读不到这个账号的收件箱。请重新登录后再进来（换账号之后这一屏会自动重认）。
     </p>
 
     <MasterDetail>

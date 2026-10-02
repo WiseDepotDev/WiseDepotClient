@@ -189,7 +189,6 @@ async function confirmDelete(): Promise<void> {
   <div class="w-page">
     <PageHeader title="巡检计划" :note="total !== undefined ? `共 ${total} 条计划` : '排好盘点计划，现场才能建任务'">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
         <!-- 桌面档留在页头；手机档移到底部动作条 -->
         <ElButton class="w-hide-compact" size="large" type="primary" @click="openCreate">新建计划</ElButton>
       </template>

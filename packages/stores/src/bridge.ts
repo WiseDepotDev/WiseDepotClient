@@ -100,6 +100,26 @@ export const useBridgeStore = defineStore('wise.bridge', () => {
     return false;
   }
 
+  /**
+   * 是不是**传输层**失败（区别于"后端服务坏了"）。
+   *
+   * 判据比 `isLinkFailure` 窄：HTTP-5xx 不算 —— 那说明 WebSocket 是通的、
+   * 后端在处理请求并回了 500，此时把连接丢掉重连解决不了任何问题，只会多一轮握手。
+   * 真正要重连的只有"包发出去没有回声"这一类。
+   */
+  function isTransportFailure(error: BridgeError): boolean {
+    switch (error.messageKey) {
+      case 'bridge.timeout':
+      case 'bridge.connectTimeout':
+      case 'bridge.closed':
+      case 'bridge.reconnectGaveUp':
+      case 'bridge.backendUnreachable':
+        return true;
+      default:
+        return error.code === BridgeErrorCode.BACKEND_UNREACHABLE;
+    }
+  }
+
   async function probeOnce(): Promise<void> {
     const bridge = instance.value;
     if (!bridge) {
@@ -116,6 +136,19 @@ export const useBridgeStore = defineStore('wise.bridge', () => {
       if (isLinkFailure(error)) {
         probeState.value = 'failed';
         probeError.value = error;
+        /*
+         * **探到"传输层失败"就把连接丢掉**（这是"后台挂久了回来右边内容卡住"的正解）。
+         *
+         * 半死连接的特征：`state` 还是 `open`，可包发出去没有任何回声。
+         * 不丢它的话，`ensureOpen()` 每次都认为"已经连着"，于是每一次刷新都白等满超时，
+         * 界面永远停在旧数据上 —— 探针能看出问题却什么也修不了。
+         *
+         * 只在"传输层自认为连着"时丢：正在重连 / 已断开时再丢一次没有意义，
+         * 反而会打断正在进行的退避重连。
+         */
+        if (isTransportFailure(error) && bridge.state === 'open') {
+          bridge.reset();
+        }
       } else {
         // 请求被后端处理过 = 链路是通的
         recordLatency(performance.now() - started);
@@ -125,6 +158,22 @@ export const useBridgeStore = defineStore('wise.bridge', () => {
     } finally {
       lastProbeAt.value = Date.now();
     }
+  }
+
+  /**
+   * 从后台回到前台：**先验活、再探测**，然后由调用方 bump 一次刷新信号。
+   *
+   * 顺序不能反：半死的连接不会回包，直接探测要等满 15 秒才失败，
+   * 用户"切回来"就盯着旧数据发呆；先做 3 秒的本地 ping 把它判死并丢掉，
+   * 后面的探测走的是新连接，几十毫秒就回来了。
+   */
+  async function resumeAfterBackground(): Promise<void> {
+    const bridge = instance.value;
+    if (!bridge) {
+      return;
+    }
+    await bridge.checkAlive();
+    await probeOnce();
   }
 
   function stopProbe(): void {
@@ -280,5 +329,6 @@ export const useBridgeStore = defineStore('wise.bridge', () => {
     startProbe,
     stopProbe,
     probeOnce,
+    resumeAfterBackground,
   };
 });

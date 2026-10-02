@@ -341,7 +341,6 @@ function fieldProps(value: Record<string, unknown>): Record<string, unknown> {
   <div class="w-page">
     <PageHeader title="新建巡检任务" note="指定巡检计划、执行仓库与设备后创建任务；不指定的项目留空即可">
       <template #actions>
-        <ElButton size="large" :disabled="busy" @click="reloadOptions">刷新可选值</ElButton>
       </template>
     </PageHeader>
 
@@ -365,7 +364,7 @@ function fieldProps(value: Record<string, unknown>): Record<string, unknown> {
         <p class="w-inspection-create__hint">
           {{
             created?.taskId === undefined
-              ? '任务已经建好，但这次没有拿到任务序号。到「巡检任务」列表刷新一次即可看到它。'
+              ? '任务已经建好，但这次没有拿到任务序号。到「巡检任务」列表就能看到它（列表会自动更新）。'
               : '记下这个序号：开始盘点、上传数据、事后补录都要用它。'
           }}
         </p>

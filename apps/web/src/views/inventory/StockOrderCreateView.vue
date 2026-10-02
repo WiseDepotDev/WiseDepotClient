@@ -128,7 +128,7 @@ onMounted(() => {
 
 async function submit(): Promise<void> {
   if (!canIdentifyUser.value) {
-    actionError.value = '还没有拿到当前登录的账号，无法记录建单人。请刷新后重试，或重新登录后再建单。';
+    actionError.value = '还没有拿到当前登录的账号，无法记录建单人。界面会自动重试，或重新登录后再建单。';
     return;
   }
   if (orderNo.value.trim() === '') {

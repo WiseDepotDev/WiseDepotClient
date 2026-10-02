@@ -1,5 +1,5 @@
 export { useBridgeStore } from './bridge.js';
-export { bumpRefresh } from './refresh.js';
+export { bumpRefresh, startAutoRefresh, useRefreshTick, AUTO_REFRESH_INTERVAL_MS, type AutoRefreshHooks } from './refresh.js';
 export { asList, asTotal, humanize, shortTime, type BridgeErrorLike } from './dto.js';
 export {
   useResource,

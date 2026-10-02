@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElAvatar, ElButton, ElDrawer, ElIcon, ElMenu, ElMenuItem, ElSubMenu } from 'element-plus';
-import { ArrowLeft, Box, Cpu, Expand, Fold, Grid, Menu, Odometer, Refresh, User } from '@element-plus/icons-vue';
-import { bumpRefresh, useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
+import { ArrowLeft, Box, Cpu, Expand, Fold, Grid, Menu, Odometer, User } from '@element-plus/icons-vue';
+import { useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
 import { useViewport } from '@wise/ui';
 import BridgeStatusChip from './BridgeStatusChip.vue';
 import PageSearch from './PageSearch.vue';
@@ -357,21 +357,11 @@ onBeforeUnmount(() => {
           <ElIcon><Menu /></ElIcon>
         </ElButton>
         <!--
-          顶栏一个「刷新本页」替掉每屏页头里那个刷新按钮。
-          为什么：页头在窄屏只剩动作，而"刷新"往往**独占一行**（一屏 844px 里白占 60px）；
-          而它做的事永远是同一件 —— 重取这一屏用到的数据。信号走 `@wise/stores` 的 `bumpRefresh`，
-          只有挂载中的屏会响应（见 `resource.ts` 里那段 watch）。
+          这里原来有一个「刷新本页」按钮，**已经撤掉**：整仓改成了自动刷新
+          （`@wise/stores` 的 `startAutoRefresh`：可见时每 15 秒一次，回到前台 / 重新聚焦 /
+          网络恢复各补一次），手动按钮既没必要，也会让人以为"不点它就不会更新"。
+          信号仍然走 `bumpRefresh`，只是改由自动刷新调度器来 bump。
         -->
-        <ElButton
-          v-if="!isHome"
-          class="w-contextheader__action"
-          text
-          circle
-          aria-label="刷新本页"
-          @click="bumpRefresh"
-        >
-          <ElIcon><Refresh /></ElIcon>
-        </ElButton>
         <BridgeStatusChip compact />
       </header>
 

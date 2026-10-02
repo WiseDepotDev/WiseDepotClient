@@ -349,7 +349,7 @@ const taskFilterVisible = computed(() => taskParam.value !== undefined);
 
 const detailEmptyText = computed(() =>
   hasDetailTarget.value
-    ? '没有找到这条结果。请刷新后重试，或回到列表重新点选一条。'
+    ? '没有找到这条结果。界面会自动重取，或回到列表重新点选一条。'
     : routeResultId.value === undefined
       ? '还没有选择结果。点上面任意一条结果，这里会显示它的盘点数量与差异构成。'
       : '不能识别要查看的结果序号（要填大于 0 的整数）。请从列表里点选一条结果。',
@@ -413,7 +413,7 @@ async function runConfirm(): Promise<void> {
   const target = pendingConfirm.value;
   pendingConfirm.value = undefined;
   if (target?.resultId === undefined) {
-    actionError.value = '这条结果缺少序号，请刷新后重试';
+    actionError.value = '这条结果缺少序号，界面会自动重取';
     return;
   }
   actionError.value = undefined;
@@ -446,7 +446,6 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
   <div class="w-page">
     <PageHeader title="巡检结果" :note="pageNote">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="list.reload">刷新</ElButton>
       </template>
     </PageHeader>
 

@@ -211,7 +211,6 @@ const typeHint = computed(() => rows.value.filter((r) => orderTypeOf(r) === 'unk
   <div class="w-page">
     <PageHeader title="出入库单" :note="total !== undefined ? `共 ${total} 张单据` : '按状态筛选与查看明细'">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="loading" @click="reload">刷新</ElButton>
         <!-- 桌面档留在页头；手机档移到底部动作条 -->
         <ElButton class="w-hide-compact" size="large" type="primary" @click="goCreate">新建出入库单</ElButton>
       </template>

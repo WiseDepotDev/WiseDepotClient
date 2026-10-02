@@ -322,18 +322,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
 
 <template>
   <div class="w-page">
-    <PageHeader title="个人资料" note="账号信息、联系方式与安全设置">
-      <template #actions>
-        <ElButton
-          class="w-hide-compact"
-          size="large"
-          :loading="profile.loading.value || me.loading.value || settings.loading.value"
-          @click="reloadAll"
-        >
-          刷新
-        </ElButton>
-      </template>
-    </PageHeader>
+    <PageHeader title="个人资料" note="账号信息、联系方式与安全设置" />
 
     <!-- 基本资料：`profile.get` 一条取数、一张卡、一套三态 -->
     <SectionBlock title="基本资料">
@@ -343,7 +332,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
           :error="profile.error.value ?? null"
           :error-text="profile.error.value ? humanize(profile.error.value) : undefined"
           :empty="profile.data.value === undefined"
-          empty-text="资料暂时取不到。点右上角「刷新」再试一次；如果一直这样，请联系管理员。"
+          empty-text="资料暂时取不到。界面会自动重取；如果一直这样，请联系管理员。"
           skeleton="detail"
           @retry="profile.reload"
         >
@@ -379,7 +368,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
           :error="me.error.value ?? null"
           :error-text="me.error.value ? humanize(me.error.value) : undefined"
           :empty="me.data.value === undefined"
-          empty-text="登录信息暂时取不到。点右上角「刷新」再试一次。"
+          empty-text="登录信息暂时取不到。界面会自动重取。"
           skeleton="detail"
           @retry="me.reload"
         >

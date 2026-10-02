@@ -451,7 +451,6 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
   <div class="w-page">
     <PageHeader title="用户管理" :note="pageNote">
       <template #actions>
-        <ElButton class="w-hide-compact" size="large" :loading="list.loading.value" @click="refresh">刷新</ElButton>
         <!-- 桌面档留在页头；手机档移到底部动作条 -->
         <ElButton class="w-hide-compact" size="large" type="primary" @click="toggleCreate">{{ creating ? '收起' : '新增' }}</ElButton>
       </template>
@@ -581,7 +580,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
           :error="detail.error.value ?? null"
           :error-text="detail.error.value ? humanize(detail.error.value) : undefined"
           :empty="detailUser === undefined"
-          empty-text="这位用户的资料暂时取不到。返回列表刷新一次再点开。"
+          empty-text="这位用户的资料暂时取不到。界面会自动重取，或返回列表再点开。"
           skeleton="detail"
           @retry="detail.reload"
         >

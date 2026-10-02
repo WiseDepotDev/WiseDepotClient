@@ -107,6 +107,10 @@ const tip = computed(() => {
 
 <template>
   <ElTooltip :content="tip" placement="bottom">
-    <StatusChip :text="text" :tone="tone" />
+    <!--
+      `:key="text"` 是**故意的**：读数一变就重挂这个芯片，好让 `.w-chip--live` 的淡入重放一次。
+      没有它，数字会在原地悄悄换掉，用户看不出"这个数是活的"。
+    -->
+    <StatusChip :key="text" class="w-chip--live" :text="text" :tone="tone" />
   </ElTooltip>
 </template>
