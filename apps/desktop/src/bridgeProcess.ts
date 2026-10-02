@@ -135,8 +135,17 @@ export class BridgeProcess extends EventEmitter {
       version,
       // 能力表由**宿主**声明，而不是让桥猜一个默认值 ——
       // 声明错了 UI 就会画出永远不工作的入口（见 BridgeCapabilities.common 的注释）。
+      //
+      // `scan.camera` / `scan.camera.select`（B1/S2c）：取景、识别、选择摄像头三件事
+      // 在 Web 侧已经落地并有门禁（`check:scan-engines`），权限处理器也在
+      // `main.ts` 的 registerPermissionHandlers() 里装好了 —— 声明即承诺，所以到这一步才加。
+      //
+      // **为什么这里判不了"这台机器有几枚摄像头"**：Electron 主进程没有 `mediaDevices`
+      // （枚举只能在渲染进程里做，且 `label` 要拿到权限后才非空）。所以
+      // "有没有得选"这件事由**界面**按枚举结果把关（`cameras.length > 1` 才画选择器），
+      // 能力位表达的是"这个宿主具备枚举并选择的能力"。
       '--capabilities',
-      'storage.secure,scan.gun.keyboard',
+      'storage.secure,scan.gun.keyboard,scan.camera,scan.camera.select',
       ...extraArgs,
     ];
 

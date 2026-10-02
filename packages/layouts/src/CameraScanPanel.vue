@@ -346,9 +346,14 @@ function optionProps(item: CameraOption): any {
         <p class="w-camera__message">{{ message }}</p>
         <div class="w-camera__actions">
           <ElButton v-if="failure?.retryable" v-bind="buttonProps()" @click="retry">重试</ElButton>
-          <!-- 只有宿主声明了"能选摄像头"才给这个出路；否则它会是一个点了没反应的控件 -->
+          <!--
+            只有**真的有多枚**可选摄像头才给这个出路（B1/S2c 更正）：
+            宿主声明 `scan.camera.select` 说的是"这个宿主能枚举并选择"，
+            而"这台机器上有没有得选"只有渲染进程看得到（主进程没有 mediaDevices）。
+            单摄像头机器上画一个只有一项的下拉，就是点了没反应的死控件。
+          -->
           <ElSelect
-            v-if="canSelect && !engineMissing"
+            v-if="canSelect && cameras.length > 1 && !engineMissing"
             v-bind="selectProps()"
             class="w-camera__picker"
             @update:model-value="(v: string) => switchTo(v)"

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, protocol, net, shell } from 'electron';
+import { app, BrowserWindow, Menu, protocol, net, session, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { join } from 'node:path';
@@ -49,6 +49,47 @@ function resolveWebRoot(): string {
   return path.resolve(__dirname, '..', '..', 'web', 'dist');
 }
 
+/**
+ * 找出打包出来的 ZXing wasm（回退识别引擎的字节）。
+ *
+ * 自检据此断言"那 953KB 真的随包发出、并且能被 `app://` 读到"：
+ * zxing-wasm **默认从 jsDelivr CDN 拉 wasm**，而装在现场机器上的应用断网是常态 ——
+ * 于是"回退路径在离线机器上走不走得通"必须是一条**能红**的断言，而不是一句注释。
+ */
+function findZxingWasm(): string | null {
+  try {
+    const dir = path.join(resolveWebRoot(), 'assets');
+    const hit = fs.readdirSync(dir).find((n) => n.startsWith('zxing_reader') && n.endsWith('.wasm'));
+    return hit === undefined ? null : `assets/${hit}`;
+  } catch {
+    // 产物还没构建（或结构变了）：返回 null，自检那条断言会红，而不是静默跳过
+    return null;
+  }
+}
+
+/**
+ * 找出回退识别引擎的**代码 chunk**（`import('zxing-wasm/reader')` 的产物）。
+ *
+ * 自检会真的把它 `import()` 一次，断言 `readBarcodes` / `prepareZXingModule` 都在 ——
+ * 这证明"回退路径的模块在 `app://` 下加载得起来、API 形状与适配器一致"，
+ * 也就是**真机解码前的最后一环**（真正的解码要一张实物条码，那一步只能人工走查）。
+ *
+ * 判据用 `readBarcodesFromPixmap`：它是 wasm 胶水层挂在模块对象上的**属性名**
+ * （压缩不会改名），比"找文件名里有 zxing 的那个"稳。
+ */
+function findZxingReaderChunk(): string | null {
+  try {
+    const dir = path.join(resolveWebRoot(), 'assets');
+    const hit = fs
+      .readdirSync(dir)
+      .filter((n) => n.endsWith('.js'))
+      .find((n) => fs.readFileSync(path.join(dir, n), 'utf8').includes('readBarcodesFromPixmap'));
+    return hit === undefined ? null : `assets/${hit}`;
+  } catch {
+    return null;
+  }
+}
+
 /** 打包后 jlink 运行时在 resources/runtime；开发态直接用 PATH 里的 java + Gradle 产物。 */
 function resolveBridgeCommand(): { javaCommand: string; classpath: string } {
   const runtimeJava = path.join(process.resourcesPath ?? '', 'runtime', 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
@@ -65,6 +106,68 @@ function resolveBridgeCommand(): { javaCommand: string; classpath: string } {
 let bridge: BridgeProcess | null = null;
 let handshake: BridgeHandshake | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * `app://wise` 的判据。
+ *
+ * **不能用 `new URL(url).origin`**：`app:` 不是 URL 标准里的 special scheme，
+ * 主进程（Node 的 URL 实现）会给它返回**字符串 `'null'`**（Chromium 里才是真正的 origin）。
+ * 第一版就是这么写的，自检第一次跑就红了：
+ * `[perm] media 请求（null）→ 拒绝` —— 于是相机永远打不开，而"点了没反应"正是要避免的那个表现。
+ */
+function isOurOrigin(value: string): boolean {
+  return value === ORIGIN || value.startsWith(`${ORIGIN}/`);
+}
+
+/**
+ * 权限决定的流水账（B1/S2c）。
+ *
+ * 自检据此断言"处理器**真的被调用过**"，而不是"这段代码写了就算" ——
+ * 相机权限这类东西最容易的状态就是"代码在、但根本没走到"。
+ */
+const permissionLog: string[] = [];
+
+/**
+ * 权限处理器：**只放行本应用 origin 的 `media`**。
+ *
+ * ## 为什么必须显式写（brief §7.1 / §8.3）
+ *
+ * 相机扫码的整条链路里，唯一会触发权限请求的就是 `getUserMedia`。
+ * 没有处理器时，"被拒"与"失败"对用户是同一个表现：点了没反应 ——
+ * 本项目在手机 WebView 上已经吃过一次同类（`MainActivity.kt:203` 因此主动撤销了能力）。
+ *
+ * ## 三条规矩
+ *
+ * 1. **只放行 `media`**：这是个装本地产物的壳，渲染进程不需要剪贴板/定位/通知；
+ *    "一律放行"等于把本地应用变成一个任何被注入脚本都能开摄像头的东西。
+ * 2. **只放行 `app://wise`**：窗口里不该有第二个 origin（外链一律交给系统浏览器）。
+ * 3. **记录决定**：现场排障时要能分清"我们自己拒了"还是"系统拒了"，
+ *    所以每次请求都留一行 `[perm]` 日志，并进 [permissionLog] 供自检读。
+ */
+function registerPermissionHandlers(): void {
+  const ses = session.defaultSession;
+
+  ses.setPermissionRequestHandler((webContents, permission, callback) => {
+    // 用完整 URL 判（请求处理器拿到的是 webContents 当前的 URL）
+    const asking = webContents?.getURL() ?? '';
+    const allowed = permission === 'media' && isOurOrigin(asking);
+    permissionLog.push(`${permission}@${asking === '' ? 'unknown' : asking}=${allowed ? 'allow' : 'deny'}`);
+    // 日志走主进程 stdout：`scripts/desktop.ps1` 会原样打出来，
+    // 用户说"相机点了没反应"时，先看这一行有没有出现、是 allow 还是 deny。
+    console.log(`[perm] ${permission} 请求（${asking === '' ? 'unknown' : asking}）→ ${allowed ? '允许' : '拒绝'}`);
+    callback(allowed);
+  });
+
+  /*
+   * `setPermissionCheckHandler` 管的是**同步检查**：`navigator.permissions.query`、
+   * 以及部分 Chromium 版本在真正开流之前的预检。
+   *
+   * 两条处理器判据必须**完全一致**，否则会出现"query 说 granted、开流却失败"
+   * 这种最难查的组合（页面据此显示的东西和实际能力对不上）。
+   * 注意这一条拿到的是 **origin**（`app://wise`），不是完整 URL。
+   */
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => permission === 'media' && isOurOrigin(requestingOrigin));
+}
 
 async function startBridge(): Promise<void> {
   const { javaCommand, classpath } = resolveBridgeCommand();
@@ -196,6 +299,8 @@ async function createWindow(): Promise<void> {
 
 void app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  // 权限处理器必须在**建窗之前**装好：窗口一建出来页面就可能开始请求（冷启动很快）
+  registerPermissionHandlers();
   registerAppProtocol();
   // 并行：不 await 桥，窗口先起来（桥就绪前 Web 会拿到 503 并显示"连接中"）
   const bridgeStartup = startBridge().catch((e: Error) => {
@@ -235,8 +340,15 @@ async function runSmoke(): Promise<void> {
   });
 
   // 页面要等引导与桥都就绪，因此轮询而不是一次性读
+  // 两个探针 URL 都必须是**绝对**的：`import()` 在注入的脚本里没有基准 URL，
+  // 传 'assets/xxx.js' 会被当成裸模块名（第一版就是这么写的，自检直接报
+  // `Failed to resolve module specifier 'assets/index-….js'`）。
+  const zxingWasm = findZxingWasm();
+  const zxingChunk = findZxingReaderChunk();
   const probe = `
     (async () => {
+      const ZXING_WASM = ${JSON.stringify(zxingWasm === null ? null : `${ORIGIN}/${zxingWasm}`)};
+      const ZXING_CHUNK = ${JSON.stringify(zxingChunk === null ? null : `${ORIGIN}/${zxingChunk}`)};
       const deadline = Date.now() + 15000;
       let res = null, boot = null;
       while (Date.now() < deadline) {
@@ -291,6 +403,82 @@ async function runSmoke(): Promise<void> {
           ws.onerror = () => { clearTimeout(timer); resolve({ error: 'ws error' }); };
         });
       }
+      /*
+       * 相机链路（B1/S2c）：**在真机、真 app:// origin、真权限处理器下开一次流**。
+       *
+       * 为什么这一段必须真开流：getUserMedia 失败的方式就是"什么都不发生"，
+       * 而它失败的原因分布在三处完全不同的地方 —— 权限处理器（我们自己）、
+       * Chromium 的策略（自动播放/安全上下文）、Windows 的隐私开关。
+       * 只有真的拿到一条 running 的 track、再停掉看到 ended，这三处才算都验过。
+       *
+       * 这台机器没有摄像头时**不是通过、是跳过**（见下面 skipped 的分账）：
+       * "没有设备所以没验"和"验过了没问题"必须是两句不同的话。
+       *
+       * 注意：本段是**注入到页面里的字符串**，里面不能出现反引号（会截断外层模板串）。
+       */
+      const camera = { state: 'unknown' };
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+          camera.state = 'no-api';
+        } else {
+          const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+          camera.count = devices.length;
+          camera.named = devices.filter(d => d.label !== '').length;
+          camera.decoderNative = typeof BarcodeDetector !== 'undefined';
+          camera.decoderFormats = false;
+          if (camera.decoderNative) {
+            try { new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code'] }); camera.decoderFormats = true; } catch (e) { camera.decoderFormats = false; }
+          }
+          if (devices.length === 0) {
+            camera.state = 'no-device';
+          } else {
+            camera.state = 'ready';
+            const first = devices[0];
+            const constraints = first.deviceId ? { video: { deviceId: { exact: first.deviceId } } } : { video: true };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            const track = stream.getVideoTracks()[0];
+            camera.started = true;
+            camera.readyState = track ? track.readyState : 'none';
+            stream.getTracks().forEach(t => t.stop());
+            await new Promise(r => setTimeout(r, 150));
+            camera.afterStop = track ? track.readyState : 'none';
+          }
+        }
+      } catch (e) {
+        camera.started = false;
+        camera.error = e && e.name ? e.name : String(e);
+      }
+
+      /* 回退识别引擎的字节是否**随包发出**（离线现场的唯一保障）：默认是 CDN，见 scan-zxing.ts */
+      let zxing = null;
+      if (ZXING_WASM) {
+        try {
+          const res2 = await fetch(ZXING_WASM);
+          const buf = await res2.arrayBuffer();
+          zxing = { status: res2.status, bytes: buf.byteLength };
+        } catch (e) {
+          zxing = { status: 0, bytes: 0, error: String(e) };
+        }
+      }
+
+      /*
+       * 回退引擎的**模块**能不能在 app:// 下加载、API 形状对不对（真机解码前的最后一环）。
+       * 这里只 import，不实例化 wasm —— 真正的解码要一张实物条码，那一步是人工走查。
+       */
+      let zxingApi = null;
+      if (ZXING_CHUNK) {
+        try {
+          const mod = await import(ZXING_CHUNK);
+          zxingApi = {
+            loaded: true,
+            readBarcodes: typeof mod.readBarcodes === 'function',
+            prepare: typeof mod.prepareZXingModule === 'function',
+          };
+        } catch (e) {
+          zxingApi = { loaded: false, error: String(e) };
+        }
+      }
+
       // UI 断言必须**轮询**：读一次就断言等于在测"我的探测够不够快"，
       // 而不是在测"界面最终有没有渲染出来"（W3 首次跑时就栽在这上面）。
       const uiDeadline = Date.now() + 12000;
@@ -308,6 +496,9 @@ async function runSmoke(): Promise<void> {
         protocol: boot ? boot.protocol : null,
         pingType: ping ? ping.type : null,
         pingPlatform: ping && ping.data ? ping.data.platform : null,
+        camera: camera,
+        zxing: zxing,
+        zxingApi: zxingApi,
         bodyText: body.slice(0, 300),
       });
     })()
@@ -316,6 +507,10 @@ async function runSmoke(): Promise<void> {
   const raw = (await win.webContents.executeJavaScript(probe, true)) as string;
   console.log(`[smoke] ${raw}`);
   const r = JSON.parse(raw) as Record<string, unknown>;
+  const capabilities = Array.isArray(r.capabilities) ? (r.capabilities as string[]) : [];
+  const camera = (r.camera ?? {}) as Record<string, unknown>;
+  const zxing = r.zxing as { status?: number; bytes?: number } | null;
+  const zxingApi = r.zxingApi as { loaded?: boolean; readBarcodes?: boolean; prepare?: boolean } | null;
   const checks: Array<[string, boolean]> = [
     ['页面来自 app://wise origin', String(r.origin ?? '') === 'app://wise'],
     ['app://wise/__bridge.json 回 200', r.indexStatus === 200],
@@ -328,7 +523,73 @@ async function runSmoke(): Promise<void> {
     ['引导标注平台为 desktop', r.bootPlatform === 'desktop'],
     ['渲染进程能连上桥并收到 res', r.pingType === 'res' && r.pingPlatform === 'desktop'],
     ['页面渲染出登录屏（未登录状态）', typeof r.bodyText === 'string' && r.bodyText.includes('验证码')],
+    /*
+     * 相机能力位（B1/S2c）：宿主声明了两条，Web 侧的取景与选择才有入口。
+     * 这两条**必须**在引导里出现 —— 少一条的表现是"扫码按钮不见了"，
+     * 而那正是最难从现象反推到原因的一类。
+     */
+    ['引导声明 scan.camera', capabilities.includes('scan.camera')],
+    ['引导声明 scan.camera.select', capabilities.includes('scan.camera.select')],
+    /* 回退识别引擎的 wasm 随包发出 —— 断言的不是"代码写了"，是"字节在产物里" */
+    ['ZXing wasm 随包发出且可被 app:// 读到（不是走 CDN）', zxing !== null && zxing.status === 200 && (zxing.bytes ?? 0) > 500_000],
+    /* 模块本身在 app:// 下加载得起来、API 形状与适配器一致（真机解码前的最后一环） */
+    [
+      'ZXing 回退模块可加载且导出 readBarcodes / prepareZXingModule',
+      zxingApi !== null && zxingApi.loaded === true && zxingApi.readBarcodes === true && zxingApi.prepare === true,
+    ],
   ];
+
+  /*
+   * **跳过 ≠ 通过**（沿用 2026-10-01 计划 Task 6 的口径）。
+   *
+   * 相机这一段依赖"这台机器真有摄像头、且没被别的程序占着"。把这类情况算成通过，
+   * 就等于让自检在没验过的机器上永远是绿的 —— 那比没有这条断言更糟。
+   */
+  const skipped: string[] = [];
+  if (camera.state === 'no-api') {
+    skipped.push('本机没有 mediaDevices：相机取景未验');
+  } else if (camera.state === 'no-device') {
+    skipped.push('本机没有摄像头：相机取景未验');
+  } else if (camera.state === 'ready' && camera.started === false) {
+    const name = String(camera.error ?? '');
+    // "被别的程序占着"是环境冲突，不是本应用的问题 —— 但它必须被**说出来**
+    if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+      skipped.push(`摄像头被其它程序占用（${name}）：相机取景未验`);
+    } else {
+      checks.push([`getUserMedia 被允许（权限处理器生效） —— 实际失败：${name || '未知'}`, false]);
+    }
+  } else if (camera.state === 'ready') {
+    checks.push(['枚举到摄像头（真机上真的走了一遍枚举）', typeof camera.count === 'number' && camera.count >= 1]);
+    checks.push(['getUserMedia 被允许（权限处理器生效）', camera.started === true]);
+    // **`live` 是规范里"这条 track 活着"的那个值**（不是 `running`）：
+    // `MediaStreamTrack.readyState` 只有 `live` / `ended` 两个取值。
+    checks.push(['取到画面（track 处于 live）', camera.readyState === 'live']);
+    // 关层/失焦/切页三条路的终点都是这里：track 必须真的 ended
+    checks.push(['停流后 track 已 ended（摄像头指示灯不该还亮着）', camera.afterStop === 'ended']);
+    // 权限处理器**真的被调用过**：只写代码不走一遍，等于没验
+    checks.push([
+      '权限处理器被调用并记录了决定',
+      permissionLog.some((line) => line.startsWith('media@')),
+      // 附上流水账，现场排障时这一行就是证据
+    ]);
+    if (camera.decoderFormats === true) {
+      checks.push(['内置 BarcodeDetector 能按我们的格式名构造', true]);
+    } else {
+      /*
+       * **实测（本机 Electron 33 / Windows）：`BarcodeDetector` 根本不存在。**
+       * Chromium 的 Shape Detection 只在 macOS / Android / ChromeOS 提供条码识别，
+       * Windows 与 Linux 不提供 —— 也就是说现场机器上真正干活的**是 ZXing 回退路径**，
+       * 它不是"以防万一"，是主路径。所以它的字节与模块形状在下面两条断言里单独验。
+       * 唯一没自动化的是"拿一张实物条码解出码值"，那一步只能人工走查。
+       */
+      skipped.push(
+        camera.decoderNative === true
+          ? '内置 BarcodeDetector 不认我们的格式名：内置引擎未验'
+          : '本机 Chromium 没有 BarcodeDetector（Windows 不提供）→ 现场走回退引擎；真条码解码需人工走查',
+      );
+    }
+  }
+
   let ok = true;
   for (const [name, passed] of checks) {
     if (!passed) {
@@ -336,7 +597,13 @@ async function runSmoke(): Promise<void> {
     }
     console.log(`  ${passed ? '✓' : '✗'} ${name}`);
   }
-  console.log(ok ? '✓ Windows 端到端自检通过' : '✗ Windows 端到端自检失败');
+  for (const reason of skipped) {
+    // 用 `-` 而不是 `✓`：跳过就是跳过，肉眼要能一眼区分
+    console.log(`  - 跳过：${reason}`);
+  }
+  console.log(`[perm] 流水账：${permissionLog.length === 0 ? '（本次没有权限请求）' : permissionLog.join(' | ')}`);
+  const summary = `${checks.length} 项通过${skipped.length === 0 ? '' : `，${skipped.length} 项跳过`}`;
+  console.log(ok ? `✓ Windows 端到端自检通过（${summary}）` : `✗ Windows 端到端自检失败（${summary}）`);
   app.exit(ok ? 0 : 1);
 }
 
