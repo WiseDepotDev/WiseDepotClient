@@ -22,6 +22,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { sendReq, decodeFrame } from '../lib/bridge-wire.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const WORKSPACE_ROOT = path.resolve(CLIENT_ROOT, '..');
@@ -83,7 +84,8 @@ async function startBridge() {
         child.once('exit', (c) => reject(new Error(`宿主提前退出 code=${c}\n${stderr}`)));
     });
     const ws = await new Promise((resolve, reject) => {
-        const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
+    const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
+        s.binaryType = 'arraybuffer';
         s.onopen = () => resolve(s);
         s.onerror = () => reject(new Error('ws 连接失败'));
     });
@@ -94,14 +96,14 @@ function call(ws, id, method, params, timeoutMs = 20000) {
     return new Promise((resolve) => {
         const timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
         const onMessage = (ev) => {
-            const frame = JSON.parse(String(ev.data));
+            const frame = decodeFrame(new Uint8Array(ev.data));
             if (frame.id !== id) return;
             clearTimeout(timer);
             ws.removeEventListener('message', onMessage);
             resolve({ frame });
         };
         ws.addEventListener('message', onMessage);
-        ws.send(JSON.stringify({ v: 3, type: 'req', id, method, ...(params ? { params } : {}) }));
+        sendReq(ws, id, method, params);
     });
 }
 

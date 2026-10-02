@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
+import { sendReq, decodeFrame, WIRE_PROTOCOL_VERSION } from '../lib/bridge-wire.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const LIB_DIR = path.join(CLIENT_ROOT, 'bridge', 'host-desktop', 'build', 'install', 'wise-bridge', 'lib');
@@ -129,6 +130,7 @@ class Host {
 function openSocket(port, token) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/bridge?token=${encodeURIComponent(token)}`);
+    ws.binaryType = 'arraybuffer';
     const timer = setTimeout(() => reject(new Error('ws 连接超时')), 5000);
     ws.onopen = () => {
       clearTimeout(timer);
@@ -152,7 +154,7 @@ function call(ws, id, method, params, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
     const onMessage = (ev) => {
-      const frame = JSON.parse(String(ev.data));
+      const frame = decodeFrame(new Uint8Array(ev.data));
       if (frame.id !== id) {
         return;
       }
@@ -161,7 +163,7 @@ function call(ws, id, method, params, timeoutMs = 5000) {
       resolve({ frame });
     };
     ws.addEventListener('message', onMessage);
-    ws.send(JSON.stringify({ v: 3, type: 'req', id, method, ...(params ? { params } : {}) }));
+    sendReq(ws, id, method, params);
   });
 }
 
@@ -207,7 +209,9 @@ async function functionalSuite() {
   const ping = await call(ws, '1', 'bridge.ping');
   record(
     '内建方法 bridge.ping 可用',
-    ping.frame?.type === 'res' && ping.frame.data?.protocol === 3 && ping.frame.data?.platform === 'desktop',
+    ping.frame?.type === 'res' &&
+      ping.frame.data?.protocol === WIRE_PROTOCOL_VERSION &&
+      ping.frame.data?.platform === 'desktop',
     JSON.stringify(ping.frame?.data ?? ping.frame),
   );
 

@@ -19,6 +19,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { sendReq, decodeFrame } from '../lib/bridge-wire.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const LIB_DIR = path.join(CLIENT_ROOT, 'bridge', 'host-desktop', 'build', 'install', 'wise-bridge', 'lib');
@@ -150,6 +151,7 @@ async function startBridge(backendPort) {
 
   const ws = await new Promise((resolve, reject) => {
     const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
+    s.binaryType = 'arraybuffer';
     s.onopen = () => resolve(s);
     s.onerror = () => reject(new Error('ws 连接失败'));
     s.onclose = (e) => reject(new Error(`ws 关闭 code=${e.code}`));
@@ -161,7 +163,7 @@ function call(ws, id, method, params) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ timeout: true }), 8000);
     const onMessage = (ev) => {
-      const frame = JSON.parse(String(ev.data));
+      const frame = decodeFrame(new Uint8Array(ev.data));
       if (frame.id !== id) {
         return;
       }
@@ -170,7 +172,7 @@ function call(ws, id, method, params) {
       resolve({ frame });
     };
     ws.addEventListener('message', onMessage);
-    ws.send(JSON.stringify({ v: 3, type: 'req', id, method, ...(params ? { params } : {}) }));
+    sendReq(ws, id, method, params);
   });
 }
 
