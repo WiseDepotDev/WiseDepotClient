@@ -398,10 +398,14 @@ onBeforeUnmount(() => {
         <RouterView :key="route.fullPath" />
       </main>
 
+      <!--
+        状态栏只留一句品牌标识。
+        原先这里是"本地服务 / 平台 / 能力 N 项"三格诊断信息 —— 那是**开发期**的观察窗
+        （origin 里还带"等待 N 次探测"这类排障话术），对使用者是噪声，按用户要求去掉。
+        桥的真实状态仍由上方 BridgeStatusChip 在异常时给出；要细查走 DevTools 或 bridge.metrics。
+      -->
       <footer v-if="!isCompact" class="w-statusbar">
-        <span>本地服务：{{ bridge.origin || '未附着' }}</span>
-        <span>平台：{{ bridge.platform || '—' }}</span>
-        <span>能力：{{ bridge.capabilities.length }} 项</span>
+        <span class="w-statusbar__brand" style="margin-left: auto">由 WiseDepot 驱动</span>
       </footer>
 
       <!--
