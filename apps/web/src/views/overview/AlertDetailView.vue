@@ -6,6 +6,7 @@ import { asList, humanize, useMutation, useResource, useResourceCacheStore } fro
 import {
   ConfirmDialog,
   KeyValuePanel,
+  LoadingLayer,
   PageHeader,
   SectionBlock,
   StateHost,
@@ -309,6 +310,9 @@ watch(eventId, () => {
       />
       <p v-if="actionError" class="w-alert-error" role="alert">{{ actionError }}</p>
     </ConfirmDialog>
+
+    <!-- 换了要看的那条、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="detail.loading.value" text="正在加载告警详情…" />
   </div>
 </template>
 

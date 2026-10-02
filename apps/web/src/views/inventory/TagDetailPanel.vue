@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElButton, ElDialog, ElInput, ElOption, ElSelect } from 'element-plus';
 import { asList, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { ActionDock, ConfirmDialog, KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
+import { ActionDock, ConfirmDialog, KeyValuePanel, LoadingLayer, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
 import type { KeyValueItem } from '@wise/ui';
 
 /** 绑定目标商品的选项量（与建单屏同一手法：少量选项不做异步搜索）。 */
@@ -387,6 +387,9 @@ const items = computed<KeyValueItem[]>(() => {
       @confirm="doDelete"
       @cancel="deleteConfirm = false"
     />
+
+    <!-- 换了要看的那条、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="loading" text="正在加载标签详情…" />
   </div>
 </template>
 

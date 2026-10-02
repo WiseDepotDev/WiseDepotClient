@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { ElButton, ElDialog, ElInput } from 'element-plus';
 import { asList, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { KeyValuePanel, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef, type KeyValueItem } from '@wise/ui';
+import { KeyValuePanel, LoadingLayer, PageHeader, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef, type KeyValueItem } from '@wise/ui';
 import { canAudit, canEditItems, canSubmit, canWithdraw, orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './stockOrderState.js';
 
 /**
@@ -459,6 +459,9 @@ watch(() => props.orderId, () => {
         </ElButton>
       </template>
     </ElDialog>
+
+    <!-- 换了要看的那张、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="loading" text="正在加载单据详情…" />
   </div>
 </template>
 

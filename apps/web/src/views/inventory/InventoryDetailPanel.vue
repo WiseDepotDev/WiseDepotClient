@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { ElButton, ElDialog, ElInput } from 'element-plus';
 import { humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
-import { ActionDock, KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
+import { ActionDock, KeyValuePanel, LoadingLayer, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
 import type { KeyValueItem } from '@wise/ui';
 
 /**
@@ -215,6 +215,9 @@ async function confirm(): Promise<void> {
         </ElButton>
       </template>
     </ElDialog>
+
+    <!-- 换了要看的那条、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="loading" text="正在加载库存详情…" />
   </div>
 </template>
 

@@ -168,7 +168,11 @@ check(
 check(
   '单飞复用要求"在途请求绑的还是当前条目"（失效删条目后不许复用老请求，否则屏上停在空态）',
   /pending\.entry === \(entries\.get\(key\)/.test(resource) &&
-    /inflight\.set\(key, \{ task: task as Promise<unknown>, entry: entry as ResourceEntry<unknown> \}\)/.test(resource),
+    /inflight\.set\(key, \{ task: task as Promise<unknown>, entry: entry as ResourceEntry<unknown>, startedAt: Date\.now\(\) \}\)/.test(resource),
+);
+check(
+  '在途请求超过一个调用预算就不再复用（后台冻结定时器/半死连接时，那个键否则会被永久钉死）',
+  /STALE_INFLIGHT_MS/.test(resource) && /Date\.now\(\) - pending\.startedAt <= STALE_INFLIGHT_MS/.test(resource),
 );
 check(
   '退出自动刷新的用法只有一处，且写明了理由（服务端读缓存不随写失效）',

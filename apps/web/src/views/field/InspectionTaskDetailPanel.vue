@@ -7,6 +7,7 @@ import {
   ActionDock,
   ConfirmDialog,
   KeyValuePanel,
+  LoadingLayer,
   PageHeader,
   ResponsiveDataView,
   SectionBlock,
@@ -570,6 +571,9 @@ watch(() => props.taskId, (next) => {
       </p>
       <p v-if="actionError" class="w-inspection-detail__error" role="alert">{{ actionError }}</p>
     </ConfirmDialog>
+
+    <!-- 换了要看的那条、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="taskLoading" text="正在加载巡检任务…" />
   </div>
 </template>
 

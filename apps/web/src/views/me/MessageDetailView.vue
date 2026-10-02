@@ -3,7 +3,7 @@ import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElButton } from 'element-plus';
 import { humanize, shortTime, useMutation, useResource } from '@wise/stores';
-import { KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip, type KeyValueItem } from '@wise/ui';
+import { KeyValuePanel, LoadingLayer, PageHeader, SectionBlock, StateHost, StatusChip, type KeyValueItem } from '@wise/ui';
 
 /**
  * 消息详情（`message.detail` 域）。
@@ -228,6 +228,9 @@ const emptyText = computed(() =>
         </StateHost>
       </div>
     </SectionBlock>
+
+    <!-- 换了要看的那条、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="detail.loading.value" text="正在加载消息…" />
   </div>
 </template>
 

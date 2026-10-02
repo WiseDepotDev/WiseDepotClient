@@ -1,7 +1,7 @@
 import { computed, getCurrentScope, onScopeDispose, reactive, ref, toValue, watch } from 'vue';
 import type { ComputedRef, MaybeRefOrGetter } from 'vue';
 import { defineStore } from 'pinia';
-import { BridgeError, shouldRefetchOnOpen } from '@wise/bridge-client';
+import { BridgeError, BRIDGE_CALL_TIMEOUT_MS, shouldRefetchOnOpen } from '@wise/bridge-client';
 import { useBridgeStore } from './bridge.js';
 import { useRefreshTick } from './refresh.js';
 
@@ -72,6 +72,17 @@ export function toBridgeError(e: unknown): BridgeError {
   return e instanceof BridgeError ? e : new BridgeError({ code: 'BRIDGE_INTERNAL', details: String(e) });
 }
 
+/**
+ * 在途请求最多还能被"复用"多久（毫秒）。
+ *
+ * 依据是传输层自己承诺的预算：单次调用 `BRIDGE_CALL_TIMEOUT_MS`（15 秒）之内必然给出结果。
+ * 超过它再加 5 秒宽容期还在挂着，只能说明**那条超时没生效** ——
+ * 页面被切到后台时浏览器/Electron 会冻结定时器，连接半死时回包也永远不来。
+ * 这时不能继续等：放一个新请求出去，老的那条让它自己结算到孤儿条目上
+ * （它的 `finally` 有身份保护，不会误删新记录）。
+ */
+export const STALE_INFLIGHT_MS = BRIDGE_CALL_TIMEOUT_MS + 5_000;
+
 export const useResourceCacheStore = defineStore('wise.resources', () => {
   const entries = reactive(new Map<string, ResourceEntry<unknown>>());
   /*
@@ -86,7 +97,7 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
    * 现在的判据是"键上那条在途请求，绑的还是**当前**这条目吗"：条目被删掉就不复用了，
    * 新请求照发；老请求回来时写进孤儿条目（没人读），它的 `finally` 也不会误删新请求的记录。
    */
-  const inflight = new Map<string, { readonly task: Promise<unknown>; readonly entry: ResourceEntry<unknown> }>();
+  const inflight = new Map<string, { readonly task: Promise<unknown>; readonly entry: ResourceEntry<unknown>; readonly startedAt: number }>();
   const inflightMutations = new Map<string, Promise<unknown>>();
 
   /**
@@ -166,9 +177,17 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
     const pending = inflight.get(key);
     if (pending) {
       // 同一份数据的并发请求合并成一次 —— 这是"集中缓存"相对"每屏各拉一次"的第一处收益。
-      // **但只在"这条在途请求绑的还是当前条目"时才算同一个请求**：
-      // 条目已被失效删掉的话，那条老请求的响应会写进孤儿条目，屏上就永远是空的。
-      if (pending.entry === (entries.get(key) as ResourceEntry<unknown> | undefined)) {
+      // **但只在"这条在途请求绑的还是当前条目、而且它还没老到不该再等"时才算同一个请求**：
+      //   · 条目已被失效删掉 → 老请求的响应会写进孤儿条目，屏上永远是空的；
+      //   · 在途请求超过一个调用预算还没结算 → 说明它的超时根本没生效
+      //     （页面被切到后台时浏览器会冻结定时器，Electron/WebView 都会），
+      //     这时**必须**放一个新请求出去，否则这个键会被那条永远不落地的 promise 钉死：
+      //     自动刷新每 5 秒都会撞上它、界面永远停在骨架/旧内容上，
+      //     表现出来就是"点一行，右边不切画面"，而且怎么等都不好。
+      if (
+        pending.entry === (entries.get(key) as ResourceEntry<unknown> | undefined) &&
+        Date.now() - pending.startedAt <= STALE_INFLIGHT_MS
+      ) {
         return pending.task as Promise<T>;
       }
     }
@@ -213,7 +232,7 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
     })();
 
     self.task = task as Promise<unknown>;
-    inflight.set(key, { task: task as Promise<unknown>, entry: entry as ResourceEntry<unknown> });
+    inflight.set(key, { task: task as Promise<unknown>, entry: entry as ResourceEntry<unknown>, startedAt: Date.now() });
     return task;
   }
 

@@ -74,6 +74,11 @@ const { isWide } = useViewport();
 /*
  * 右栏自己滚动而不是整页滚动：列表可能很长，跟着一起滚会让"选中项"跑出视野。
  * 高度用 `100%` 会被 grid 的 `align-items: start` 压成内容高度，所以给一个视口相关的上限。
+ *
+ * 注：`min-height: 100%` 在这里**不起作用**（实测）—— grid 行高是内容驱动的，
+ * 百分比 min-height 没有可比的确定高度，会被当成 `auto`。所以详情加载遮罩
+ * （`LoadingLayer`）盖的是**面板自己的盒子**，而不是整栏高度；这是刻意的：
+ * 面板有多高就盖多高，不会凭空撑出一块空白。
  */
 .w-masterdetail--wide > .w-masterdetail__detail {
   position: sticky;

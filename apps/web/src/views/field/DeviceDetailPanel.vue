@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElButton } from 'element-plus';
 import { humanize, shortTime, useResource } from '@wise/stores';
-import { KeyValuePanel, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
+import { KeyValuePanel, LoadingLayer, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
 import type { KeyValueItem } from '@wise/ui';
 
 /**
@@ -184,6 +184,8 @@ const paramItems = computed<KeyValueItem[]>(() => {
       </SectionBlock>
     </StateHost>
 
+    <!-- 换了要看的那台、数据还没回来时盖住整块：宽档是右栏，手机档是整屏详情 -->
+    <LoadingLayer :show="loading" text="正在加载设备详情…" />
   </div>
 </template>
 

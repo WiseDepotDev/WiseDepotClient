@@ -888,6 +888,51 @@ check(
   JSON.stringify(cardActionGap),
 );
 
+/*
+ * ---- 手机档：详情页在取数时也要被遮罩盖住（同一个组件，两个断点都管）----
+ *
+ * 窄档的详情是**整屏**，所以遮罩盖的是整屏 —— 用户切到详情后不会看到"一片旧内容没反应"。
+ */
+await cdp.evaluate(`(window.__bridgeMock.holdOnce('device.detail'), true)`, { awaitPromise: false });
+await cdp.evaluate(`(location.hash = '#/field/devices/3')`, { awaitPromise: false });
+const mobileOverlay = await waitFor(
+  `document.querySelector('.w-page .w-loading-layer') ? true : null`,
+  20_000,
+  200,
+);
+const mobileOverlayInfo = await cdp.evaluate(
+  `(() => {
+     const layer = document.querySelector('.w-page .w-loading-layer');
+     return { text: layer?.innerText.trim() ?? '', busy: layer?.getAttribute('aria-busy') ?? null, hash: location.hash };
+   })()`,
+  { awaitPromise: false },
+);
+check(
+  '手机档：详情取数时整屏被加载遮罩盖住',
+  mobileOverlay === true && /正在加载/.test(mobileOverlayInfo.text) && mobileOverlayInfo.busy === 'true',
+  JSON.stringify(mobileOverlayInfo),
+);
+/*
+ * 放行之前先多等一拍：遮罩是"请求一发出"就出现的，而假桥里那次调用还要先过 120ms 的
+ * 模拟往返才会走到"该挂住"的那一行。假桥自己也带了代次保护（放行早于挂住时不挂），
+ * 这里再等一拍是为了让"挂住 → 放行 → 撤遮罩"这条链每次都走到同一个分支。
+ */
+await sleep(400);
+await cdp.evaluate(`(window.__bridgeMock.releaseHeld(), true)`, { awaitPromise: false });
+const mobileOverlayGone = await waitFor(`document.querySelector('.w-loading-layer') ? null : true`, 20_000, 200);
+const mobileAfterRelease = await cdp.evaluate(
+  `({
+     layers: document.querySelectorAll('.w-loading-layer').length,
+     layerText: document.querySelector('.w-loading-layer')?.innerText.trim() ?? null,
+     pageTitle: document.querySelector('.w-page-header__title')?.innerText.trim() ?? null,
+     kvCount: document.querySelectorAll('.w-kv').length,
+     skeleton: !!document.querySelector('.w-skeleton'),
+     hash: location.hash,
+   })`,
+  { awaitPromise: false },
+);
+check('手机档：数据到位后遮罩撤掉', mobileOverlayGone === true, JSON.stringify(mobileAfterRelease));
+
 await cdp.send('Emulation.clearDeviceMetricsOverride');
 
 /*
@@ -2400,6 +2445,48 @@ check('桌面宽档：右栏就地显示设备详情', afterDeviceWide.detailCol
 // 同告警那条：断言右栏的**内容**，不断言"发了请求"（缓存命中时本来就不发）
 const devicePanelText = await text('.w-masterdetail__detail');
 check('右栏里确实画出了那台设备的字段（不是空壳）', devicePanelText.length > 20, devicePanelText.replace(/\s+/g, ' ').slice(0, 70));
+
+/*
+ * ---- 换了选中项、数据还没回来时，右栏必须被**加载遮罩**盖住 ----
+ *
+ * 用户的现场反馈：点一行右栏还留着上一条的内容、或者干脆一直不换，看不出到底
+ * 是"没点上"还是"在取数"。用假桥的 `holdOnce` 把这次 `device.detail` 按住，
+ * 遮罩就该出现；放行后遮罩消失、内容到位。
+ *
+ * 点**第二行**：第一行的详情在上一步已经取过并缓存，再点不会发请求，也就没有加载态。
+ */
+await cdp.evaluate(`(window.__bridgeMock.holdOnce('device.detail'), true)`, { awaitPromise: false });
+const secondRowClicked = await cdp.evaluate(
+  `(() => {
+     const rows = [...document.querySelectorAll('.el-table__body tbody tr.el-table__row')];
+     const row = rows[1];
+     if (!row) return false;
+     row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(700);
+const overlayWhilePending = await cdp.evaluate(
+  `(() => {
+     const layer = document.querySelector('.w-masterdetail__detail .w-loading-layer');
+     return { exists: !!layer, text: layer?.innerText.trim() ?? '', busy: layer?.getAttribute('aria-busy') ?? null };
+   })()`,
+  { awaitPromise: false },
+);
+check(
+  '桌面宽档：换选中项时右栏被加载遮罩盖住（不是留着上一条的内容）',
+  secondRowClicked === true && overlayWhilePending.exists === true && /正在加载/.test(overlayWhilePending.text),
+  JSON.stringify(overlayWhilePending),
+);
+await cdp.evaluate(`(window.__bridgeMock.releaseHeld(), true)`, { awaitPromise: false });
+const overlayGone = await waitFor(
+  `document.querySelector('.w-masterdetail__detail .w-loading-layer') ? null : true`,
+  20_000,
+  200,
+);
+check('放行之后遮罩消失（数据到位就撤）', overlayGone === true);
+check('并且右栏真的有那台设备的内容', (await text('.w-masterdetail__detail')).length > 20);
 
 await cdp.evaluate(`(location.hash = '#/field/devices/1')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '搬运机器人 01' ? true : null`, 20_000, 200);

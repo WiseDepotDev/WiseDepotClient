@@ -20,6 +20,61 @@
   max-width: var(--w-space-content-max-width);
   margin: 0 auto;
   padding: var(--w-space-screen-v) var(--w-space-screen-h);
+  /*
+   * 作为加载遮罩的定位父级（见 `.w-loading-layer`）。
+   * `position: relative` **不会**影响 `position: fixed` 后代 —— 那要的是 transform/filter
+   * （这个坑在动效那一轮踩过：`.w-page` 上挂 transform 动画会把手机档的 fixed 动作坞拖歪）。
+   */
+  position: relative;
+}
+
+/* ---------- 详情加载遮罩（LoadingLayer.vue） ---------- */
+
+/*
+ * 盖住整块详情：宽档它是右栏那一栏，手机档它是整屏详情。
+ * 只在"这一条还没有任何数据"时出现，后台每 5 秒的刷新不会盖（否则右栏一直闪）。
+ */
+.w-loading-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--w-space-inline-gap);
+  padding: var(--w-space-card-padding);
+  background: var(--w-color-surface);
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  border-radius: var(--w-radius-card);
+}
+
+/* 转圈用令牌算时长：`--w-motion-normal`(200ms) × 4 ≈ 0.8s/圈；
+ * `prefers-reduced-motion` 下令牌被生成器置成 0ms，转圈自动停下（遮罩仍在，不会变成"没反应"）。 */
+.w-loading-layer__spinner {
+  width: var(--w-size-icon-size);
+  height: var(--w-size-icon-size);
+  border: 2px solid var(--w-color-outline);
+  border-top-color: var(--w-color-primary);
+  border-radius: 50%;
+  animation: w-spin calc(var(--w-motion-normal) * 4) linear infinite;
+}
+
+@keyframes w-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.w-loading-fade-enter-active,
+.w-loading-fade-leave-active {
+  transition: opacity var(--w-motion-fast) ease-out;
+}
+
+.w-loading-fade-enter-from,
+.w-loading-fade-leave-to {
+  opacity: 0;
 }
 
 /*
@@ -830,6 +885,10 @@
   .w-masterdetail__detail > *,
   .w-cardrow > *,
   .w-cardlist > li {
+    animation: none;
+  }
+  /* 转圈停下，但遮罩保持可见（"正在加载"这句话不能因为关掉动效就消失） */
+  .w-loading-layer__spinner {
     animation: none;
   }
 }

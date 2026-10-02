@@ -65,18 +65,34 @@ export class MockTransport implements BridgeTransport {
    * 「把某个方法的下一次调用挂住」—— 开发态测试钩子。
    *
    * 为什么需要它：有一类 bug 只在**写操作正好撞上一次在途刷新**时出现
-   * （资源层把在途请求复用给了已经被失效删掉的旧条目，屏上于是停在空态）。
-   * 靠"祈祷 15 秒的自动刷新恰好在那一刻打过来"是测不出来的 —— 只能把响应按住，
-   * 让它确定性地悬在那里。`holdOnce` 只按一次：后续那次"补取"必须能正常返回。
+   * （资源层把在途请求复用给了已经被失效删掉的旧条目，屏上于是停在空态），
+   * 以及"选中项换了但请求还没回来"时的加载遮罩。靠"祈祷刷新恰好在那一刻打过来"
+   * 是测不出来的 —— 只能把响应按住，让它确定性地悬在那里。
+   *
+   * ## 为什么要带"代次"（generation）而不是一个布尔/集合
+   *
+   * `releaseHeld()` 有可能**先于**被挂住的那次调用到达（加载遮罩在请求发出时就出现，
+   * 而 mock 里还要先等 120ms 的模拟往返）：
+
+   *   arm → 界面立刻显示遮罩 → 测试判定遮罩在 → release → 请求这才走到"该挂住"的那一行
+   *
+   * 用集合实现时，那次 release 清的是**空**的 waiter 列表，随后请求自己把 waiter 压进去，
+   * 于是它会**永远挂着** —— 实测就是这样：遮罩一直不撤、后续断言跟着崩。
+   * 记代次之后，"放行发生在挂住之前"会被认出来并按"不挂"处理。
    */
-  private readonly heldOnce = new Set<string>();
+  private readonly holdNext = new Map<string, number>();
+  private holdGen = 0;
+  private releasedGen = -1;
   private heldWaiters: (() => void)[] = [];
 
   holdOnce(method: string): void {
-    this.heldOnce.add(method);
+    this.holdGen += 1;
+    this.holdNext.set(method, this.holdGen);
   }
 
   releaseHeld(): void {
+    this.releasedGen = this.holdGen;
+    this.holdNext.clear();
     const waiters = this.heldWaiters;
     this.heldWaiters = [];
     for (const w of waiters) {
@@ -163,9 +179,14 @@ export class MockTransport implements BridgeTransport {
   private async callInternal<T>(method: string, params?: unknown, _meta?: ReqMeta): Promise<T> {
     await new Promise((r) => setTimeout(r, 120)); // 模拟一次 loopback 往返 + 后端耗时
 
-    // 测试钩子：这一次调用被按住，直到 `releaseHeld()`（见 `holdOnce` 的说明）
-    if (this.heldOnce.delete(method)) {
-      await new Promise<void>((resolve) => this.heldWaiters.push(resolve));
+    // 测试钩子：这一次调用被按住，直到 `releaseHeld()`（见 `holdOnce` 的说明）。
+    // 代次 ≤ releasedGen 表示"放行发生在挂住之前"，那就**不挂**（否则它会永远挂着）。
+    const holdAt = this.holdNext.get(method);
+    if (holdAt !== undefined) {
+      this.holdNext.delete(method);
+      if (holdAt > this.releasedGen) {
+        await new Promise<void>((resolve) => this.heldWaiters.push(resolve));
+      }
     }
 
     // 后端挂掉开关（开发态）：用来验"出问题真的会显示异常"
