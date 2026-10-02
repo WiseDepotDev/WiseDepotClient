@@ -13,7 +13,7 @@ import { ref, type Ref } from 'vue';
  * ## 为什么现在改成全自动
  *
  * 用户的要求是"所有内容持续自动更新、不要手动刷新按钮"。所以：
- *  · 可见时每 `AUTO_INTERVAL_MS` 自动 bump 一次（后台标签页不刷，省电省流量）；
+ *  · 可见时每 `AUTO_REFRESH_INTERVAL_MS`（**5 秒**）自动 bump 一次（后台标签页不刷，省电省流量）；
  *  · **回到前台立刻补一次**，并且先验活（半死连接要在这一步被判死，见 `resume` 钩子）；
  *  · 窗口重新聚焦、网络恢复（`online`）也各补一次。
  *
@@ -40,8 +40,17 @@ export function useRefreshTick(): Ref<number> {
   return tick;
 }
 
-/** 自动刷新周期。15 秒：现场要"看着是活的"，后端也不至于被当靶子。 */
-export const AUTO_REFRESH_INTERVAL_MS = 15_000;
+/**
+ * 自动刷新周期：**5 秒**（用户指定）。
+ *
+ * 代价要写清楚，别下次有人又"顺手调大"或"顺手调小"：
+ *  · 每 5 秒，**当前挂载的那一屏**用到的每个资源各发一次请求（切了屏就只刷新屏，
+ *    因为只有挂载中的屏会订阅 tick）；
+ *  · 页面不可见时不刷（省电、也省后端）；回到前台/聚焦/联网各立刻补一次；
+ *  · 后台请求**不会**把内容换成骨架屏（见 `UseResourceResult.loading` 的语义），
+ *    所以这个频率下屏幕是"数字自己在变"，不是"每 5 秒闪一下"。
+ */
+export const AUTO_REFRESH_INTERVAL_MS = 5_000;
 
 export interface AutoRefreshHooks {
   readonly intervalMs?: number | undefined;

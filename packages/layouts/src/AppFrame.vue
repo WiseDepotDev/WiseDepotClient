@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
         </ElButton>
         <!--
           这里原来有一个「刷新本页」按钮，**已经撤掉**：整仓改成了自动刷新
-          （`@wise/stores` 的 `startAutoRefresh`：可见时每 15 秒一次，回到前台 / 重新聚焦 /
+          （`@wise/stores` 的 `startAutoRefresh`：可见时每 5 秒一次，回到前台 / 重新聚焦 /
           网络恢复各补一次），手动按钮既没必要，也会让人以为"不点它就不会更新"。
           信号仍然走 `bumpRefresh`，只是改由自动刷新调度器来 bump。
         -->
