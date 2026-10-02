@@ -184,3 +184,34 @@ error(denied/unavailable/busy)     → 取景层内显示**对应中文**与"重
 **代价对比**：更正后本片零代码、S2 全在 Web 侧（可被 `check:scan` 直接覆盖），
 而原方案要新增 4 个跨进程方法 + 两处落盘 + 一套"谁持有流"的协商 —— 后者才是真正的复杂度来源。
 
+### 8.5 落码进度（2026-10-05 追加，**不改写**上面的切片表）
+
+| 片 | 提交 | 结论 |
+| --- | --- | --- |
+| S1a | `32cb2bb` | `scan.camera.select` 能力位 + 3 个相机错误码（Kotlin/TS 同步） |
+| S1b | `353a6c2` | 推翻"4 个相机桥方法"的设计（更正写进本文 §8） |
+| S2a | `c4f99d6` | 枚举与选择（`scan-camera.ts`，零依赖可测）+ 门禁 19 项 |
+| S2b | `7f41a9e` | 取景会话与错误映射（`scan-stream.ts`）+ 门禁 26 项 |
+| S2b2 | `a0157d6` | 引擎选择与结果归一化（`scan-decode.ts`）+ 门禁 23 项 |
+| S2b3 | `a2ba756` | 取景层落地（`CameraScanPanel.vue` + `scan-engines.ts` + `scan-zxing.ts`）+ 门禁 43 项 |
+
+**S2b3 的两条实测补充**（§7.2 没写到的）：
+
+1. **自动播放**：`<video>` 必须 `muted`，否则 Chromium 拒绝自动播放，取景层停在第一帧
+   而状态已经是 `running` —— 又是一个"说自己在跑"的死状态。
+2. **回退的字节从哪来**：zxing-wasm **默认从 jsDelivr CDN 拉 wasm**（不是随包走）。
+   装在现场机器上的应用断网是常态，留着默认值等于"回退路径只在有网时存在"。
+   所以 S2b3 用 Vite 的 `?url` 把 `zxing_reader.wasm` 打包成本地 asset 并覆盖 `locateFile`。
+   → **教训**：只写"要回退"不够，还要写"回退的那 953KB 从哪来"。
+
+**还差 S2c（两件，缺一不可）**：
+
+1. Electron 主进程加 `session.setPermissionRequestHandler`（允许 `media` 并记录决定）——
+   不实现它，打包后的应用里 `getUserMedia` 会静默失败，**真机走查根本走不到那一步**；
+2. 真机走查（对着条码出 `evt scan.code`、关窗/失焦后 `track.readyState === 'ended'`）通过后，
+   再在宿主能力表加 `scan.camera`（`apps/desktop/src/bridgeProcess.ts` 的 `--capabilities`）。
+
+**在 2 完成之前，桌面看不到扫码入口** —— 这是有意的（能力声明即承诺），
+不是漏接线：`check:render` 的两条用例正分别钉住"有能力就画"与"没能力一个字都不出现"。
+
+
