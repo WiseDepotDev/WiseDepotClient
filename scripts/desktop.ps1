@@ -92,12 +92,34 @@ if ($Rebuild -or -not (Test-Path $bridgeDist)) {
     Write-Host '  · 桥产物已存在（-Rebuild 可强制重建）' -ForegroundColor DarkGray
 }
 
-if ($Rebuild -or -not (Test-Path $mainJs)) {
+<#
+把主进程产物是否**过时**（源码比产物新）也算成"缺产物"。
+
+为什么需要这一条：默认策略是"缺了才建"，于是**改了 `src/main.ts` 但产物还是旧的**时，
+自检会拿旧代码跑 —— 它给出的绿或红都跟你刚写的代码无关。这不是假设：
+B1/S2c 第一次跑自检就踩着它（修完 origin 判据仍然报同一个错，因为跑的是旧 bundle），
+白查了一轮"为什么修复没生效"。
+
+只对主进程做这条检查：它的构建是秒级的（esbuild 单文件），
+Web 与桥的产物重建代价大得多，仍旧交给 `-Rebuild`。
+#>
+$mainSrcDir = Join-Path $root 'apps\desktop\src'
+$mainStale = -not (Test-Path $mainJs)
+if (-not $mainStale) {
+    $builtAt = (Get-Item $mainJs).LastWriteTimeUtc
+    $newerSrc = Get-ChildItem $mainSrcDir -Filter '*.ts' -File | Where-Object { $_.LastWriteTimeUtc -gt $builtAt }
+    if ($newerSrc) { $mainStale = $true }
+}
+
+if ($Rebuild -or $mainStale) {
+    if ($mainStale -and -not $Rebuild) {
+        Write-Host '  · Electron 主进程产物比源码旧 → 重建（改了 main.ts 却用旧产物跑自检会得出误导结论）' -ForegroundColor Yellow
+    }
     Invoke-Step '构建 Electron 主进程（apps/desktop/dist/main.cjs）' {
         pnpm --filter '@wise/desktop' build | Out-Host
     }
 } else {
-    Write-Host '  · Electron 主进程已存在（-Rebuild 可强制重建）' -ForegroundColor DarkGray
+    Write-Host '  · Electron 主进程已存在且不旧（-Rebuild 可强制重建）' -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------------- 2. 启动
