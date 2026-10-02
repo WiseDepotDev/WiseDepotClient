@@ -4,7 +4,8 @@ import { RouterLink } from 'vue-router';
 import { ElButton, ElInput, ElTag } from 'element-plus';
 import { Search } from '@element-plus/icons-vue';
 import { asList, asTotal, humanize, shortTime, useMutation, useResource } from '@wise/stores';
-import { ActionDock, ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
+import { ActionDock, ConfirmDialog, MasterDetail, PageHeader, SectionBlock, StateHost, StatusChip, useViewport } from '@wise/ui';
+import MessageDetailView from './MessageDetailView.vue';
 
 /**
  * 消息中心（`message.list` 域）—— 与其他列表屏差一步**取数前置**：消息的每一个动作
@@ -106,6 +107,14 @@ const applied = ref('');
 const page = ref(1);
 const openedId = ref<string | undefined>(undefined);
 
+/*
+ * 桌面宽档的主从：左列表 + 右详情。
+ * 点行在宽档**不换路由**（`RouterView :key` 会整树重挂，左栏的页码与滚动位置都会丢），
+ * 窄档也不换路由（这一屏本就是"点行就地展开"），只有"去详情页"那个链接仍然走路由。
+ */
+const { isWide } = useViewport();
+const selectedId = ref<string | undefined>(undefined);
+
 /** 收件人：消息的每一次调用都要它。 */
 const me = useResource<unknown>('user.current');
 const receiverId = computed(() => receiverIdOf(me.data.value));
@@ -190,9 +199,21 @@ function afterWrite(): void {
   unread.reload();
 }
 
-/** 整行点一下 = 选中它并标为已读（已读的不再打扰服务端）。 */
+/**
+ * 整行点一下 = 选中它并标为已读（已读的不再打扰服务端）。
+ *
+ * 宽档走**主从**：右栏显示这条消息的完整详情，左栏不再就地展开 ——
+ * 否则同一份正文会在左右两边各画一遍（这一屏本来就支持"点行就地展开"，
+ * 那是窄档的表达方式；宽档有右栏就不需要展开这一层了）。
+ */
 function onRowClick(row: MessageRow): void {
-  openedId.value = row.id;
+  if (isWide.value) {
+    if (row.id !== undefined) {
+      selectedId.value = row.id;
+    }
+  } else {
+    openedId.value = row.id;
+  }
   void markRead(row);
 }
 
@@ -344,6 +365,8 @@ const emptyText = computed(() =>
       还没有认出当前登录的账号，暂时读不到这个账号的收件箱。请刷新重试，或重新登录后再进来。
     </p>
 
+    <MasterDetail>
+      <template #list>
     <SectionBlock :title="listTitle">
       <StateHost
         :loading="list.loading.value"
@@ -387,8 +410,14 @@ const emptyText = computed(() =>
         <span class="w-me-message-list__muted">{{ `本页 ${all.length} 条` }}</span>
       </div>
     </SectionBlock>
+      </template>
+      <template #detail>
+        <MessageDetailView v-if="selectedId !== undefined" :inline-id="selectedId" />
+        <div v-else class="w-masterdetail__pick">从左边点一条消息，这里显示它的完整正文与处理动作。</div>
+      </template>
+    </MasterDetail>
 
-    <SectionBlock v-if="opened" title="消息正文">
+    <SectionBlock v-if="opened && !isWide" title="消息正文">
       <div class="w-me-message-list__panel">
         <div class="w-me-message-list__panelhead">
           <span class="w-me-message-list__main">{{ opened.title ?? '（无标题）' }}</span>

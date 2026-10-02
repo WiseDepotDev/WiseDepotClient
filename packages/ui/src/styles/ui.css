@@ -22,6 +22,19 @@
   padding: var(--w-space-screen-v) var(--w-space-screen-h);
 }
 
+/*
+ * 内联挂载（桌面宽档主从的右栏）里的页面。
+ *
+ * 那些详情屏现在"一个组件两种挂载"：既是独立路由屏，也能被列表屏塞进右栏。
+ * 挂进右栏时要脱掉"整屏"的那套外壳 —— 居中限宽与两侧内边距由右栏提供，
+ * 留着就是两层内边距（右栏内容被挤窄一圈，看着像缩进错了）。纵向节奏保留。
+ */
+.w-page--inline {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
 .w-page-header {
   display: flex;
   align-items: flex-start;
@@ -97,6 +110,17 @@
 .w-toolbar > .w-chip,
 .w-toolbar > span {
   flex: 0 1 auto;
+}
+
+/* 主从右栏"还没选"时的提示：一句话说明怎么用，而不是留一片空白 */
+.w-masterdetail__pick {
+  padding: var(--w-space-card-padding);
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  line-height: var(--w-type-body-small-line);
+  background: var(--w-color-surface-alt);
+  border: 1px dashed var(--w-color-outline);
+  border-radius: var(--w-radius-card);
 }
 
 /* ---------- 状态筛选 chips ---------- */

@@ -222,14 +222,12 @@ function goPage(next: number): void {
  *
  * 缓存失效是按**方法 id 前缀**删条目的，所以这里逐个点名本屏拥有的三类资源，
  * **绝不能写 `'user'`** —— 那个前缀会连 `user.current#…` 一起删掉，而左侧边栏的账号区
- * 读的正是它（`packages/layouts/src/AppFrame.vue`：名字与角色）。资源层**不会**因为
- * `invalidate` 就自动重取（只有 `[key, enabled]` 变化才会 `load()`），
- * 于是后果不是"数据不一致"，而是可见的功能退化：点一次「刷新」，左下角的名字会掉回
- * 会话里的名字、角色会空掉，而且不刷新页面就再也回不来。
+ * 读的正是它（`packages/layouts/src/AppFrame.vue`：名字与角色）。
  *
- * 明细两条不在这里 `reload()`：`cache.invalidate` 已经把它们的条目删掉，
- * 而 `useResource` 的 `activeKey` 没变就不会自己重取 —— 所以显式重取一次，
- * 顺序上先失效再 reload，拿到的必然是服务端的新值。
+ * 资源层现在会对"挂载中的键"在失效后**自动补取一次**（`resource.ts` 里的 `live` 登记，
+ * 起因是主从右栏写完让左栏掉进空态），所以下面那两个 `reload()` 已经是**兜底**：
+ * 它们与自动补取在同一个 tick 里撞上时会被单飞合并，不会发两次请求。
+ * 留着它们是因为本函数的本意就是"刷新这一屏"，不该依赖缓存层的副作用。
  */
 function refresh(): void {
   cache.invalidate('user.list');

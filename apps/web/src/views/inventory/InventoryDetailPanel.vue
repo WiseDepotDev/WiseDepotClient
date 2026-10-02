@@ -41,7 +41,14 @@ interface InventoryDetail {
   readonly updateTime?: string;
 }
 
-const props = defineProps<{ readonly inventoryId: number | undefined }>();
+/**
+ * `inline` 表示这一份被当成主从右栏挂进来（要脱掉 `.w-page` 的居中限宽与左右内边距）。
+ *
+ * 判据只能由调用点显式传入，不能按「id 有值」推：独立路由屏的薄壳（`InventoryDetailView`，
+ * 含手机档从列表点进详情、扫码深链）传的也是路由里解析出来的 id —— 按 id 判断会把那些
+ * 独立详情屏的内边距与居中一起脱掉，内容贴到屏幕两边。
+ */
+const props = defineProps<{ readonly inventoryId: number | undefined; readonly inline?: boolean | undefined }>();
 
 const cache = useResourceCacheStore();
 
@@ -141,7 +148,7 @@ async function confirm(): Promise<void> {
 </script>
 
 <template>
-  <div class="w-page">
+  <div class="w-page" :class="{ 'w-page--inline': props.inline === true }">
     <PageHeader
       :title="data?.productName ?? '库存详情'"
       :note="`${data?.warehouseName ?? '仓库未登记'} · 货位 ${data?.location ?? '未登记'} · 库存 #${inventoryId ?? '—'}`"

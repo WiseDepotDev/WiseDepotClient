@@ -35,6 +35,16 @@ import {
 /**
  * 告警详情（`alert.detail` + `alert.logs` + `alert.ack` / `alert.status`）。
  *
+ * ## 两种挂载方式（同一个组件，不是两份实现）
+ *
+ *  · **独立路由屏**（`alert.detail`）：不传 prop，序号从路由参数解析；
+ *  · **桌面宽档主从的右栏**：列表屏传 `inline-id`，序号来自 prop。
+ *
+ * 为什么必须有 prop 这条路：主从右栏换选中项时**路由不动** ——
+ * 只读 `route.params` 的组件拿不到新 id，右栏会一直显示第一次点开的那条。
+ * （库里那一组是把它拆成 `InventoryDetailPanel` + 薄壳两个文件；这里是同一个组件多接一个 prop，
+ * 少一个文件、语义也更直白：它本来就是"一个屏，两种挂载"。两种形态行为一致。）
+ *
  * 三条业务规则**原样搬自 React 版**（那里是踩过坑写下来的，不是风格偏好）：
  *
  * 1. **动作按状态决定，不能做的把原因写在按钮旁边**。服务端 `acknowledgeAlert`
@@ -46,11 +56,19 @@ import {
  * 3. **忽略必须写原因**（至少 2 个字）：原因会进处理记录。忽略一条告警而不说为什么，
  *    下一个翻记录的人只会看到一个没有解释的「已忽略」。
  */
+const props = defineProps<{ readonly inlineId?: number | undefined }>();
+
 const route = useRoute();
 const cache = useResourceCacheStore();
 
-/** 路由参数 → 告警序号。转不出来就当"没有目标"，不发一个必然是错的请求（服务端只认数字序号）。 */
+/**
+ * 序号来源：**prop 优先**（主从右栏），否则读路由参数。
+ * 路由参数是字符串袋，转不出正整数就当"没有目标"，不发一个必然是错的请求。
+ */
 const eventId = computed<number | undefined>(() => {
+  if (props.inlineId !== undefined) {
+    return props.inlineId;
+  }
   const raw = route.params.alertId;
   const text = Array.isArray(raw) ? raw[0] : raw;
   if (text === undefined) {
@@ -170,7 +188,7 @@ watch(eventId, () => {
 </script>
 
 <template>
-  <div class="w-page">
+  <div class="w-page" :class="{ 'w-page--inline': inlineId !== undefined }">
     <PageHeader
       :title="alert?.title ?? '告警详情'"
       :note="`序号 #${eventId ?? '—'} · ${sourceModuleText(alert?.sourceModule)} · ${timeText(alert?.createTime, '时间未上报')}`"

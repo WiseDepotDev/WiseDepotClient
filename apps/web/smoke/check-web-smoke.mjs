@@ -798,6 +798,66 @@ check(
 );
 check('扫码结果卡可见且显示真实编码', scanResult.card === true && scanResult.cardText === 'ABCD1234', scanResult.cardText);
 
+/*
+ * ---- 手机窄档：主从**不生效**，点行仍旧按 hash 进详情 ----
+ *
+ * 390px 里并排两栏谁都看不清，所以窄档必须原样保留"点行进详情路由"这条老路
+ * （深链、扫码跳转、系统返回键都靠它）。两个栏目同时出现才算回归：
+ * 右栏存在（`.w-masterdetail__detail`）说明主从在窄档漏了出来。
+ */
+for (const [listHash, listTitle, detailPattern, label] of [
+  ['#/inventory/stock-orders', '出入库单', /^#\/inventory\/stock-orders\/\d+$/, '出入库单'],
+  ['#/inventory/tags', '标签管理', /^#\/inventory\/tags\/\d+$/, '标签'],
+  ['#/field/inspections', '巡检任务', /^#\/field\/inspections\/\d+$/, '巡检任务'],
+]) {
+  await cdp.evaluate(`(location.hash = ${JSON.stringify(listHash)})`, { awaitPromise: false });
+  await waitFor(
+    `document.querySelector('.w-page-header__title')?.innerText === ${JSON.stringify(listTitle)} ? true : null`,
+    20_000,
+    200,
+  );
+  await waitFor(
+    `document.querySelector('.w-cardrow .w-card, .el-table__body tbody tr.el-table__row') ? true : null`,
+    20_000,
+    200,
+  );
+  await sleep(400);
+  const clickedNarrowCard = await cdp.evaluate(
+    `(() => {
+       const card = document.querySelector('.w-cardrow .w-card') ?? document.querySelector('.w-card');
+       if (!card) return false;
+       card.click();
+       return true;
+     })()`,
+    { awaitPromise: false },
+  );
+  check(`手机档：${label}卡片列表点得到（否则下面那条是假红）`, clickedNarrowCard === true);
+  await sleep(900);
+  const narrowAfterClick = await cdp.evaluate(
+    `({
+       hash: location.hash,
+       hasMasterDetail: !!document.querySelector('.w-masterdetail__detail'),
+       stripped: !!document.querySelector('.w-page--inline'),
+     })`,
+    { awaitPromise: false },
+  );
+  check(
+    `手机档：${label}点行仍然按 hash 进详情（主从只在宽档生效）`,
+    detailPattern.test(narrowAfterClick.hash) && narrowAfterClick.hasMasterDetail === false,
+    JSON.stringify(narrowAfterClick),
+  );
+  /*
+   * 详情屏是**独立整屏**：居中限宽与两侧内边距必须留着。
+   * 这条是"按 id prop 判 `w-page--inline`"那个写法的回归护栏 —— 那样写在窄档会把
+   * 内边距一起脱掉，内容贴到屏幕两边（扫码深链进详情同样中招）。
+   */
+  check(
+    `手机档：${label}详情屏保留整屏外壳（内边距没有被主从那条规则吃掉）`,
+    narrowAfterClick.stripped === false,
+    JSON.stringify(narrowAfterClick),
+  );
+}
+
 await cdp.send('Emulation.clearDeviceMetricsOverride');
 
 /*
@@ -938,13 +998,41 @@ const filterLabels = await cdp.evaluate(
 check('筛选条渲染（状态筛选，默认全部）', filterLabels.length > 0, filterLabels);
 
 // ---- 告警详情：未处理那条 ----
+/*
+ * 桌面宽档（≥1440）下这一屏是**主从**：点行只改右栏的选中项，**不换路由**。
+ * 为什么必须这样：`<RouterView :key="route.fullPath">` 会整树重挂，
+ * 点行若换路由会把左栏一起销毁重建（页码回 1、滚动位置丢）。
+ * 窄档那条老路（点行换 hash）在手机阶段另有断言。
+ */
+await clearCalls();
 await cdp.evaluate(
   `(() => { document.querySelector('.w-datatable .el-table__body tbody tr.el-table__row')?.click(); return true; })()`,
   { awaitPromise: false },
 );
-await waitFor(`location.hash.includes('/overview/alerts/') ? true : null`, 20_000, 200);
+await sleep(900);
+const alertWide = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     detailColumns: document.querySelectorAll('.w-masterdetail__detail').length,
+     hasPanel: !!document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+check('桌面宽档：告警点行不换路由（左栏不会被重挂）', alertWide.hash === '#/overview/alerts', alertWide.hash);
+check('桌面宽档：右栏就地显示告警详情', alertWide.detailColumns === 1 && alertWide.hasPanel === true, JSON.stringify(alertWide));
+/*
+ * 这里**不**断言"发出了 alert.detail 请求"。
+ *
+ * 第一版就是那么写的，结果假红：右栏渲染了详情（上面两条都过了），但调用记录是空的 ——
+ * 因为那条告警的详情在更早的步骤里已经取过，资源层按 方法+参数 命中缓存**不发第二次**。
+ * "缓存命中"与"右侧真画出来了"是两件事，而这一条要守的是后者，所以断言右栏的内容。
+ */
+const alertPanelText = await text('.w-masterdetail__detail');
+check('右栏里确实画出了那条告警的字段（不是空壳）', alertPanelText.length > 20, alertPanelText.replace(/\s+/g, ' ').slice(0, 70));
+
+// 下面的断言依赖"详情在屏上"，主从右栏里它就在同一屏，所以继续可用
 const detailHash = await cdp.evaluate(`location.hash`, { awaitPromise: false });
-check('点行进详情（路由参数带上序号）', /#\/overview\/alerts\/\d+/.test(detailHash), detailHash);
+check('停在告警中心（主从模式不跳页）', detailHash === '#/overview/alerts', detailHash);
 
 // 等状态芯片脱离"未上报"再断言：详情数据比页头晚到一步
 await waitFor(
@@ -1709,9 +1797,16 @@ const createCalls = await callsWithPrefix('tag.create');
 check('新建标签真的调了 tag.create 且带上了条码', createCalls.includes('SMOKE-TAG-1'), createCalls.slice(0, 80));
 check('新建标签给出回执', /标签已创建/.test(await text('.w-inv-notice')), (await text('.w-inv-notice')).slice(0, 40));
 
-// ---- 标签详情：绑定 / 改标识 / 删除，**且不能用重取复核**（服务端 getTag 有缓存、写操作不失效它）----
+// ---- 标签详情：绑定 / 改标识 / 删除，且不能用重取复核（服务端 getTag 有缓存、写操作不失效它）----
+/*
+ * 桌面宽档下这一屏是**主从**：点行只把右栏换成这条标签的详情，**不换路由**。
+ * 原来这里等的是 `location.hash.includes('/inventory/tags/')` —— 主从之后那个条件永远不成立，
+ * waitFor 会干等到超时，后面一整套绑定/改标识/删除的断言都跑在空屏上（subagent 提醒过这一点）。
+ * 现在改等**右栏里的**页头，顺带把主从本身也钉住。
+ */
 await cdp.evaluate(`(location.hash = '#/inventory/tags')`, { awaitPromise: false });
 await sleep(600);
+const beforeTagWide = await cdp.evaluate('location.hash', { awaitPromise: false });
 await cdp.evaluate(
   `(() => {
      const row = document.querySelector('.el-table__body tbody tr.el-table__row');
@@ -1720,7 +1815,26 @@ await cdp.evaluate(
    })()`,
   { awaitPromise: false },
 );
-await waitFor(`document.querySelector('.w-page-header__title') && location.hash.includes('/inventory/tags/') ? true : null`, 20_000, 200);
+await sleep(900);
+const afterTagWide = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     detailColumns: document.querySelectorAll('.w-masterdetail__detail').length,
+     hasPanel: !!document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+check('桌面宽档：标签点行不换路由（左栏不会被重挂）', afterTagWide.hash === beforeTagWide, `${beforeTagWide} → ${afterTagWide.hash}`);
+check('桌面宽档：右栏就地显示标签详情', afterTagWide.detailColumns === 1 && afterTagWide.hasPanel === true, JSON.stringify(afterTagWide));
+const tagPanelText = await text('.w-masterdetail__detail');
+check('右栏里确实画出了那条标签的字段（不是空壳）', tagPanelText.length > 20, tagPanelText.replace(/\s+/g, ' ').slice(0, 70));
+
+// 等右栏的详情页头出现：详情数据比列表晚一步
+await waitFor(
+  `document.querySelector('.w-masterdetail__detail .w-page-header__title') ? true : null`,
+  20_000,
+  200,
+);
 await sleep(600);
 
 await clickByText('绑定商品');
@@ -1764,21 +1878,130 @@ await sleep(1200);
 const kvAfterEdit = await text('.w-card');
 check('改标识后立刻显示新条码（同理：不吃服务端那份旧缓存）', /SMOKE-BC-9/.test(kvAfterEdit), kvAfterEdit.replace(/\s+/g, ' ').slice(0, 70));
 
-const beforeDelete = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, {
-  awaitPromise: false,
-});
+/*
+ * ---- 失效不能让挂载中的屏掉进空态（缓存层的回归护栏）----
+ *
+ * 这条来自一次真实的假红：在同一个位置数左栏行数拿到 0，而服务端有 4 条标签。
+ * 查下来不是测试的问题 —— 面板写完只做 `cache.invalidate('tag.list')`，
+ * 而缓存层"只删不管"：挂载中的列表条目被删掉后没有重取，`StateHost` 就把
+ * "没有数据"画成了**空态**（"还没有标签…"）。窄档看不见（列表屏回来会重挂载取一次），
+ * 宽档主从里列表屏一直在原地，于是"点一行、绑定一下，左栏就空了"。
+ *
+ * 同时钉住"重取拿到的是新值"：条目是被删掉的，能重新出现新条码只可能来自那次补取。
+ */
+const listAfterWrite = await waitFor(
+  `document.querySelectorAll('.el-table__body tbody tr.el-table__row').length > 0 ? true : null`,
+  15_000,
+  200,
+);
+const listTextAfterWrite = (await text('.w-masterdetail__list')).replace(/\s+/g, ' ').slice(0, 60);
+check(
+  '右栏写完之后左栏不会掉成空态（失效要顺手重取挂载中的键）',
+  listAfterWrite !== null && !/还没有标签/.test(listTextAfterWrite),
+  `左栏=「${listTextAfterWrite}」`,
+);
+check('并且左栏补取到的是新值（改过的条码出现在列表里）', /SMOKE-BC-9/.test(listTextAfterWrite), `左栏=「${listTextAfterWrite}」`);
+
+/*
+ * 数左栏行数之前必须先等列表**画完**：`StateHost` 在 `loading` 时是用骨架屏**替换** slot
+ * （`StateHost.vue` 里是 `v-if="loading"`，不是叠在上面），于是任何一次重取期间
+ * `.el-table__row` 都是 0。这条断言曾因此报过 `rows 0 → 3` 的假红 —— 不是删错了，
+ * 是数的时候左栏正好在骨架屏上。
+ */
+const beforeRowsPainted = await waitFor(
+  `document.querySelectorAll('.el-table__body tbody tr.el-table__row').length > 0 ? true : null`,
+  15_000,
+  200,
+);
+const beforeDelete = beforeRowsPainted ? await rowsNow() : 0;
+/*
+ * 失败时把左栏那句话带出来：这条断言真正盯的是"失效之后别让左栏掉进空态"。
+ * 掉进去的表现就是 rows=0 且左栏写着"还没有标签"（服务端明明有 4 条）。
+ */
+const beforeListText = (await text('.w-masterdetail__list')).replace(/\s+/g, ' ').slice(0, 40);
+check(
+  '删除前左栏列表已经画出行来（否则下面那条是假红）',
+  beforeDelete > 0,
+  `rows=${beforeDelete} 左栏=「${beforeListText}」`,
+);
+
 await clickByText('删除标签');
 await sleep(600);
 const deleteClicked = await clickByText('确认删除');
-await sleep(1500);
-const afterDeleteHash = await cdp.evaluate('location.hash', { awaitPromise: false });
-check('删除后回到标签列表（列表走的是另一条读路径，能看到真实结果）', deleteClicked === true && afterDeleteHash === '#/inventory/tags', `${deleteClicked} / ${afterDeleteHash} / before=${beforeDelete}`);
+// 等左栏重取完并且确实少了一条，再一次性读状态（重取期间读到的是骨架屏）
+const afterDeleteRowCount = await waitFor(
+  `document.querySelectorAll('.el-table__body tbody tr.el-table__row').length === ${beforeDelete - 1} ? true : null`,
+  15_000,
+  200,
+);
+await sleep(300);
+const afterDelete = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     rows: document.querySelectorAll('.el-table__body tbody tr.el-table__row').length,
+     panelGone: !document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+/*
+ * 宽档删除走的是 `deleted` 事件（列表清掉选中项），而不是"跳回列表" ——
+ * 主从里列表屏本来就在当前路由上，`router.push` 到同一个路由是**空操作**，
+ * 右栏会继续显示一条已经被删掉的标签（点它的动作全部会失败）。
+ */
+check(
+  '删除后右栏清空、列表少一条（走 deleted 事件，不是靠跳路由）',
+  deleteClicked === true &&
+    afterDelete.hash === '#/inventory/tags' &&
+    afterDelete.panelGone === true &&
+    afterDeleteRowCount !== null &&
+    afterDelete.rows === beforeDelete - 1,
+  `${deleteClicked} / hash=${afterDelete.hash} / rows ${beforeDelete} → ${afterDelete.rows} / panelGone=${afterDelete.panelGone}`,
+);
 
 // ---- 出入库单：状态机 ----
 await cdp.evaluate(`(location.hash = '#/inventory/stock-orders')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '出入库单' ? true : null`, 20_000, 200);
 await waitRows(3);
 check('单据列表 3 张', (await rowsNow()) === 3, `rows=${await rowsNow()}`);
+
+/*
+ * ---- 桌面宽档的主从：单据点行不换路由，右栏就地出详情 ----
+ *
+ * 为什么值得钉：左列表与右详情是**同一屏的两个栏目**，而路由出口是
+ * `<RouterView :key="route.fullPath">` —— 点行若去 push 详情路由，整棵树会重挂
+ * （分页回第一页、勾选与滚动位置全丢），表现就是"点一行整屏闪一下"。
+ */
+const beforeOrderWide = await cdp.evaluate('location.hash', { awaitPromise: false });
+const clickedOrderRow = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!row;
+   })()`,
+  { awaitPromise: false },
+);
+check('桌面宽档：出入库单点得到行（否则下面那条是假红）', clickedOrderRow === true);
+await sleep(900);
+const afterOrderWide = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     detailColumns: document.querySelectorAll('.w-masterdetail__detail').length,
+     hasPanel: !!document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+check(
+  '桌面宽档：出入库单点行不换路由（左栏不会被重挂）',
+  afterOrderWide.hash === beforeOrderWide,
+  `${beforeOrderWide} → ${afterOrderWide.hash}`,
+);
+check(
+  '桌面宽档：右栏就地显示单据详情',
+  afterOrderWide.detailColumns === 1 && afterOrderWide.hasPanel === true,
+  JSON.stringify(afterOrderWide),
+);
+const orderPanelText = await text('.w-masterdetail__detail');
+check('右栏里确实画出了那张单据的字段（不是空壳）', orderPanelText.length > 20, orderPanelText.replace(/\s+/g, ' ').slice(0, 70));
 
 // 没有明细的那张（8003）：提交按钮不可点，且原因写着"还没有明细"
 await cdp.evaluate(`(location.hash = '#/inventory/stock-orders/8003')`, { awaitPromise: false });
@@ -1979,6 +2202,35 @@ check(
   deviceChips.join('/'),
 );
 
+// ---- 桌面宽档的主从：设备点行不换路由，右栏就地出详情 ----
+const beforeDeviceWide = await cdp.evaluate('location.hash', { awaitPromise: false });
+await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!row;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(900);
+const afterDeviceWide = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     detailColumns: document.querySelectorAll('.w-masterdetail__detail').length,
+     hasPanel: !!document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+check(
+  '桌面宽档：设备点行不换路由（左栏不会被重挂）',
+  afterDeviceWide.hash === beforeDeviceWide,
+  `${beforeDeviceWide} → ${afterDeviceWide.hash}`,
+);
+check('桌面宽档：右栏就地显示设备详情', afterDeviceWide.detailColumns === 1 && afterDeviceWide.hasPanel === true, JSON.stringify(afterDeviceWide));
+// 同告警那条：断言右栏的**内容**，不断言"发了请求"（缓存命中时本来就不发）
+const devicePanelText = await text('.w-masterdetail__detail');
+check('右栏里确实画出了那台设备的字段（不是空壳）', devicePanelText.length > 20, devicePanelText.replace(/\s+/g, ' ').slice(0, 70));
+
 await cdp.evaluate(`(location.hash = '#/field/devices/1')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '搬运机器人 01' ? true : null`, 20_000, 200);
 await waitFor(`document.querySelectorAll('.w-kv__value').length > 5 ? true : null`, 15_000, 200);
@@ -2138,6 +2390,107 @@ check('筛选「进行中」只剩 1 个', (await rowsNow()) === 1, `rows=${awai
 await clickByText('全部');
 await waitRows(4);
 check('切回「全部」恢复 4 个', (await rowsNow()) === 4, `rows=${await rowsNow()}`);
+
+// ---- 桌面宽档的主从：巡检任务点行不换路由，右栏就地出详情 ----
+const beforeTaskWide = await cdp.evaluate('location.hash', { awaitPromise: false });
+const clickedTaskRow = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     row?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+     return !!row;
+   })()`,
+  { awaitPromise: false },
+);
+check('桌面宽档：巡检任务点得到行（否则下面那条是假红）', clickedTaskRow === true);
+await sleep(900);
+const afterTaskWide = await cdp.evaluate(
+  `({
+     hash: location.hash,
+     detailColumns: document.querySelectorAll('.w-masterdetail__detail').length,
+     hasPanel: !!document.querySelector('.w-masterdetail__detail .w-kv'),
+   })`,
+  { awaitPromise: false },
+);
+check(
+  '桌面宽档：巡检任务点行不换路由（左栏不会被重挂）',
+  afterTaskWide.hash === beforeTaskWide,
+  `${beforeTaskWide} → ${afterTaskWide.hash}`,
+);
+check(
+  '桌面宽档：右栏就地显示巡检任务详情',
+  afterTaskWide.detailColumns === 1 && afterTaskWide.hasPanel === true,
+  JSON.stringify(afterTaskWide),
+);
+// 同设备那条：断言右栏的**内容**，不断言"发了请求"（缓存命中时本来就不发）
+const taskPanelText = await text('.w-masterdetail__detail');
+check('右栏里确实画出了那个任务的字段（不是空壳）', taskPanelText.length > 20, taskPanelText.replace(/\s+/g, ' ').slice(0, 70));
+
+/*
+ * ---- 宽档右栏的七个面板都要"脱掉整屏外壳" ----
+ *
+ * `.w-page` 自带居中限宽与左右内边距，而右栏已经把这两样提供好了 —— 不脱掉就是**两层内边距**
+ * （右栏内容被挤窄一圈，看着像缩进错了）。
+ *
+ * 判据必须是**显式传入**的 `inline`，不能按"id prop 有值"来判：独立路由屏的薄壳传的也是 id，
+ * 按 id 判会把手机档"从列表点进详情"和"扫码深链进详情"的那些屏一起脱掉内边距，
+ * 内容直接贴到屏幕两边。窄档那一侧由上面手机档那段盯着（进详情后**不得**出现 `.w-page--inline`）。
+ */
+{
+  const wideGroups = [
+    ['#/overview/alerts', '告警中心'],
+    ['#/inventory/inventory', '库存查询'],
+    ['#/inventory/tags', '标签管理'],
+    ['#/inventory/stock-orders', '出入库单'],
+    ['#/field/devices', '设备管理'],
+    ['#/field/inspections', '巡检任务'],
+    ['#/me/messages', '消息中心'],
+  ];
+  const notStripped = [];
+  for (const [hash, title] of wideGroups) {
+    await cdp.evaluate(`(location.hash = ${JSON.stringify(hash)})`, { awaitPromise: false });
+    await waitFor(
+      `document.querySelector('.w-page-header__title')?.innerText === ${JSON.stringify(title)} ? true : null`,
+      20_000,
+      200,
+    );
+    /*
+     * 左栏的形态不止一种：表格、卡片、还有消息中心那种"整行是一个按钮"的自定义列表。
+     * 只认表格行会**静默点空**（消息中心就这么漏过一次），所以这里挑"能点的第一个"，
+     * 并且把"到底点到没有"带到失败信息里 —— 免得下次又变成一条查不出原因的假红。
+     */
+    await waitFor(
+      `document.querySelector('.w-masterdetail__list .el-table__body tbody tr.el-table__row, .w-masterdetail__list .w-cardrow .w-card, .w-masterdetail__list .w-me-message-list__hit') ? true : null`,
+      20_000,
+      200,
+    );
+    await sleep(300);
+    const clickedRow = await cdp.evaluate(
+      `(() => {
+         const root = document.querySelector('.w-masterdetail__list') ?? document;
+         const target =
+           root.querySelector('.el-table__body tbody tr.el-table__row') ??
+           root.querySelector('.w-cardrow .w-card') ??
+           root.querySelector('.w-me-message-list__hit');
+         if (!target) return false;
+         target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+         return true;
+       })()`,
+      { awaitPromise: false },
+    );
+    await sleep(700);
+    const stripped = await cdp.evaluate(`!!document.querySelector('.w-masterdetail__detail .w-page--inline')`, {
+      awaitPromise: false,
+    });
+    if (stripped !== true) {
+      notStripped.push(`${title}（点到行=${clickedRow}）`);
+    }
+  }
+  check(
+    '桌面宽档：七个主从面板的右栏都脱掉了整屏外壳（判据是显式 inline，不是"id 有值"）',
+    notStripped.length === 0,
+    notStripped.length === 0 ? '七个都在' : `没脱掉的：${notStripped.join('、')}`,
+  );
+}
 
 // 详情：任务信息 + 物料差异（三种判定各一行）
 await cdp.evaluate(`(location.hash = '#/field/inspections/501')`, { awaitPromise: false });

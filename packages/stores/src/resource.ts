@@ -77,7 +77,56 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
   const inflight = new Map<string, Promise<unknown>>();
   const inflightMutations = new Map<string, Promise<unknown>>();
 
+  /**
+   * 挂载中、且**真的在用**的资源键 → 引用计数 + 调用参数。
+   *
+   * 为什么缓存层要知道这件事：`invalidate` 只是**删条目**，删完不会自己重取。
+   * 窄档看不出后果（列表屏是被 push 上来的，回来时重挂载顺手取了一次），
+   * 但宽档主从里列表屏**一直在原地**：从右栏绑定 / 改标识之后，左栏的条目被删掉，
+   * `StateHost` 就把"没有数据"画成**空态**（"还没有标签…"），而服务端明明有 4 条 ——
+   * 这是空态撒谎，不是样式问题。所以失效时必须对挂载中的键按原参数立刻重取一次。
+   *
+   * 记参数而不是从键里反解：键是 `方法#稳定序列化(参数)`，反解要拆 JSON，
+   * 而调用方本来就有方法名与参数原件。
+   */
+  const live = new Map<string, { readonly method: string; readonly params: unknown; count: number }>();
+
   const keyOf = (method: string, params?: unknown): string => `${method}#${stableKey(params)}`;
+
+  /**
+   * 登记一个"有屏在用"的键（引用计数）。
+   *
+   * **只有 `enabled` 为真时才登记**：`enabled:false` 的语义是"参数还没准备好，不要发请求"，
+   * 登记了就会在失效时把它一并重取，那条语义当场作废。
+   */
+  function retain(method: string, params: unknown): void {
+    const key = keyOf(method, params);
+    const current = live.get(key);
+    if (current) {
+      current.count += 1;
+      return;
+    }
+    live.set(key, { method, params, count: 1 });
+  }
+
+  function release(key: string): void {
+    const current = live.get(key);
+    if (!current) {
+      return;
+    }
+    current.count -= 1;
+    if (current.count <= 0) {
+      live.delete(key);
+    }
+  }
+
+  /** 某个键被失效后：还挂着的屏要立刻拿到新值，不能停在"没有数据"（会被画成空态）。 */
+  function refetchIfLive(key: string): void {
+    const current = live.get(key);
+    if (current) {
+      void run(current.method, current.params).catch(() => undefined);
+    }
+  }
 
   function ensure<T>(key: string): ResourceEntry<T> {
     const existing = entries.get(key);
@@ -114,6 +163,15 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
     entry.loading = true;
     entry.error = undefined;
 
+    /*
+     * 本次请求自己的凭据。
+     *
+     * 为什么不直接比 `task`：`task` 是在它自己的初始化式里被闭包引用的，
+     * 严格模式（`noUncheckedIndexedAccess` 之外还有 TDZ 检查）下 TS 会判"用在了赋值之前"。
+     * 用一个外部小对象装它就绕开了，语义一样清楚。
+     */
+    const self: { task: Promise<unknown> | undefined } = { task: undefined };
+
     const task = (async (): Promise<T> => {
       try {
         const value = await bridge.call<T>(method, params);
@@ -126,10 +184,19 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
         throw error;
       } finally {
         entry.loading = false;
-        inflight.delete(key);
+        /*
+         * 只删"自己这条"：失效会让在途请求变成孤儿（它的条目已经被删掉、屏上已经换成新请求），
+         * 孤儿晚回来时若无条件 `delete(key)`，会把**新请求**的单飞记录一起抹掉 ——
+         * 单飞没了，同一个键就会并发重复请求。反过来，孤儿若一个都不删，
+         * `inflight` 里会留下一条永远不清理的记录，后面的 `run` 会一直复用它（再也刷不新）。
+         */
+        if (inflight.get(key) === self.task) {
+          inflight.delete(key);
+        }
       }
     })();
 
+    self.task = task as Promise<unknown>;
     inflight.set(key, task as Promise<unknown>);
     return task;
   }
@@ -161,27 +228,41 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
    * 传 `'alert'` 而不是 `'alert.'`：键是 `方法 id + '#' + 参数`，
    * 用 `'alert'` 前缀能同时覆盖 `alert.*` 与将来可能的 `alertXxx`，
    * 而传一个过短的前缀（如 `'a'`）会误伤无关方法 —— 调用点请写完整的方法域前缀。
+   *
+   * **失效不是"只删不管"**：删完还要给**挂载中**的同键补一次取数，否则屏上会从
+   * "有数据"直接掉进空态（见 `live` 的说明）。
    */
   function invalidate(prefix: string): number {
     let removed = 0;
+    const dropped: string[] = [];
     for (const key of [...entries.keys()]) {
       if (key.startsWith(prefix)) {
         entries.delete(key);
         removed += 1;
+        dropped.push(key);
       }
+    }
+    /*
+     * 挂载中的屏立刻补一次取数（原来的写法是"只删不管"）。
+     * 同一次写操作里已经显式 `reload()` 的调用点**不会**因此多发请求：
+     * `run` 先把 promise 记进 `inflight`，后到的同键调用直接复用它。
+     */
+    for (const key of dropped) {
+      refetchIfLive(key);
     }
     return removed;
   }
 
   function invalidateKey(key: string): void {
     entries.delete(key);
+    refetchIfLive(key);
   }
 
   function clear(): void {
     entries.clear();
   }
 
-  return { entries, keyOf, ensure, entryOf, run, mutate, isMutating, invalidate, invalidateKey, clear };
+  return { entries, keyOf, ensure, entryOf, run, mutate, isMutating, invalidate, invalidateKey, clear, retain, release };
 });
 
 export interface UseResourceOptions {
@@ -231,16 +312,40 @@ export function useResource<T>(
     void cache.run<T>(method, paramValue()).catch(() => undefined);
   };
 
+  /*
+   * 让缓存层知道"这个键此刻有屏在用、且真的该发请求"（见 store 里 `live` 的说明）：
+   * 写操作成功后 `invalidate` 只会对登记过的键补一次取数，没登记的（已卸载的屏、
+   * `enabled:false` 的键）仍旧只是被删掉，不会凭空发请求。
+   */
+  let retainedKey: string | undefined;
+  const dropRetained = (): void => {
+    if (retainedKey !== undefined) {
+      cache.release(retainedKey);
+      retainedKey = undefined;
+    }
+  };
+
   watch(
     () => [cache.keyOf(method, paramValue()), enabled()] as const,
     ([key, on]) => {
       activeKey.value = key;
+      // 参数变了、或者 enabled 关掉了：先松开上一个键（同一个键重复触发不重复计数）
+      if (retainedKey !== key || !on) {
+        dropRetained();
+      }
       if (on) {
+        if (retainedKey !== key) {
+          cache.retain(method, paramValue());
+          retainedKey = key;
+        }
         load();
       }
     },
     { immediate: true, deep: true },
   );
+  if (getCurrentScope()) {
+    onScopeDispose(dropRetained);
+  }
 
   /*
    * 连接恢复后自动重取一次。

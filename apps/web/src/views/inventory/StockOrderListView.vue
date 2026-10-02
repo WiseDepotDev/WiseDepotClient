@@ -3,8 +3,21 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton } from 'element-plus';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
-import { ActionDock, FilterBar, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, type ColumnDef } from '@wise/ui';
+import {
+  ActionDock,
+  FilterBar,
+  MasterDetail,
+  PageHeader,
+  PaginationBar,
+  ResponsiveDataView,
+  SectionBlock,
+  StateHost,
+  useViewport,
+  type ColumnDef,
+} from '@wise/ui';
 import { orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './stockOrderState.js';
+
+import StockOrderDetailPanel from './StockOrderDetailPanel.vue';
 
 /**
  * 出入库单列表（`stockOrder.list`）。
@@ -19,6 +32,11 @@ import { orderStatusOf, orderStatusText, orderTypeOf, orderTypeText } from './st
  * 建单入口在这里，但**建单表单不在这里**：服务端要求 `orderNo`（不生成）与 `createBy`，
  * 内联一个只有 `{warehouseId, remark}` 的表单永远是失败的（真实错误 `VAL-0001 单据编号不能为空`）。
  * 建单只有一个属主 —— 专门的建单屏。
+ *
+ * ## 主从视图（桌面宽档）
+ *
+ * 宽档时左列表右详情并排；窄屏与手机维持"点行进详情路由"。详情内容本身在
+ * `StockOrderDetailPanel` 里，本屏只负责"选了哪一张"。
  */
 interface StockOrderRow {
   readonly orderId?: number;
@@ -65,6 +83,27 @@ const visibleRows = computed(() =>
   statusFilter.value === 'all' ? rows.value : rows.value.filter((r) => orderStatusOf(r) === statusFilter.value),
 );
 
+/**
+ * 状态色调：完整列定义与主从精简列定义共用一份，避免两边漂移成"同一个状态两种颜色"。
+ *
+ * 色调按服务端归一化后的状态给（`orderStatusOf`），不按原始数字码 —— 码表含义会变，
+ * 而归一化后的状态是状态机判据用的那一份。
+ */
+function statusToneOf(row: StockOrderRow): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
+  switch (orderStatusOf(row)) {
+    case 'completed':
+      return 'success';
+    case 'approved':
+      return 'info';
+    case 'submitted':
+      return 'warning';
+    case 'rejected':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
+}
+
 const columns: readonly ColumnDef<StockOrderRow>[] = [
   { key: 'orderNo', title: '单号', type: 'mono', width: 190, compact: 'primary', value: (r) => r.orderNo ?? '' },
   {
@@ -82,20 +121,7 @@ const columns: readonly ColumnDef<StockOrderRow>[] = [
     width: 110,
     compact: 'chip',
     value: (r) => orderStatusText(r),
-    tone: (r) => {
-      switch (orderStatusOf(r)) {
-        case 'completed':
-          return 'success';
-        case 'approved':
-          return 'info';
-        case 'submitted':
-          return 'warning';
-        case 'rejected':
-          return 'danger';
-        default:
-          return 'neutral';
-      }
-    },
+    tone: (r) => statusToneOf(r),
   },
   {
     key: 'createdByName',
@@ -114,6 +140,48 @@ const columns: readonly ColumnDef<StockOrderRow>[] = [
   { key: 'createTime', title: '创建时间', type: 'mono', width: 140, value: (r) => shortTime(r.createTime) },
 ];
 
+/*
+ * ---------------------------------------------------------------- 主从视图
+ *
+ * 为什么宽档点行只改组件状态、不 push 详情路由：本仓 `<RouterView :key="route.fullPath">`
+ * 会强制整树重挂 —— 走了详情路由，左栏会被销毁重建（状态筛选档、页码、滚动位置全丢），
+ * 表现是"点一行整屏闪一下"。所以宽档点行只设 `selectedId`。
+ *
+ * 为什么窄档那条老路必须原样留着：手机上并排两个栏目谁都看不清，
+ * 而且按 hash 导航是深链 / 扫码 / 返回键的基础。
+ *
+ * 为什么主从要另备一套列定义：主从左栏只有约 700px，而完整列定义的固定宽
+ * （190+90+150+110+120+90+140）已经接近 900px —— 硬塞虽然会被左栏自己的横向滚动接住，
+ * 但每行都得左右拖才看得全，"选一张单"这件事反而更慢。所以主从只留最要紧的四列：
+ * 单号 / 类型 / 状态 / 创建时间。
+ */
+const { isWide } = useViewport();
+const selectedId = ref<number | undefined>(undefined);
+
+/** 主从版列定义：单号 / 类型 / 状态 / 时间。仓库、建单人、明细数留给完整视图。 */
+const masterColumns: readonly ColumnDef<StockOrderRow>[] = [
+  { key: 'orderNo', title: '单号', type: 'mono', width: 180, compact: 'primary', value: (r) => r.orderNo ?? '' },
+  {
+    key: 'orderType',
+    title: '类型',
+    width: 80,
+    compact: 'secondary',
+    value: (r) => orderTypeText(r),
+  },
+  {
+    key: 'orderStatus',
+    title: '状态',
+    type: 'status',
+    width: 100,
+    compact: 'chip',
+    value: (r) => orderStatusText(r),
+    tone: (r) => statusToneOf(r),
+  },
+  { key: 'createTime', title: '创建时间', type: 'mono', width: 140, value: (r) => shortTime(r.createTime) },
+];
+
+const activeColumns = computed(() => (isWide.value ? masterColumns : columns));
+
 function onFilter(next: Record<string, string>): void {
   const value = next.status ?? '';
   statusFilter.value = (['pending', 'submitted', 'approved', 'completed'].includes(value) ? value : 'all') as StatusFilter;
@@ -121,9 +189,14 @@ function onFilter(next: Record<string, string>): void {
 }
 
 function openDetail(row: StockOrderRow): void {
-  if (row.orderId !== undefined) {
-    void router.push({ name: 'stockOrder.detail', params: { orderId: String(row.orderId) } });
+  if (row.orderId === undefined) {
+    return;
   }
+  if (isWide.value) {
+    selectedId.value = row.orderId;
+    return;
+  }
+  void router.push({ name: 'stockOrder.detail', params: { orderId: String(row.orderId) } });
 }
 
 function goCreate(): void {
@@ -146,35 +219,49 @@ const typeHint = computed(() => rows.value.filter((r) => orderTypeOf(r) === 'unk
 
     <FilterBar :model-value="filterValues" :filters="filters" @update:model-value="onFilter" @reset="() => (statusFilter = 'all')" />
 
-    <SectionBlock title="单据列表">
-      <StateHost
-        :loading="loading"
-        :error="error"
-        :error-text="error ? humanize(error) : undefined"
-        :empty="visibleRows.length === 0"
-        empty-text="没有符合条件的单据。可以点右上角新建一张出入库单。"
-        skeleton="list"
-        @retry="reload"
-      >
-        <p v-if="typeHint > 0" class="w-order-warn" role="status">
-          有 {{ typeHint }} 张单据的类型没上报，列表里显示为「类型未登记」。这不影响点进去看明细。
-        </p>
-        <ResponsiveDataView
-          :columns="columns"
-          :rows="visibleRows"
-          :row-key="(r: StockOrderRow) => String(r.orderId ?? r.orderNo ?? '')"
-          clickable
-          @row-click="openDetail"
-        />
-        <PaginationBar
-          :page="view.page"
-          :page-size="PAGE_SIZE"
-          :total="total ?? rows.length"
-          :loading="loading"
-          @update:page="(p: number) => (view.page = p)"
-        />
-      </StateHost>
-    </SectionBlock>
+    <MasterDetail>
+      <template #list>
+        <SectionBlock title="单据列表">
+          <StateHost
+            :loading="loading"
+            :error="error"
+            :error-text="error ? humanize(error) : undefined"
+            :empty="visibleRows.length === 0"
+            empty-text="没有符合条件的单据。可以点右上角新建一张出入库单。"
+            skeleton="list"
+            @retry="reload"
+          >
+            <p v-if="typeHint > 0" class="w-order-warn" role="status">
+              有 {{ typeHint }} 张单据的类型没上报，列表里显示为「类型未登记」。这不影响点进去看明细。
+            </p>
+            <ResponsiveDataView
+              :columns="activeColumns"
+              :rows="visibleRows"
+              :row-key="(r: StockOrderRow) => String(r.orderId ?? r.orderNo ?? '')"
+              clickable
+              @row-click="openDetail"
+            />
+            <PaginationBar
+              :page="view.page"
+              :page-size="PAGE_SIZE"
+              :total="total ?? rows.length"
+              :loading="loading"
+              @update:page="(p: number) => (view.page = p)"
+            />
+          </StateHost>
+        </SectionBlock>
+      </template>
+      <template #detail>
+        <!--
+          右栏：选中了才渲染面板（没选中时不发一个必然是空的请求），
+          并用 `:key` 强制换项时重挂 —— 面板内部按单号取了数据，
+          不重挂会带着上一张单的内容继续画。未选中时给一句话说明怎么用，
+          而不是留一片空白 —— 空白会让人以为"右栏坏了"，而它其实只是在等一次点击。
+        -->
+        <StockOrderDetailPanel v-if="selectedId !== undefined" :key="selectedId" inline :order-id="selectedId" />
+        <div v-else class="w-order__pick">从左边点一张单据，这里显示它的明细与可做的操作。</div>
+      </template>
+    </MasterDetail>
 
     <ActionDock>
       <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="goCreate">
@@ -185,6 +272,17 @@ const typeHint = computed(() => rows.value.filter((r) => orderTypeOf(r) === 'unk
 </template>
 
 <style scoped>
+/* 主从右栏"还没选"时的提示：muted 小字 + 虚线框，明说它在等一次点击。 */
+.w-order__pick {
+  padding: var(--w-space-card-padding);
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  line-height: var(--w-type-body-small-line);
+  background: var(--w-color-surface-alt);
+  border: 1px dashed var(--w-color-outline);
+  border-radius: var(--w-radius-card);
+}
+
 .w-order-warn {
   margin: 0 0 var(--w-space-inline-gap);
   padding: var(--w-space-inline-gap) var(--w-space-card-padding-compact);

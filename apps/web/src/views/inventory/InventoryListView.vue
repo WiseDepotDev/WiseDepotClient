@@ -319,7 +319,7 @@ function openDetail(row: InventoryRow): void {
           右栏：选中了才渲染面板（没选中时不发一个必然是空的请求）；
           未选中时给一句话说明怎么用，而不是留一片空白。
         -->
-        <InventoryDetailPanel v-if="selectedId !== undefined" :inventory-id="selectedId" />
+        <InventoryDetailPanel v-if="selectedId !== undefined" inline :inventory-id="selectedId" />
         <div v-else class="w-inventory__pick">从左边点一条记录，这里显示它的明细。</div>
       </template>
     </MasterDetail>

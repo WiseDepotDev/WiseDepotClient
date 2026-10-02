@@ -106,16 +106,29 @@ function detailOf(value: unknown): MessageDetail | undefined {
   return value as MessageDetail;
 }
 
+/**
+ * 两种挂载方式（同一个组件，不是两份实现）：
+ *  · 独立路由屏（`message.detail`）：不传 prop，序号从路由参数解析；
+ *  · 桌面宽档主从的右栏：列表屏传 `inline-id`，序号来自 prop。
+ *
+ * 为什么必须有 prop 这条路：主从右栏换选中项时**路由不动** ——
+ * 只读 `route.params` 的组件拿不到新 id，右栏会一直显示第一次点开的那条。
+ */
+const props = defineProps<{ readonly inlineId?: string | undefined }>();
+
 const route = useRoute();
 
 /**
- * 路由参数 → 消息序号。
+ * 序号来源：**prop 优先**，否则读路由参数。
  *
  * `noUncheckedIndexedAccess` 下 `params['x']` 本来就是 `string | string[] | undefined`
  * （重复参数会成数组），所以先取第一个元素、再判类型。
  * 空串与缺失同义：宁可不请求，也不发一个 `messageId: ''` 的请求。
  */
 const messageId = computed<string | undefined>(() => {
+  if (props.inlineId !== undefined && props.inlineId !== '') {
+    return props.inlineId;
+  }
   const raw = route.params.messageId;
   const text = Array.isArray(raw) ? raw[0] : raw;
   return typeof text === 'string' && text !== '' ? text : undefined;
@@ -182,7 +195,7 @@ const emptyText = computed(() =>
 </script>
 
 <template>
-  <div class="w-page">
+  <div class="w-page" :class="{ 'w-page--inline': props.inlineId !== undefined }">
     <PageHeader title="消息详情" note="告警与通知的全文">
       <template #actions>
         <ElButton class="w-hide-compact" size="large" :loading="detail.loading.value" @click="detail.reload">刷新</ElButton>

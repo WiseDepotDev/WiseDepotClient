@@ -6,15 +6,19 @@ import { Search } from '@element-plus/icons-vue';
 import { asList, asTotal, humanize, shortTime, useNavStore, useResource } from '@wise/stores';
 import {
   ActionDock,
+  MasterDetail,
   PageHeader,
   PaginationBar,
   ResponsiveDataView,
   SectionBlock,
   StateHost,
+  useViewport,
   type ColumnDef,
   type StatusTone,
 } from '@wise/ui';
 import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js';
+
+import InspectionTaskDetailPanel from './InspectionTaskDetailPanel.vue';
 
 /**
  * 巡检任务列表 —— 现场作业的入口：看一眼"今天有哪些盘点要做、做到哪了"，然后点进详情。
@@ -22,14 +26,14 @@ import { taskStateOf, taskStateText, type TaskState } from './inspectionState.js
  *
  * 三条从 React 版带过来的决定（都对应踩过的坑，不是新设计）：
  *
- * 1. **每页条数的参数名只有 `pageSize`**：真后端 `InspectionController` 的
+ * 1. 每页条数的参数名只有 `pageSize`：真后端 `InspectionController` 的
  *    `/api/inspection/task/page` 声明的是 `@RequestParam("page")` + `@RequestParam("pageSize")`（默认 10）。
- *    照抄库存域那套 `size` 会被服务端**直接丢掉**：界面以为一页 20 条、实际只回 10 条，而且不报错 ——
+ *    照抄库存域那套 `size` 会被服务端直接丢掉：界面以为一页 20 条、实际只回 10 条，而且不报错 ——
  *    现场表现只是"每页条数不对、翻页看着乱"，属于最难查的一类错。
- * 2. **筛选按「全部 / 进行中 / 已完成」表达**，而不是把服务端的英文状态名抛给用户：
+ * 2. 筛选按「全部 / 进行中 / 已完成」表达，而不是把服务端的英文状态名抛给用户：
  *    现场人员不认识 `COMPLETED` 这类词，只认识"做完了没有"。
  *    状态判定与文案统一走 `./inspectionState`（列表屏与详情屏共用一份，避免两处各错一次）。
- * 3. **搜索只在已取回的这一页里过滤**（该方法没有关键字参数），所以工具条上必须写清「筛选本页」——
+ * 3. 搜索只在已取回的这一页里过滤（该方法没有关键字参数），所以工具条上必须写清「筛选本页」——
  *    否则用户会把"这一页里没有"读成"整个仓库里没有"。
  */
 interface TaskRow {
@@ -141,6 +145,42 @@ const columns: readonly ColumnDef<TaskRow>[] = [
   },
 ];
 
+/*
+ * ---------------------------------------------------------------- 主从视图
+ *
+ * 为什么宽档点行只改组件状态、不 push 详情路由：本仓 `<RouterView :key="route.fullPath">`
+ * 会强制整树重挂 —— 走了详情路由，左栏会被销毁重建（搜索词、状态筛选档、页码、滚动位置全丢），
+ * 表现是"点一行整屏闪一下"。所以宽档点行只设 `selectedId`。
+ *
+ * 为什么窄档那条老路必须原样留着：手机上并排两个栏目谁都看不清，
+ * 而且按 hash 导航是深链 / 扫码 / 返回键的基础。
+ *
+ * 为什么主从要另备一套列定义：主从左栏只有约 700px，而完整列定义的固定宽
+ * 加起来已经接近 900px —— 硬塞会被左栏自己的横向滚动接住，但每行都得左右拖才看得全，
+ * "选一个任务"这件事反而更慢。所以主从只留最要紧的四列：任务号 / 巡检计划 / 进度 / 状态。
+ * 执行仓库、执行设备、开始时间留给完整视图。
+ */
+const { isWide } = useViewport();
+const selectedId = ref<number | undefined>(undefined);
+
+/** 主从版列定义：任务号 / 巡检计划 / 进度 / 状态。 */
+const masterColumns: readonly ColumnDef<TaskRow>[] = [
+  { key: 'taskCode', title: '任务号', type: 'mono', width: 160, compact: 'primary', value: (r) => r.taskCode ?? '任务号未登记' },
+  { key: 'planName', title: '巡检计划', compact: 'secondary', value: (r) => r.planName ?? '未关联巡检计划' },
+  { key: 'progress', title: '进度', type: 'mono', width: 130, align: 'right', value: (r) => progressText(r) },
+  {
+    key: 'status',
+    title: '状态',
+    type: 'status',
+    width: 100,
+    compact: 'chip',
+    value: (r) => taskStateText(r),
+    tone: (r) => stateTone(taskStateOf(r)),
+  },
+];
+
+const activeColumns = computed(() => (isWide.value ? masterColumns : columns));
+
 /**
  * 本页可见行。
  *
@@ -193,9 +233,17 @@ function resetFilters(): void {
   view.page = 1;
 }
 
-/** 整行点一下 = 去下一层看这个任务；序号缺失的行点了什么都不做（详情只认数字序号）。 */
+/**
+ * 整行点一下 = 去下一层看这个任务；序号缺失的行点了什么都不做（详情只认数字序号）。
+ *
+ * 宽档在主从右栏就地打开（只设 `selectedId`，见上面那段注释），窄档照旧 push 详情路由。
+ */
 function openDetail(row: TaskRow): void {
   if (row.taskId === undefined) {
+    return;
+  }
+  if (isWide.value) {
+    selectedId.value = row.taskId;
     return;
   }
   void router.push({ name: 'inspection.taskDetail', params: { taskId: String(row.taskId) } });
@@ -245,38 +293,52 @@ function onPageChange(page: number): void {
       <span class="w-inspection-list__scope">筛选本页 · 搜索框回车</span>
     </div>
 
-    <SectionBlock :title="`任务列表${applied ? `（含「${applied}」）` : ''}`">
-      <StateHost
-        :loading="loading"
-        :error="error"
-        :error-text="error ? humanize(error) : undefined"
-        :empty="rows.length === 0"
-        :empty-text="emptyText"
-        skeleton="list"
-        @retry="reload"
-      >
-        <ResponsiveDataView
-          :columns="columns"
-          :rows="rows"
-          :row-key="(r: TaskRow) => String(r.taskId ?? r.taskCode ?? '')"
-          clickable
-          @row-click="openDetail"
-        />
-      </StateHost>
-      <!--
-        分页条与"本页 N 个任务"在状态宿主**外面**（与 React 版一致）。
-        放进去就会被三态一起藏掉：列表恰好空/错的时候，分页条是用户唯一还在的出口，
-        藏了就只能靠「全部」或「查找」回第 1 页 —— 该留的导航控件不该跟着内容消失。
-      -->
-      <PaginationBar
-        :page="view.page"
-        :page-size="PAGE_SIZE"
-        :total="total ?? all.length"
-        :loading="loading"
-        @update:page="onPageChange"
-      />
-      <p class="w-inspection-list__count">{{ `本页 ${rows.length} 个任务` }}</p>
-    </SectionBlock>
+    <MasterDetail>
+      <template #list>
+        <SectionBlock :title="`任务列表${applied ? `（含「${applied}」）` : ''}`">
+          <StateHost
+            :loading="loading"
+            :error="error"
+            :error-text="error ? humanize(error) : undefined"
+            :empty="rows.length === 0"
+            :empty-text="emptyText"
+            skeleton="list"
+            @retry="reload"
+          >
+            <ResponsiveDataView
+              :columns="activeColumns"
+              :rows="rows"
+              :row-key="(r: TaskRow) => String(r.taskId ?? r.taskCode ?? '')"
+              clickable
+              @row-click="openDetail"
+            />
+          </StateHost>
+          <!--
+            分页条与"本页 N 个任务"在状态宿主外面（与 React 版一致）。
+            放进去就会被三态一起藏掉：列表恰好空/错的时候，分页条是用户唯一还在的出口，
+            藏了就只能靠「全部」或「查找」回第 1 页 —— 该留的导航控件不该跟着内容消失。
+          -->
+          <PaginationBar
+            :page="view.page"
+            :page-size="PAGE_SIZE"
+            :total="total ?? all.length"
+            :loading="loading"
+            @update:page="onPageChange"
+          />
+          <p class="w-inspection-list__count">{{ `本页 ${rows.length} 个任务` }}</p>
+        </SectionBlock>
+      </template>
+      <template #detail>
+        <!--
+          右栏：选中了才渲染面板（没选中时不发一个必然是空的请求），
+          并用 `:key` 强制换项时重挂 —— 面板内部按序号取了数据、还留着上一个任务的提示，
+          不重挂会带着上一个任务的内容继续画。未选中时给一句话说明怎么用，
+          而不是留一片空白 —— 空白会让人以为"右栏坏了"，而它其实只是在等一次点击。
+        -->
+        <InspectionTaskDetailPanel v-if="selectedId !== undefined" :key="selectedId" inline :task-id="selectedId" />
+        <div v-else class="w-inspection-list__pick">从左边点一个任务，这里显示它的进度、物料差异与可做的操作。</div>
+      </template>
+    </MasterDetail>
 
     <ActionDock>
       <ElButton class="w-show-compact-only w-actiondock__block" size="large" type="primary" @click="goCreate">
@@ -303,5 +365,16 @@ function onPageChange(page: number): void {
   font-size: var(--w-type-body-small-size);
   color: var(--w-color-on-surface-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* 主从右栏"还没选"时的提示：muted 小字 + 虚线框，明说它在等一次点击。 */
+.w-inspection-list__pick {
+  padding: var(--w-space-card-padding);
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  line-height: var(--w-type-body-small-line);
+  background: var(--w-color-surface-alt);
+  border: 1px dashed var(--w-color-outline);
+  border-radius: var(--w-radius-card);
 }
 </style>

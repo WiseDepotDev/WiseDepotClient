@@ -3,9 +3,21 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton, ElCheckbox, ElDialog, ElInput, ElOption, ElSelect } from 'element-plus';
 import { asList, asTotal, humanize, useMutation, useNavStore, useResource, useResourceCacheStore } from '@wise/stores';
-import { ActionDock, PageHeader, PaginationBar, ResponsiveDataView, SectionBlock, StateHost, StatusChip, type ColumnDef } from '@wise/ui';
+import {
+  ActionDock,
+  MasterDetail,
+  PageHeader,
+  PaginationBar,
+  ResponsiveDataView,
+  SectionBlock,
+  StateHost,
+  StatusChip,
+  useViewport,
+  type ColumnDef,
+} from '@wise/ui';
 import CaptchaField from '../../components/CaptchaField.vue';
 import { useCaptcha } from '../../components/useCaptcha';
+import TagDetailPanel from './TagDetailPanel.vue';
 
 /**
  * 标签管理（`tag.list` + 批量绑定 / 批量解绑）。
@@ -18,6 +30,10 @@ import { useCaptcha } from '../../components/useCaptcha';
  * 2. **批量解绑不需要验证码**，但仍走二次确认（同样是多件物料）。
  * 3. **选中态由本屏自己持有**（不用表格的内置 selection）：批处理成功后要能干净地清空，
  *    把状态交给表格会出现"操作完了勾还在"。
+ *
+ * ## 主从视图（接上）
+ *
+ * 桌面宽档（≥1440）时左列表右详情并排；窄屏与手机维持"点行进详情路由"。
  */
 interface TagRow {
   readonly tagId?: number;
@@ -143,6 +159,41 @@ const columns: readonly ColumnDef<TagRow>[] = [
   },
 ];
 
+/*
+ * ---------------------------------------------------------------- 主从视图
+ *
+ * 为什么宽档点行只改组件状态、不 push 详情路由：本仓 `<RouterView :key="route.fullPath">`
+ * 会强制整树重挂 —— 走了详情路由，左栏会被销毁重建（页码回 1、勾选与滚动位置全丢），
+ * 表现是"点一行整屏闪一下"。所以宽档点行只设 `selectedId`。
+ *
+ * 为什么窄档那条老路必须原样留着：手机上并排两个栏目谁都看不清，
+ * 而且按 hash 导航是深链 / 扫码 / 返回键的基础。
+ *
+ * 为什么主从要另备一套列定义：主从左栏只有约 700px，而完整列定义的固定宽加起来
+ * 已经到 550px（再加表头内边距与批选列）—— 硬塞会被 `.w-content` 的 `overflow-x: hidden`
+ * 裁掉（不是出滚动条，是右半边直接没了）。所以主从只留"认标签"最要紧的几列。
+ */
+const { isWide } = useViewport();
+const selectedId = ref<number | undefined>(undefined);
+
+/** 主从版列定义：条码 / 绑定商品 / RFID / 状态。NFC 与完整视图里的其余列留给宽屏以外的完整视图。 */
+const masterColumns: readonly ColumnDef<TagRow>[] = [
+  { key: 'barcode', title: '条码', type: 'mono', width: 150, compact: 'primary' },
+  { key: 'productName', title: '绑定商品', compact: 'secondary', value: (r) => r.productName ?? '未绑定' },
+  { key: 'rfid', title: 'RFID', type: 'mono', width: 140 },
+  {
+    key: 'status',
+    title: '状态',
+    type: 'status',
+    width: 100,
+    compact: 'chip',
+    value: (r) => (r.status === 1 ? '已绑定' : '未绑定'),
+    tone: (r) => (r.status === 1 ? 'success' : 'neutral'),
+  },
+];
+
+const activeColumns = computed(() => (isWide.value ? masterColumns : columns));
+
 function toggle(tagId: number | undefined, checked: boolean): void {
   if (tagId === undefined) {
     return;
@@ -241,9 +292,26 @@ onMounted(() => {
 });
 
 function openDetail(row: TagRow): void {
-  if (row.tagId !== undefined) {
-    void router.push({ name: 'tag.detail', params: { tagId: String(row.tagId) } });
+  if (row.tagId === undefined) {
+    return;
   }
+  if (isWide.value) {
+    selectedId.value = row.tagId;
+    return;
+  }
+  void router.push({ name: 'tag.detail', params: { tagId: String(row.tagId) } });
+}
+
+/**
+ * 右栏删掉了这条标签：清掉选中项，并且**显式重取列表**。
+ *
+ * 为什么必须重取：面板里做的是 `cache.invalidate('tag')` —— 那只是**清缓存**，
+ * 不会自己发请求。窄档之所以看起来正常，是因为它 push 回列表路由、列表屏重挂载后顺手取了一次；
+ * 宽档列表屏一直在原地，不重取就会继续显示那条已经被删掉的标签。
+ */
+function onPanelDeleted(): void {
+  selectedId.value = undefined;
+  reload();
 }
 </script>
 
@@ -277,40 +345,53 @@ function openDetail(row: TagRow): void {
     <p v-if="notice && batch === undefined" class="w-inv-notice" role="status">{{ notice }}</p>
     <p v-if="actionError && batch === undefined" class="w-inv-error" role="alert">{{ actionError }}</p>
 
-    <SectionBlock :title="`标签列表${selected.length > 0 ? ` · 已选 ${selected.length} 项` : ''}`">
-      <StateHost
-        :loading="loading"
-        :error="error"
-        :error-text="error ? humanize(error) : undefined"
-        :empty="rows.length === 0"
-        empty-text="还没有标签。入库后系统会为每件物料生成标签。"
-        skeleton="list"
-        @retry="reload"
-      >
-        <ResponsiveDataView
-          :columns="columns"
-          :rows="rows"
-          :row-key="(r: TagRow) => String(r.tagId ?? r.barcode ?? '')"
-          clickable
-          @row-click="openDetail"
-        >
-          <template #lead="{ row }">
-            <ElCheckbox
-              v-bind="checkboxProps"
-              :model-value="row.tagId !== undefined && selected.includes(row.tagId)"
-              @update:model-value="(v: unknown) => toggle(row.tagId, v === true)"
+    <MasterDetail>
+      <template #list>
+        <SectionBlock :title="`标签列表${selected.length > 0 ? ` · 已选 ${selected.length} 项` : ''}`">
+          <StateHost
+            :loading="loading"
+            :error="error"
+            :error-text="error ? humanize(error) : undefined"
+            :empty="rows.length === 0"
+            empty-text="还没有标签。入库后系统会为每件物料生成标签。"
+            skeleton="list"
+            @retry="reload"
+          >
+            <ResponsiveDataView
+              :columns="activeColumns"
+              :rows="rows"
+              :row-key="(r: TagRow) => String(r.tagId ?? r.barcode ?? '')"
+              clickable
+              @row-click="openDetail"
+            >
+              <template #lead="{ row }">
+                <ElCheckbox
+                  v-bind="checkboxProps"
+                  :model-value="row.tagId !== undefined && selected.includes(row.tagId)"
+                  @update:model-value="(v: unknown) => toggle(row.tagId, v === true)"
+                />
+              </template>
+            </ResponsiveDataView>
+            <PaginationBar
+              :page="view.page"
+              :page-size="PAGE_SIZE"
+              :total="total ?? rows.length"
+              :loading="loading"
+              @update:page="(p: number) => (view.page = p)"
             />
-          </template>
-        </ResponsiveDataView>
-        <PaginationBar
-          :page="view.page"
-          :page-size="PAGE_SIZE"
-          :total="total ?? rows.length"
-          :loading="loading"
-          @update:page="(p: number) => (view.page = p)"
-        />
-      </StateHost>
-    </SectionBlock>
+          </StateHost>
+        </SectionBlock>
+      </template>
+      <template #detail>
+        <!--
+          右栏：选中了才渲染面板（没选中时不发一个必然是空的请求）；
+          未选中时给一句话说明怎么用，而不是留一片空白 ——
+          空白会让人以为"右栏坏了"，而它其实只是在等一次点击。
+        -->
+        <TagDetailPanel v-if="selectedId !== undefined" inline :tag-id="selectedId" @deleted="onPanelDeleted" />
+        <div v-else class="w-inv-pick">从左边点一条标签，这里显示它的明细。</div>
+      </template>
+    </MasterDetail>
 
     <ElDialog
       :model-value="batch !== undefined"
@@ -371,6 +452,17 @@ function openDetail(row: TagRow): void {
 </template>
 
 <style scoped>
+/* 主从右栏"还没选"时的提示：muted 小字 + 虚线框，明说它在等一次点击。 */
+.w-inv-pick {
+  padding: var(--w-space-card-padding);
+  color: var(--w-color-on-surface-muted);
+  font-size: var(--w-type-body-small-size);
+  line-height: var(--w-type-body-small-line);
+  background: var(--w-color-surface-alt);
+  border: 1px dashed var(--w-color-outline);
+  border-radius: var(--w-radius-card);
+}
+
 .w-inv-hint {
   margin: 0 0 var(--w-space-inline-gap);
   color: var(--w-color-on-surface-muted);
