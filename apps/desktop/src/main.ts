@@ -222,13 +222,47 @@ async function runSmoke(): Promise<void> {
       }
       let ping = null;
       if (boot) {
+        /*
+         * 诊断探针：**自带一份最小的 v4 帧编解码**。
+         *
+         * 为什么自带：探针是注入到页面里执行的**字符串**，拿不到页面模块图里的 wire.ts；
+         * 而它必须说真话 —— 不能因为"编不出 v4 帧"就假装通过（那正是协议升版时最容易漏的地方）。
+         * 生产路径上 wire 只有三份实现（Kotlin / TS / 工具），这里是**诊断用**的第四份，
+         * 只覆盖 ping 一个方向；帧头布局变更时随自检一起改（跑 pnpm desktop:smoke 会立刻红）。
+         */
+        const enc = new TextEncoder();
+        const dec = new TextDecoder();
+        const buildReq = (id, method) => {
+          const body = enc.encode(JSON.stringify({ method }));
+          const idb = enc.encode(id);
+          const out = new Uint8Array(12 + idb.length + body.length);
+          out[0] = 0x57; out[1] = 0x42; out[2] = 4; out[3] = 1; out[4] = 1; out[5] = 0;
+          out[6] = idb.length & 0xff; out[7] = 0;
+          new DataView(out.buffer).setUint32(8, body.length, true);
+          out.set(idb, 12); out.set(body, 12 + idb.length);
+          return out;
+        };
+        const parseFrame = (buf) => {
+          const b = new Uint8Array(buf);
+          const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+          const idLen = v.getUint16(6, true);
+          const bodyLen = v.getUint32(8, true);
+          return {
+            kind: b[3],
+            id: dec.decode(b.subarray(12, 12 + idLen)),
+            json: JSON.parse(dec.decode(b.subarray(12 + idLen, 12 + idLen + bodyLen))),
+          };
+        };
         ping = await new Promise((resolve) => {
           const ws = new WebSocket('ws://127.0.0.1:' + boot.port + '/bridge?token=' + encodeURIComponent(boot.token));
+          ws.binaryType = 'arraybuffer';
           const timer = setTimeout(() => resolve({ error: 'ws timeout' }), 5000);
-          ws.onopen = () => ws.send(JSON.stringify({ v: 3, type: 'req', id: 'smoke-1', method: 'bridge.ping' }));
+          ws.onopen = () => ws.send(buildReq('smoke-1', 'bridge.ping'));
           ws.onmessage = (e) => {
-            const f = JSON.parse(e.data);
-            if (f.id === 'smoke-1') { clearTimeout(timer); resolve(f); ws.close(); }
+            try {
+              const f = parseFrame(e.data);
+              if (f.id === 'smoke-1') { clearTimeout(timer); resolve({ type: f.kind === 2 ? 'res' : 'kind-' + f.kind, data: f.json.data }); ws.close(); }
+            } catch { /* 解不出来的帧不参与断言 */ }
           };
           ws.onerror = () => { clearTimeout(timer); resolve({ error: 'ws error' }); };
         });
@@ -261,7 +295,12 @@ async function runSmoke(): Promise<void> {
   const checks: Array<[string, boolean]> = [
     ['页面来自 app://wise origin', String(r.origin ?? '') === 'app://wise'],
     ['app://wise/__bridge.json 回 200', r.indexStatus === 200],
-    ['引导给出临时端口与协议版本', typeof r.bootPort === 'number' && r.protocol === 3],
+    [
+      '引导给出临时端口与协议版本',
+      // 只断言**结构**，不写死版本号：版本号写在这里就是第三份副本，
+      // 而真正的兼容性判定在页面侧（不符就停在启动失败屏，见 apps/web/src/boot.ts）。
+      typeof r.bootPort === 'number' && typeof r.protocol === 'number',
+    ],
     ['引导标注平台为 desktop', r.bootPlatform === 'desktop'],
     ['渲染进程能连上桥并收到 res', r.pingType === 'res' && r.pingPlatform === 'desktop'],
     ['页面渲染出登录屏（未登录状态）', typeof r.bodyText === 'string' && r.bodyText.includes('验证码')],

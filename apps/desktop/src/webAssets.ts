@@ -99,7 +99,16 @@ export function bootstrapResponse(
       token: handshake.token,
       platform: handshake.platform,
       ver: handshake.ver,
-      protocol: 3,
+      /*
+       * 协议版本：**桌面壳这一处的定义**。
+       *
+       * 另外两处必须与它一致：Kotlin 侧 `BridgeProtocol.VERSION`（线格式的权威）与
+       * `packages/bridge-client/src/types.ts` 的 `BRIDGE_PROTOCOL_VERSION`（页面期望值）。
+       * 三者不一致时页面会停在"应用与本地服务版本不一致"——**这正是它该有的表现**
+       * （明确失败优于半兼容），但排查时要知道：这句话说明**产物没跟上**，
+       * 不是网络/登录问题。2026-10-02 协议升到 4 时漏改了这里，页面立刻停在启动失败屏。
+       */
+      protocol: 4,
       capabilities: handshake.capabilities ? handshake.capabilities.split(',').filter(Boolean) : [],
     }),
   };
