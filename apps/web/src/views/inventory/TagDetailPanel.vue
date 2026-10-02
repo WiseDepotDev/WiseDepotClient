@@ -5,6 +5,7 @@ import { ElButton, ElDialog, ElInput, ElOption, ElSelect } from 'element-plus';
 import { asList, humanize, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
 import { ActionDock, ConfirmDialog, KeyValuePanel, LoadingLayer, PageHeader, SectionBlock, StateHost, StatusChip } from '@wise/ui';
 import type { KeyValueItem } from '@wise/ui';
+import { BarcodeScanField } from '@wise/layouts';
 
 /** 绑定目标商品的选项量（与建单屏同一手法：少量选项不做异步搜索）。 */
 const OPTION_PAGE_SIZE = 50;
@@ -367,7 +368,9 @@ const items = computed<KeyValueItem[]>(() => {
       <p class="w-tag-hint">
         已预填当前值。把某一项清空再保存，就等于把这一项清掉（服务端的语义是"空白即清空"，与商品那边的"空白=保留"相反）。
       </p>
-      <ElInput v-model="editForm.barcode" size="large" class="w-tag-field" placeholder="条形码" />
+      <!-- 条形码这一格带相机图标（图标在输入框里、右侧）：扫到的码直接填进来，
+           省掉"照着物料念一串 13 位数字"这一整步。RFID / NFC 没有对应码制，不画。 -->
+      <BarcodeScanField v-model="editForm.barcode" class="w-tag-field" placeholder="条形码" />
       <ElInput v-model="editForm.rfid" size="large" class="w-tag-field" placeholder="RFID" />
       <ElInput v-model="editForm.nfcUid" size="large" class="w-tag-field" placeholder="NFC UID" />
       <p v-if="editError" class="w-tag-error" role="alert">{{ editError }}</p>

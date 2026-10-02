@@ -1,4 +1,5 @@
 export { default as AppFrame } from './AppFrame.vue';
+export { default as BarcodeScanField } from './BarcodeScanField.vue';
 export { default as BridgeStatusChip } from './BridgeStatusChip.vue';
 export { default as PageSearch } from './PageSearch.vue';
 export { default as ScanResultCard } from './ScanResultCard.vue';

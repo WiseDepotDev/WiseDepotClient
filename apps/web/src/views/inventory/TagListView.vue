@@ -15,6 +15,7 @@ import {
   useViewport,
   type ColumnDef,
 } from '@wise/ui';
+import { BarcodeScanField } from '@wise/layouts';
 import CaptchaField from '../../components/CaptchaField.vue';
 import { useCaptcha } from '../../components/useCaptcha';
 import TagDetailPanel from './TagDetailPanel.vue';
@@ -436,7 +437,13 @@ function onPanelDeleted(): void {
       <p class="w-inv-hint">
         条形码、RFID、NFC 至少填一个 —— 它们是这件物料的身份。新建出来的标签是「未绑定」，绑定商品请在标签详情里做（绑定会同时把状态置为已入库）。
       </p>
-      <ElInput v-model="createForm.barcode" size="large" class="w-inv-field" placeholder="条形码，如 6901234567890" />
+      <!-- 条形码这一格带相机图标（图标在输入框里、右侧）：扫到的码**直接填进这个框**。
+           RFID / NFC 没有对应的一维码制，所以那两格不画图标。 -->
+      <BarcodeScanField
+        v-model="createForm.barcode"
+        class="w-inv-field"
+        placeholder="条形码，如 6901234567890"
+      />
       <ElInput v-model="createForm.rfid" size="large" class="w-inv-field" placeholder="RFID，如 E28278020000000029D0FD6D" />
       <ElInput v-model="createForm.nfcUid" size="large" class="w-inv-field" placeholder="NFC UID，如 04A1B2C3" />
       <p v-if="createError" class="w-inv-error" role="alert">{{ createError }}</p>

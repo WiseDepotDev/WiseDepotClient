@@ -89,17 +89,24 @@ export function firstCode(results: readonly BarcodeLike[] | null | undefined): B
  * 返回 `null` 表示"这一帧里没有可用结果"（**不是**错误）——取景是连续调用它的，
  * 抛异常会让每一帧都变成一次错误上报。只有"引擎本身不可用"才是错误，那由
  * [pickDecoderKind] 在更外层表达成 `none`。
+ *
+ * `onError` 是 B1/S2b4 加的**诊断出口**：原先这里 `catch {}` 把一切都吞了，
+ * 于是"引擎每次都抛错"和"画面里就是没有码"在界面上完全无法区分 ——
+ * 现场看到的就是"给了条码没反应"。吞异常可以（取景不该被一次解码失败打断），
+ * 但**必须留一条能说出原因的路**。
  */
 export async function detectOnce(
   detector: BarcodeDetectorLike | null | undefined,
   source: unknown,
+  onError?: (error: unknown) => void,
 ): Promise<BarcodeHit | null> {
   if (typeof detector?.detect !== 'function') {
     return null;
   }
   try {
     return firstCode(await detector.detect(source));
-  } catch {
+  } catch (e) {
+    onError?.(e);
     return null;
   }
 }

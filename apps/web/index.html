@@ -14,8 +14,17 @@
       而 logcat 里只有一条 CONSOLE 记录，很容易被当成"没报错"。
 
       Naive UI 是 CSS-in-JS（运行时注入 <style>），因此 style-src 必须保留 'unsafe-inline'。
+
+      **`script-src` 必须带 'wasm-unsafe-eval'**（2026-10-05 补）：相机扫码的识别引擎是
+      ZXing-wasm，而 Chromium 要求 CSP 显式允许才肯编译 WebAssembly —— 只写 'self' 的话
+      `WebAssembly.instantiate` 会被拒绝（报 `CompileError: … violates the following Content
+      Security policy directive`）。而 **Windows 上 Chromium 根本没有 BarcodeDetector**
+      （Shape Detection 的条码识别只在 macOS / Android / ChromeOS 提供），
+      所以 wasm 被挡 = 扫码永远识别不出任何东西，且界面上只看得到"给了条码没反应"。
+      这一条只在**真浏览器里**才暴露：Node 里没有 CSP，模块加载与 wasm 字节也都正常。
+      'wasm-unsafe-eval' 只放行 WebAssembly 编译，**不放行 JS 的 eval**。
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'" />
     <meta name="color-scheme" content="light" />
     <title>慧仓智控 · WiseDepot</title>
     <style>

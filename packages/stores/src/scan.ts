@@ -65,11 +65,30 @@ export const useScanStore = defineStore('wise.scan', () => {
 
   /** 路由一次扫码。返回它去了哪一支；`fallback` 由调用方执行跳转。 */
   function routeScan(code: string): ScanRoute {
+    return routeScanCore(code, true);
+  }
+
+  /**
+   * 相机扫码的路由（B1/S2b4）。
+   *
+   * **唯一的差别：不看"当前有没有输入框在聚焦"。**
+   *
+   * 这条差别来自一次真实的"扫了没反应"：操作员正在条形码输入框里打字 → 点「扫码」→
+   * 取景层打开 → 扫到码 → `routeScan` 走进"有人正在打字，交给输入框"那一支 ——
+   * 而相机的结果**从来没经过键盘**，于是它既没进输入框、也不弹卡、也不跳页：
+   * 一次成功的识别被静默丢弃。相机扫码是**明确意图**（人自己把取景层叫出来的），
+   * 不存在"他在打字，别抢"这个前提。
+   */
+  function routeCameraScan(code: string): ScanRoute {
+    return routeScanCore(code, false);
+  }
+
+  function routeScanCore(code: string, respectTextFocus: boolean): ScanRoute {
     const trimmed = code.trim();
     if (trimmed === '') {
       return 'input';
     }
-    if (isTextEntryFocused()) {
+    if (respectTextFocus && isTextEntryFocused()) {
       last.value = { code: trimmed, at: Date.now(), route: 'input' };
       return 'input';
     }
@@ -96,7 +115,65 @@ export const useScanStore = defineStore('wise.scan', () => {
     cardOpen.value = false;
   }
 
+  // ---- 相机取景层（B1/S2b4）----
+
+  /**
+   * 取景层是否打开。
+   *
+   * 放在 store 而不是外壳的局部 ref：入口现在有**两处**（条形码输入框后面的图标、
+   * 顶栏的全局入口），而取景层只有一个。谁打开它、结果交给谁，只能有一个所有者 ——
+   * 两处各持一个 `cameraOpen` 就会出现"点 A 打开了、点 B 关不掉"。
+   */
+  const cameraOpen = ref(false);
+  /** 打开取景层时登记"这次扫到的码归谁"；`null` = 走兜底（结果卡 + 跳标签详情）。 */
+  const cameraHandler = shallowRef<ScanConsumer | null>(null);
+
+  /** 打开取景层。传 `handler` 表示"扫到的码给这个字段/页面"（它返回 true 即消费掉）。 */
+  function openCamera(handler?: ScanConsumer): void {
+    cameraHandler.value = handler ?? null;
+    cameraOpen.value = true;
+  }
+
+  function closeCamera(): void {
+    cameraOpen.value = false;
+    cameraHandler.value = null;
+  }
+
+  /**
+   * 把相机扫到的码交给登记方；**返回 false 表示没人接**（调用方据此走兜底路由）。
+   *
+   * 一进来就清掉登记与打开状态：交接是一次性的，留在那里会让下一次扫描又填进上一个字段
+   * （"扫了两次，第一次的码填到了第二个框里"就是这么来的）。
+   */
+  function deliverCameraCode(code: string): boolean {
+    const handler = cameraHandler.value;
+    cameraOpen.value = false;
+    cameraHandler.value = null;
+    if (handler === null) {
+      return false;
+    }
+    try {
+      return handler(code.trim()) === true;
+    } catch (e) {
+      console.error('[scan] 相机扫码的接收方抛错', e);
+      return false;
+    }
+  }
+
   const lastCode = computed(() => last.value?.code ?? '');
 
-  return { last, lastCode, cardOpen, registerConsumer, routeScan, showCard, hideCard };
+  return {
+    last,
+    lastCode,
+    cardOpen,
+    cameraOpen,
+    registerConsumer,
+    routeScan,
+    routeCameraScan,
+    showCard,
+    hideCard,
+    openCamera,
+    closeCamera,
+    deliverCameraCode,
+  };
 });

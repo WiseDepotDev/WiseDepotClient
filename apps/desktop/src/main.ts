@@ -50,6 +50,19 @@ function resolveWebRoot(): string {
 }
 
 /**
+ * Code128「TAG-0001」的条空图案（`[x, 宽度]`，画布 132×50）。
+ *
+ * 由 `zxing-wasm` 的 writer 生成（`writeBarcode('TAG-0001', {format:'Code128'})` 的 SVG 路径），
+ * 并且**用 reader 解回过原值**才写进这里 —— 自检拿它当"真条码"，图案错了会让断言永远红。
+ */
+const SCAN_BARCODE_PATTERN: ReadonlyArray<readonly [number, number]> = [
+  [10, 2], [13, 1], [16, 1], [21, 2], [24, 3], [30, 1], [32, 1], [34, 1], [38, 2], [43, 2],
+  [46, 1], [50, 1], [54, 1], [57, 2], [60, 3], [65, 1], [67, 3], [71, 4], [76, 2], [79, 2],
+  [83, 2], [87, 2], [91, 2], [94, 2], [98, 1], [100, 2], [104, 1], [109, 2], [114, 3], [118, 1],
+  [120, 2],
+];
+
+/**
  * 找出打包出来的 ZXing wasm（回退识别引擎的字节）。
  *
  * 自检据此断言"那 953KB 真的随包发出、并且能被 `app://` 读到"：
@@ -349,6 +362,7 @@ async function runSmoke(): Promise<void> {
     (async () => {
       const ZXING_WASM = ${JSON.stringify(zxingWasm === null ? null : `${ORIGIN}/${zxingWasm}`)};
       const ZXING_CHUNK = ${JSON.stringify(zxingChunk === null ? null : `${ORIGIN}/${zxingChunk}`)};
+      const SCAN_BARS = ${JSON.stringify(SCAN_BARCODE_PATTERN)};
       const deadline = Date.now() + 15000;
       let res = null, boot = null;
       while (Date.now() < deadline) {
@@ -479,6 +493,48 @@ async function runSmoke(): Promise<void> {
         }
       }
 
+      /*
+       * ============ 真环境（app://）里**真的编译 wasm 并解出一张条码** ============
+       *
+       * 为什么必须有这一段（2026-10-05 的真机教训）：下面两条断言（chunk 能 import、
+       * wasm 能 fetch 到 953KB）**都不足以说明识别能用** —— 真机上真正的拦路虎是
+       * CSP 不让编译 WebAssembly（页面只写 script-src 'self' 时 Chromium 直接拒），
+       * 而 Windows 上又没有内置 BarcodeDetector，于是"引擎永远起不来"，
+       * 表现就是用户报的"给了条码没反应"：Node 侧门禁（没有 CSP）和"字节能读到"都会是绿的。
+       *
+       * 所以这里把三件事一次验完：模块加载 → wasm 编译 → 解出码值。
+       */
+      let zxingDecode = null;
+      if (ZXING_CHUNK && ZXING_WASM) {
+        try {
+          const mod = await import(ZXING_CHUNK);
+          mod.prepareZXingModule({ overrides: { locateFile: () => ZXING_WASM } });
+          const src = document.createElement('canvas');
+          src.width = 132;
+          src.height = 50;
+          const sctx = src.getContext('2d');
+          sctx.fillStyle = '#fff';
+          sctx.fillRect(0, 0, 132, 50);
+          sctx.fillStyle = '#000';
+          for (const b of SCAN_BARS) sctx.fillRect(b[0], 0, b[1], 50);
+          const big = document.createElement('canvas');
+          big.width = 132 * 3;
+          big.height = 150;
+          const bctx = big.getContext('2d');
+          bctx.imageSmoothingEnabled = false;
+          bctx.drawImage(src, 0, 0, big.width, big.height);
+          const frame = bctx.getImageData(0, 0, big.width, big.height);
+          const out = await mod.readBarcodes(frame, { formats: ['Code128', 'Code39', 'EAN-13', 'EAN-8', 'ITF', 'QRCode', 'UPC-A', 'UPC-E', 'Codabar', 'DataMatrix'] });
+          zxingDecode = {
+            ok: out.some(r => r.isValid && r.text === 'TAG-0001'),
+            text: out.length > 0 ? out[0].text : '',
+            error: out.length > 0 ? out[0].error : '',
+          };
+        } catch (e) {
+          zxingDecode = { ok: false, error: e && e.message ? e.message : String(e) };
+        }
+      }
+
       // UI 断言必须**轮询**：读一次就断言等于在测"我的探测够不够快"，
       // 而不是在测"界面最终有没有渲染出来"（W3 首次跑时就栽在这上面）。
       const uiDeadline = Date.now() + 12000;
@@ -487,6 +543,21 @@ async function runSmoke(): Promise<void> {
         await new Promise(r => setTimeout(r, 250));
         body = document.body.innerText.replace(/\\s+/g, ' ');
       }
+
+      /*
+       * ============ 端到端不在这里 ============
+       *
+       * 曾经想在这里点开取景层、喂一张合成条码来验证"画面 → 结果"整条链，
+       * 但**登录屏不套外壳**（routes.ts 里 /login 是独立路由，AppFrame 是它的兄弟），
+       * 所以未登录时页面上根本没有扫码入口 —— 点不到。
+       *
+       * 这条链现在分两处验，各自都在能走到的地方：
+       *   · tools/check/check-scan-engines.mjs：注入假 canvas + **真 zxing**，
+       *     把 "video → canvas → ImageData → 引擎 → 归一化" 整条管线跑一遍并断言解出码值；
+       *   · apps/web/smoke/check-web-smoke.mjs（mock 桥、真 Chrome、已登录）：
+       *     在标签管理的条形码输入框上真的点一次相机图标，断言码值**落进那个输入框**。
+       */
+
       return JSON.stringify({
         origin: location.origin,
         indexStatus: res ? res.status : null,
@@ -497,8 +568,9 @@ async function runSmoke(): Promise<void> {
         pingType: ping ? ping.type : null,
         pingPlatform: ping && ping.data ? ping.data.platform : null,
         camera: camera,
-        zxing: zxing,
         zxingApi: zxingApi,
+        zxingDecode: zxingDecode,
+        zxing: zxing,
         bodyText: body.slice(0, 300),
       });
     })()
@@ -511,6 +583,7 @@ async function runSmoke(): Promise<void> {
   const camera = (r.camera ?? {}) as Record<string, unknown>;
   const zxing = r.zxing as { status?: number; bytes?: number } | null;
   const zxingApi = r.zxingApi as { loaded?: boolean; readBarcodes?: boolean; prepare?: boolean } | null;
+  const zxingDecode = r.zxingDecode as { ok?: boolean; text?: string; error?: string } | null;
   const checks: Array<[string, boolean]> = [
     ['页面来自 app://wise origin', String(r.origin ?? '') === 'app://wise'],
     ['app://wise/__bridge.json 回 200', r.indexStatus === 200],
@@ -536,6 +609,17 @@ async function runSmoke(): Promise<void> {
     [
       'ZXing 回退模块可加载且导出 readBarcodes / prepareZXingModule',
       zxingApi !== null && zxingApi.loaded === true && zxingApi.readBarcodes === true && zxingApi.prepare === true,
+    ],
+    /*
+     * **最关键的一条**：在真环境的 CSP 下 wasm 真的编译得出来、真的解得出码值。
+     *
+     * 它抓的是"模块能加载、字节能读到，但引擎被 CSP 拦住"这种**只看前两条会全绿**的故障 ——
+     * 而那正是"给了条码没反应"的真身（Windows 没有内置识别器，回退就是唯一路径）。
+     */
+    [
+      '真环境（app:// + CSP）里 wasm 能编译并解出条码 TAG-0001',
+      zxingDecode !== null && zxingDecode.ok === true,
+      zxingDecode === null ? '没跑到' : `text=${zxingDecode.text ?? ''} error=${(zxingDecode.error ?? '').slice(0, 160)}`,
     ],
   ];
 

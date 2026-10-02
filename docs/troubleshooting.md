@@ -351,6 +351,32 @@ I ActivityManager: Process com.huicang.wise.client (pid 13700) has died: prcp TO
 桌面与手机不是同一条路：手机是 WebView 崩（上一节），桌面是 **Electron 主进程的权限处理器 +
 Chromium 的 `getUserMedia`**，不会崩，但失败方式同样安静。
 
+### 0. 先看取景层底部那行**诊断**（2026-10-05 新增）
+
+取景层右下角常驻一行小字，它把这四种"看起来一模一样"的情况分开：
+
+```
+回退识别 · 已取 125 帧              ← 引擎在工作，画面也在进来（那就是画面里没有码）
+回退识别 · 画面还没进来              ← videoWidth 还是 0：流没接上 / 播放被策略挡了
+无识别引擎                          ← 这台设备既没有 BarcodeDetector，回退也没加载起来
+回退识别 · 已取 12 帧 · 识别出错：…   ← **最值得看的一行**，原因原文在这里
+```
+
+### 0.1 "识别出错"里如果是 `CompileError: WebAssembly.instantiate() … violates the following Content Security policy`
+
+**这是 B1 上线后真实踩到的第一个"给了条码没反应"**，2026-10-05 定位：
+
+- Windows 上 Chromium **没有** `BarcodeDetector`（Shape Detection 的条码识别只在
+  macOS / Android / ChromeOS 提供），所以现场干活的是 **ZXing-wasm**；
+- Chromium 只在 CSP 显式写了 **`'wasm-unsafe-eval'`**（或 `'unsafe-eval'`）时才肯编译 wasm；
+- 而 `apps/web/index.html` 的 CSP 当时只有 `script-src 'self'` → wasm 编译被拒 →
+  **引擎永远起不来**，界面上只表现为"给了条码没反应"。
+
+> 为什么它藏了这么久：**Node 侧门禁没有 CSP**（能解出码）、**"模块能 import / wasm 字节能读到"
+> 也全绿** —— 只有"在真浏览器/真宿主的 CSP 下真的编译一次"才能抓到。
+> 现在 `pnpm desktop:smoke` 会在真环境里编译一次 wasm 并解一张合成分辨率条码
+> （`check:scan-engines` 同时钉住 `index.html` 里的那串 CSP 字面量）。
+
 ### 1. 第一步：看主进程那一行 `[perm]`
 
 ```
@@ -374,6 +400,13 @@ Chromium 的 `getUserMedia`**，不会崩，但失败方式同样安静。
 | 摄像头正被其它程序占用 | `NotReadableError`（会议软件抢着） | 关掉那个程序再点重试 |
 
 三句都带出路（重试 / 换一个摄像头 / 关闭），**没有死状态**；换摄像头只在真的有两枚时才画。
+
+### 2.1 入口在哪：条形码输入框里的相机图标
+
+扫码的入口**在条形码输入框右端**（`BarcodeScanField`：新建标签、修改标签标识等），
+点它 → 取景 → 扫到码**直接填进那个框**（不跳页、不弹结果卡）。
+顶部命令栏那个「相机扫码」是全局兜底（当前屏没有条码框时用，扫完跳标签详情）。
+两者都只在宿主声明 `scan.camera` 时出现。
 
 ### 3. Windows 上没有 `BarcodeDetector`
 

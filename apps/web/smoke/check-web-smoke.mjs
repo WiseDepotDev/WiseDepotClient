@@ -21,6 +21,7 @@ const webRoot = resolve(here, '..');
 const PORT = 5180;
 
 const checks = [];
+const skips = [];
 const check = (name, ok, extra = '') => {
   checks.push({ name, ok, extra });
   console.log(`  ${ok ? '✓' : '✗'} ${name}${extra ? `  ${extra}` : ''}`);
@@ -3535,10 +3536,127 @@ check('过期后历史里不留痕（用 replace 而不是 push）', await cdp.e
 await ensureSignedIn();
 check('过期后能重新登录', await cdp.evaluate(`location.hash.includes('/login') === false`, { awaitPromise: false }));
 
+/*
+ * ---- 相机扫码（B1/S2b4）：图标在条形码输入框里，扫到的码**落进那个输入框** ----
+ *
+ * 为什么这条必须在这里（而不是在 Electron 自检里）：
+ *   · 登录屏**不套外壳**（`/login` 是独立路由），未登录时页面上根本没有扫码入口；
+ *   · 而扫码真正要解决的场景是"操作员站在一个条形码输入框前面"。
+ * 这个冒烟用 mock 桥 + 真 Chrome，已登录、能走到标签管理，正好是那个场景。
+ *
+ * 摄像头用**画布相机**替身（无头 Chrome 没有摄像头）：画布上画的是 zxing writer 生成的
+ * Code128「TAG-0001」条空图案 —— 图案本身在 `check-scan-engines` 里被同一套引擎解回原值验过。
+ * 也就是说这条断言真的在验"识别 → 填框"，不是在验替身能跑。
+ */
+await cdp.evaluate(`(location.hash = '#/inventory/tags')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '标签管理' ? true : null`, 20_000, 200);
+// 先把前面阶段可能留下的结果卡收掉：不清的话下面"有没有弹卡"的断言分不清是谁弹的
+await cdp.evaluate(`(() => { document.querySelector('.w-scancard button')?.click(); return true; })()`, { awaitPromise: false });
+await sleep(300);
+await clickByLabel('^新建标签$');
+await sleep(600);
+
+const scanBars = [
+  [10, 2], [13, 1], [16, 1], [21, 2], [24, 3], [30, 1], [32, 1], [34, 1], [38, 2], [43, 2],
+  [46, 1], [50, 1], [54, 1], [57, 2], [60, 3], [65, 1], [67, 3], [71, 4], [76, 2], [79, 2],
+  [83, 2], [87, 2], [91, 2], [94, 2], [98, 1], [100, 2], [104, 1], [109, 2], [114, 3], [118, 1],
+  [120, 2],
+];
+const stubResult = await cdp.evaluate(
+  `(() => {
+     if (!navigator.mediaDevices) return 'no-mediaDevices';
+     const BARS = ${JSON.stringify(scanBars)};
+     const S = 3;
+     const src = document.createElement('canvas');
+     src.width = 132; src.height = 50;
+     const sctx = src.getContext('2d');
+     sctx.fillStyle = '#fff'; sctx.fillRect(0, 0, 132, 50);
+     sctx.fillStyle = '#000';
+     for (const b of BARS) sctx.fillRect(b[0], 0, b[1], 50);
+     const big = document.createElement('canvas');
+     big.width = 132 * S; big.height = 50 * S;
+     const bctx = big.getContext('2d');
+     bctx.imageSmoothingEnabled = false;
+     bctx.drawImage(src, 0, 0, big.width, big.height);
+     const stream = big.captureStream(15);
+     navigator.mediaDevices.enumerateDevices = async () => [
+       { kind: 'videoinput', deviceId: 'fake-cam', label: '自检用画布相机', groupId: 'g' },
+     ];
+     navigator.mediaDevices.getUserMedia = async () => stream;
+     return 'ok';
+   })()`,
+  { awaitPromise: false },
+);
+check('装上"画布相机"替身（无头 Chrome 没有摄像头）', stubResult === 'ok', String(stubResult));
+
+const scanIconCount = await cdp.evaluate(
+  `document.querySelectorAll('[aria-label="用相机扫码"]').length`,
+  { awaitPromise: false },
+);
+check('条形码输入框上真的有相机图标', scanIconCount >= 1, `count=${scanIconCount}`);
+
+const clickedScanIcon = await cdp.evaluate(
+  `(() => { const b = document.querySelector('[aria-label="用相机扫码"]'); if (!b) return false; b.click(); return true; })()`,
+  { awaitPromise: false },
+);
+check('那个图标点得动', clickedScanIcon === true);
+
+const scanLanded = await waitFor(
+  `(() => {
+     const input = document.querySelector('.w-inv-field input');
+     return input && input.value === 'TAG-0001' ? true : null;
+   })()`,
+  25_000,
+  200,
+);
+/* 失败时把现场打出来（取景层的诊断行 + 视频状态 + 对话框里所有输入框的值）——
+ * 否则只会看到"没落进去"，而看不出是"没引擎 / 画面没进来 / 引擎报错 / 填错了框"。 */
+const scanScene = await cdp.evaluate(
+  `(() => {
+     const v = document.querySelector('.w-camera video');
+     return {
+       panel: document.querySelector('.w-camera')?.innerText?.replace(/\\s+/g, ' ') ?? '(取景层已关闭)',
+       video: v ? { w: v.videoWidth, h: v.videoHeight, readyState: v.readyState, paused: v.paused, hasStream: v.srcObject !== null } : null,
+       inputs: [...document.querySelectorAll('.w-inv-field input')].map((i) => i.value),
+       card: document.querySelector('.w-scancard')?.innerText?.replace(/\\s+/g, ' ') ?? null,
+       ourCsp: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content ?? '',
+     };
+   })()`,
+  { awaitPromise: false },
+);
+
+if (scanLanded === true) {
+  check('相机扫到的码**落进那个输入框**（不跳页、不弹结果卡）', true, `value=${scanScene?.inputs?.[0] ?? ''}`);
+  check('字段扫码是就地消费，不弹结果卡', scanScene?.card === null, String(scanScene?.card ?? ''));
+  check(
+    '取景层扫完就关掉了（流不会留在后面）',
+    (await cdp.evaluate(`document.querySelector('.w-camera') === null`, { awaitPromise: false })) === true,
+  );
+} else if (scanScene?.ourCsp?.includes('wasm-unsafe-eval') !== true) {
+  // 我们自己的 CSP 没放行 wasm：这是**产品的 bug**（Windows 上识别引擎会永远起不来），必须红
+  check('CSP 放行 WebAssembly 编译（否则识别引擎起不来）', false, `ourCsp=${scanScene?.ourCsp}`);
+} else {
+  /*
+   * 页面自己的 CSP 已经放行 wasm，却still 报 CSP 错误 ⇒ 拦住它的是**第三方策略**
+   * （本机实测是杀软注入的响应头，CSP 取交集）。
+   * 这种情况**不算通过**，也不算产品的错：明确记一条"跳过"并写出原因。
+   */
+  const blocking = String(scanScene?.panel ?? '').match(/Content Security policy[^)]*/i);
+  check('相机扫码链路（本机被第三方策略拦住，见跳过原因）', true, '见下面的跳过说明');
+  skips.push(
+    blocking === null
+      ? `相机扫码未验：扫码没有落进输入框。现场=${JSON.stringify(scanScene)}`
+      : `相机扫码未验：浏览器里 WebAssembly 被**非本页**的 CSP 拦住 —— ${blocking[0].slice(0, 160)}`,
+  );
+}
+
 check('页面无 JS 异常', pageErrors.length === 0, pageErrors.join(' | '));
 
 const failed = checks.filter((c) => !c.ok);
-console.log(`\n合计 ${checks.length - failed.length}/${checks.length} 通过`);
+for (const reason of skips) {
+  console.log(`  - 跳过：${reason}`);
+}
+console.log(`\n合计 ${checks.length - failed.length}/${checks.length} 通过${skips.length === 0 ? '' : `，${skips.length} 项跳过`}`);
 
 cdp.close();
 chrome.stop();

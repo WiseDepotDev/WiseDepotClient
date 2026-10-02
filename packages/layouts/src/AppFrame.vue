@@ -298,12 +298,29 @@ useScanGun({ enabled: canScanGun.value, onScan: handleScan });
  * 它会在 B2 真正用 CameraX 实现之后留下一处永远走不到的分支。
  */
 const canScanCamera = computed(() => bridge.supports('scan.camera'));
-const cameraOpen = ref(false);
 
-/** 命中的码走**与扫码枪同一条**路由（三分支 + 结果卡），不新增第二套消费逻辑。 */
+/**
+ * 命中的码：**先看有没有字段/页面登记接它**，没有才走兜底路由。
+ *
+ * 兜底走 `routeCameraScan` 而不是 `routeScan`：相机扫码是"人自己把取景层叫出来的"
+ * 明确意图，不存在"他正在打字，别抢"那个前提 —— 用 `routeScan` 的话，
+ * 操作员在条码框里打字时扫一下，这一支会把结果**静默丢掉**（既不填框也不弹卡也不跳页）。
+ * 这正是用户报的"给了条码没反应"里的一条真实成因。
+ */
 function onCameraCode(code: string): void {
-  cameraOpen.value = false;
-  handleScan(code);
+  if (scan.deliverCameraCode(code)) {
+    return;
+  }
+  scan.closeCamera();
+  const where = scan.routeCameraScan(code);
+  if (where === 'fallback') {
+    scan.showCard();
+    void router.push({ name: SCAN_TARGET_METHOD, params: { code } });
+    return;
+  }
+  if (where === 'screen') {
+    scan.showCard();
+  }
 }
 
 /**
@@ -316,7 +333,7 @@ function onCameraCode(code: string): void {
 watch(
   () => route.fullPath,
   () => {
-    cameraOpen.value = false;
+    scan.closeCamera();
   },
 );
 
@@ -408,13 +425,18 @@ onBeforeUnmount(() => {
           <!--
             相机扫码入口：只在宿主声明 `scan.camera` 时出现（能力声明即承诺）。
             它排在搜索之前，因为"扫码"是现场频率最高的动作 —— 让人多找一眼就是浪费。
+
+            **主入口不在这里**：条形码输入框后面的相机图标（`BarcodeScanField`）才是
+            "扫了填进这个框"的那条路。顶栏这个是**全局兜底**：当前这一屏没有条码框时，
+            扫到的码走结果卡 + 跳标签详情（用户反馈"位置不对"之后新增字段入口，
+            这个保留是因为有些屏确实没有输入框可依托）。
           -->
           <ElButton
             v-if="canScanCamera"
             class="w-commandbar__scan"
             text
             aria-label="相机扫码"
-            @click="cameraOpen = true"
+            @click="scan.openCamera()"
           >
             <ElIcon><Camera /></ElIcon>
             <span>扫码</span>
@@ -478,7 +500,7 @@ onBeforeUnmount(() => {
           text
           circle
           aria-label="相机扫码"
-          @click="cameraOpen = true"
+          @click="scan.openCamera()"
         >
           <ElIcon><Camera /></ElIcon>
         </ElButton>
@@ -605,7 +627,8 @@ onBeforeUnmount(() => {
     -->
     <ScanResultCard />
 
-    <!-- 取景层：盖在内容之上（z-index 40 > 结果卡 30）。关掉即卸载，流在卸载时收尾。 -->
-    <CameraScanPanel v-if="cameraOpen" @close="cameraOpen = false" @code="onCameraCode" />
+    <!-- 取景层：盖在内容之上（z-index 40 > 结果卡 30）。关掉即卸载，流在卸载时收尾。
+         打开状态在 store 里（入口有两处：字段图标 + 顶栏兜底），只有一份。 -->
+    <CameraScanPanel v-if="scan.cameraOpen" @close="scan.closeCamera()" @code="onCameraCode" />
   </div>
 </template>

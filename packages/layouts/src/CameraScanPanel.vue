@@ -66,6 +66,22 @@ const selectedId = ref<string | null>(null);
 const videoEl = ref<HTMLVideoElement | null>(null);
 const detector = shallowRef<BarcodeDetectorLike | null>(null);
 
+/*
+ * ---- 现场可见性（B1/S2b4）----
+ *
+ * 用户实测反馈"给了条码没反应"。当时这套代码**没有任何办法区分**下面四种情况：
+ *   ① 取景层根本没打开；② 打开了但视频没有帧（`videoWidth === 0`）；
+ *   ③ 有帧但引擎每次都抛错；④ 引擎在正常工作、只是画面里没有码。
+ * 四者表现完全一样。所以这三个量必须摆在界面上：
+ *   `engineKind` 说"用哪个引擎"、`frames` 说"到底有没有画面进来"、
+ *   `lastError` 说"引擎有没有在报错"。
+ */
+const engineKind = ref<string>('');
+const frames = ref(0);
+const lastError = ref<string | null>(null);
+/** 取景超过一段时间还没有命中：把提示换成更具体的动作（而不是一直"正在找"）。 */
+const patience = ref(false);
+
 /**
  * 取景会话**只有一个持有者**（见 scan-stream.ts 的说明）。
  * 组件只做"把它接到 `<video>` 上"和"在三个时机叫停"。
@@ -74,7 +90,10 @@ const session = new CameraSession();
 
 /** 取景循环的节奏。200ms 是"抬手就有反应"与"别把 CPU 吃满"之间的折中。 */
 const FRAME_INTERVAL_MS = 200;
+/** 超过这么久还没扫到，就把提示换成更具体的动作（见 [tip]）。 */
+const PATIENCE_MS = 8000;
 let frameTimer: ReturnType<typeof setInterval> | null = null;
+let patienceTimer: ReturnType<typeof setTimeout> | null = null;
 /** 一次识别没回来之前不再发起第二次：否则慢机器上会堆一摞待解码的帧。 */
 let detecting = false;
 
@@ -93,6 +112,32 @@ const message = computed(() => {
     return '这台设备不支持扫码识别';
   }
   return failure.value === null ? '' : errorTextOf(failure.value, '相机无法启动');
+});
+
+/** 底部那行诊断：引擎 / 已取帧数 / 上一次引擎报错。**这三个量就是排障的第一现场**。 */
+const status = computed(() => {
+  if (phase.value !== 'running') {
+    return '';
+  }
+  const engineText =
+    engineKind.value === 'barcode-detector'
+      ? '内置识别'
+      : engineKind.value === 'zxing-wasm'
+        ? '回退识别'
+        : '无识别引擎';
+  const frameText = frames.value === 0 ? '画面还没进来' : `已取 ${frames.value} 帧`;
+  return lastError.value === null ? `${engineText} · ${frameText}` : `${engineText} · ${frameText} · 识别出错：${lastError.value}`;
+});
+
+/** 取景中的提示语：等久了要说清"该怎么放"，而不是一直"正在找"。 */
+const tip = computed(() => {
+  if (phase.value === 'running') {
+    return patience.value ? '把条码放平、占满取景框、避开反光' : '把条码放进框里';
+  }
+  if (phase.value === 'error') {
+    return '相机不可用时请检查系统设置里的相机权限';
+  }
+  return '正在启动相机…';
 });
 
 function mediaDevices(): MediaDevices | null {
@@ -126,6 +171,11 @@ async function begin(): Promise<void> {
   phase.value = 'starting';
   failure.value = null;
   engineMissing.value = false;
+  engineKind.value = '';
+  frames.value = 0;
+  lastError.value = null;
+  patience.value = false;
+  stopPatience();
 
   const media = mediaDevices();
   const options = await listCameras(media);
@@ -161,6 +211,12 @@ async function begin(): Promise<void> {
     return;
   }
   detector.value = engine.detector;
+  engineKind.value = engine.kind;
+  // 引擎种类是排障的第一条信息（Windows 上没有内置识别器，现场走的一定是回退）：
+  // 它同时解释了"为什么第一次识别会慢一下"（wasm 要下载 + 编译）
+  if (engine.kind !== 'barcode-detector') {
+    console.info(`[scan] 识别引擎：${engine.kind}（本机没有内置 BarcodeDetector 时走回退）`);
+  }
 
   const started = await session.start(media, camera.id);
   if (disposed) {
@@ -176,6 +232,11 @@ async function begin(): Promise<void> {
   attachStream();
   phase.value = 'running';
   startLoop();
+  // 8 秒还没扫到，就把提示换成"该怎么放"——操作员对着"正在找"发呆是最常见的现场状态
+  stopPatience();
+  patienceTimer = setTimeout(() => {
+    patience.value = true;
+  }, PATIENCE_MS);
 }
 
 /** 把当前流接到 `<video>` 上。没有元素（SSR / 卸载中）时什么都不做。 */
@@ -204,6 +265,14 @@ function stopLoop(): void {
   }
 }
 
+/** 收掉"耐心提示"那个定时器（收尾与重开都要走，避免卸载后还改状态）。 */
+function stopPatience(): void {
+  if (patienceTimer !== null) {
+    clearTimeout(patienceTimer);
+    patienceTimer = null;
+  }
+}
+
 /** 一帧：识别到就收尾（停流 + 关层 + 把码交出去）。 */
 async function tick(): Promise<void> {
   const el = videoEl.value;
@@ -211,9 +280,22 @@ async function tick(): Promise<void> {
   if (detecting || el === null || engine === null) {
     return;
   }
+  // 画面还没进来时**不要去调引擎**：zxing 拿到空帧只会白跑一趟 wasm 往返，
+  // 而且"每帧都空跑"会让 CPU 白转（现场机器上感受得到风扇）
+  if (el.videoWidth <= 0 || el.videoHeight <= 0) {
+    return;
+  }
   detecting = true;
   try {
-    const hit = await detectOnce(engine, el);
+    const hit = await detectOnce(engine, el, (error) => {
+      // 引擎抛错原先被 `catch {}` 吞掉，表现与"画面里没有码"完全一样 —— 现在说出来
+      const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      if (lastError.value === null) {
+        console.warn('[scan] 识别引擎报错（取景继续，但这次的结果不可信）', error);
+      }
+      lastError.value = text;
+    });
+    frames.value += 1;
     if (hit !== null) {
       finish();
       emit('code', hit.code, hit.symbology);
@@ -231,6 +313,7 @@ async function tick(): Promise<void> {
  */
 function finish(): void {
   stopLoop();
+  stopPatience();
   session.stop();
   const el = videoEl.value;
   if (el !== null) {
@@ -344,8 +427,7 @@ function optionProps(item: CameraOption): any {
       <div v-else-if="phase === 'error'" class="w-camera__error">
         <ElIcon class="w-camera__erricon"><Camera /></ElIcon>
         <p class="w-camera__message">{{ message }}</p>
-        <div class="w-camera__actions">
-          <ElButton v-if="failure?.retryable" v-bind="buttonProps()" @click="retry">重试</ElButton>
+        <div class="w-camera__actions">          <ElButton v-if="failure?.retryable" v-bind="buttonProps()" @click="retry">重试</ElButton>
           <!--
             只有**真的有多枚**可选摄像头才给这个出路（B1/S2c 更正）：
             宿主声明 `scan.camera.select` 说的是"这个宿主能枚举并选择"，
@@ -366,9 +448,8 @@ function optionProps(item: CameraOption): any {
     </div>
 
     <footer class="w-camera__bar">
-      <span class="w-camera__tip">
-        {{ phase === 'running' ? '把条码放进框里' : '相机不可用时请检查系统设置里的相机权限' }}
-      </span>
+      <span class="w-camera__tip">{{ tip }}</span>
+      <span v-if="status !== ''" class="w-camera__status">{{ status }}</span>
       <!-- 取景中也能换：现场机器上"前一秒还在用、后一秒就黑屏"多半是另一枚摄像头更合适 -->
       <ElSelect
         v-if="canSelect && phase === 'running' && cameras.length > 1"
@@ -417,14 +498,18 @@ function optionProps(item: CameraOption): any {
   background: var(--w-color-surface-sunken);
 }
 
-/* 取景框：只是视觉引导，不参与识别（识别看整帧） */
+/* 取景框：**只有一圈细框，没有任何遮罩**。
+ *
+ * 第一版这里用 `box-shadow: 0 0 0 100vmax var(--el-mask-color)` 做了个"只亮中间"的
+ * 遮罩效果，用户实测反馈是"展示的区域有一层白色屏蔽罩"—— 现场要的是看清画面
+ * （对准、对焦、避反光都靠它），把画面压暗属于帮倒忙。 */
 .w-camera__reticle {
   position: absolute;
   width: 60%;
   height: 40%;
   border: 2px solid var(--w-color-primary);
   border-radius: var(--w-radius-control);
-  box-shadow: 0 0 0 100vmax var(--el-mask-color);
+  pointer-events: none;
 }
 
 .w-camera__hint,
@@ -479,5 +564,12 @@ function optionProps(item: CameraOption): any {
   margin-right: auto;
   color: var(--w-color-on-surface-muted);
   font-size: var(--w-type-body-small-size);
+}
+
+/* 诊断行：引擎 / 已取帧数 / 上一次引擎报错（见 script 里为什么必须摆出来） */
+.w-camera__status {
+  color: var(--w-color-on-surface-variant);
+  font-size: var(--w-type-label-size);
+  font-family: var(--w-font-mono);
 }
 </style>
