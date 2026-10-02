@@ -146,6 +146,34 @@ function domainActive(id: DomainId): boolean {
  */
 const remountTick = ref(0);
 
+/**
+ * 切页时的短暂遮罩。
+ *
+ * 为什么需要它：内容区的换页反馈原本**只有** `useResource.loading`，而那是
+ * "这个键从没有过数据"——被跳过的页只要有缓存就什么都不显示。用户实测的体感是
+ * "点了没反应"（尤其在慢一点的机器上，切页真的花了时间，却没有任何反馈）。
+ * 所以这里按"路由导航"本身给反馈，而不是按数据是否首次加载。
+ *
+ * 为什么保留一个**最短可见时长**（220ms）：内容换完立刻撤掉，在快机器上会变成"闪一下"，
+ * 那比不显示更糟。220ms 足够被感知，又不至于让人等。
+ */
+const switching = ref(false);
+let switchTimer: ReturnType<typeof setTimeout> | null = null;
+
+router.beforeEach(() => {
+  switching.value = true;
+  return true;
+});
+
+router.afterEach(() => {
+  if (switchTimer) {
+    clearTimeout(switchTimer);
+  }
+  switchTimer = setTimeout(() => {
+    switching.value = false;
+  }, 220);
+});
+
 function goLeaf(path: string): void {
   mobileDrawerOpen.value = false;
   navigateVisible(path);
@@ -430,7 +458,30 @@ onBeforeUnmount(() => {
            `:key="route.fullPath"`：**同一屏换参数时必须重挂载** ——
            详情页复用时组件会带着上一条的数据（"查 NOPE-999 却还显示上一条的记录"），
            而 store 层的缓存键变化不保证模板里的派生值全部重算。整树重挂是最省心的正确做法。 -->
-      <main class="w-content">
+      <main class="w-content" style="position: relative">
+        <!--
+          切页遮罩：**与数据是否首次加载无关**（见 script 里 switching 的说明）。
+          z-index 压在内容之上、但低于顶栏与抽屉；`pointer-events: none` 让它不吞点击 ——
+          遮罩只做反馈，不该让人点不动（用户抱怨的是"切了没反应"，不是"点了没响应"）。
+        -->
+        <div
+          v-if="switching"
+          aria-hidden="true"
+          style="
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--el-mask-color);
+            color: var(--el-text-color-secondary);
+            font-size: 13px;
+            pointer-events: none;
+          "
+        >
+          正在切换…
+        </div>
         <!-- `remountTick` 见 script 里的说明：导航没换掉 location 时靠它强制重挂载 -->
         <RouterView :key="route.fullPath + '#' + remountTick" />
       </main>
