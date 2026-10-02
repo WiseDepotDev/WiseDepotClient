@@ -143,6 +143,13 @@ export const BridgeErrorCode = {
    * 而不是"参数写错了" —— 两者的处理人不同。
    */
   WIRE_MODE: 'BRIDGE_WIRE_MODE',
+  /*
+   * 相机类错误（B1）。三个分开是因为它们给用户的**出路不同**：
+   * 没有设备只能换设备/放弃；权限被拒要去系统设置；被占用要关掉别的程序再重试。
+   */
+  CAMERA_UNAVAILABLE: 'BRIDGE_CAMERA_UNAVAILABLE',
+  CAMERA_DENIED: 'BRIDGE_CAMERA_DENIED',
+  CAMERA_BUSY: 'BRIDGE_CAMERA_BUSY',
   RATE_LIMITED: 'BRIDGE_RATE_LIMITED',
   BACKEND_UNREACHABLE: 'BRIDGE_BACKEND_UNREACHABLE',
   INTERNAL: 'BRIDGE_INTERNAL',
@@ -153,6 +160,11 @@ export const Capability = {
   PLATFORM_DESKTOP: 'desktop',
   PLATFORM_MOBILE: 'mobile',
   SCAN_CAMERA: 'scan.camera',
+  /**
+   * 可枚举并选择摄像头（桌面独占，B1）。
+   * 与 `SCAN_CAMERA` 分开：手机没有选择权，画出来就是死入口。
+   */
+  SCAN_CAMERA_SELECT: 'scan.camera.select',
   SCAN_GUN_KEYBOARD: 'scan.gun.keyboard',
   SCAN_GUN_SERIAL: 'scan.gun.serial',
   NFC_READ: 'nfc.read',

@@ -78,6 +78,20 @@ object BridgeErrorCodes {
      */
     const val WIRE_MODE: String = "BRIDGE_WIRE_MODE"
 
+    /*
+     * 相机类错误（B1）。三个分开而不是一个 `BRIDGE_CAMERA_FAILED`：
+     * 它们给用户的**出路不同** —— 没有设备只能换设备或放弃；权限被拒要去系统设置；
+     * 被占用要关掉别的程序再重试。合成一个码，界面就只能说一句"相机不可用"。
+     */
+    /** 没有可用摄像头（或设备被占用后仍拿不到流）。 */
+    const val CAMERA_UNAVAILABLE: String = "BRIDGE_CAMERA_UNAVAILABLE"
+
+    /** 用户或系统拒绝了相机权限。 */
+    const val CAMERA_DENIED: String = "BRIDGE_CAMERA_DENIED"
+
+    /** 摄像头被其它程序独占。 */
+    const val CAMERA_BUSY: String = "BRIDGE_CAMERA_BUSY"
+
     /** 参数未通过 schema 校验。 */
     const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"
 
@@ -109,6 +123,15 @@ object BridgeCapabilities {
 
     // ---- 采集 ----
     const val SCAN_CAMERA: String = "scan.camera"
+
+    /**
+     * **可枚举并选择摄像头**（桌面独占，B1）。
+     *
+     * 为什么与 [SCAN_CAMERA] 分开：手机上通常只有一枚摄像头（或由系统决定用哪一枚），
+     * 照桌面那样画一个"选择摄像头"下拉，在没有选择权的设备上就是一个**死入口** ——
+     * 这正是"能力声明即承诺"要避免的（见 [common] 的注释里那次教训）。
+     */
+    const val SCAN_CAMERA_SELECT: String = "scan.camera.select"
     const val SCAN_GUN_KEYBOARD: String = "scan.gun.keyboard"
     const val SCAN_GUN_SERIAL: String = "scan.gun.serial"
     const val NFC_READ: String = "nfc.read"
