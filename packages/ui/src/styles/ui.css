@@ -211,6 +211,67 @@
   cursor: pointer;
 }
 
+/*
+ * 行内操作（编辑 / 删除）：**贴右整齐成一排**。
+ *
+ * 为什么要有这个容器：Element Plus 给相邻按钮加 `margin-left: 12px`，而表格的
+ * 「操作」列很窄 —— 两个按钮一换行，"第二行"就被那 12px 顶得缩进一截，
+ * 于是每行的删除按钮看上去都不在同一条竖线上（截图里的"右边按钮不齐"）。
+ * 这里统一：间距只由 `gap` 负责、按钮排成一行右对齐，放不下才换行（也是整齐的换行）。
+ */
+.w-datatable__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-datatable__actions .el-button + .el-button,
+.w-card__actions .el-button + .el-button,
+.w-actionlist__item .el-button + .el-button,
+.w-actionlist .el-button + .el-button {
+  margin-left: 0;
+}
+
+/*
+ * 详情页底部「可以做的操作」：一组动作 + 每个动作自己的"为什么不能点"。
+ *
+ * 手机档每个动作占一行、桌面档整排横着放 —— 之前只有竖排，
+ * 桌面上就是几个宽度不一、左对齐的按钮一列往下掉（截图里那个样子）。
+ */
+.w-actionlist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-group-gap);
+}
+
+/*
+ * 一个动作 = 按钮（可能两枚，如"审核通过 / 驳回"）+ 一行原因。
+ * 所以这里是**可换行的横排**：按钮并排、原因自己占一整行
+ * （原因是 `span`，按钮是 `button`，不用给两边的类名互相引用来引用去）。
+ */
+.w-actionlist__item {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+}
+
+.w-actionlist__item > span {
+  flex-basis: 100%;
+}
+
+@media (min-width: 600px) {
+  .w-actionlist {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--w-space-card-padding);
+  }
+}
+
 .w-cell--right {
   text-align: right;
 }
@@ -239,11 +300,20 @@
   gap: var(--w-space-inline-gap);
 }
 
+/*
+ * 卡片底部的行内操作（编辑/删除），与桌面端表格的「操作」列是同一份插槽。
+ *
+ * `justify-content: flex-end` + `margin-top`：卡片占满剩余宽度、操作贴右侧。
+ * （这里原本有**两份**同名规则，后一份把前一份的布局覆盖了一半 —— 合并成一份，
+ *   免得以后再改一边时"改了没反应"。）
+ */
 .w-card__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--w-space-inline-gap);
   flex: 0 0 auto;
+  margin-top: var(--w-space-inline-gap);
 }
 
 .w-card {
@@ -289,14 +359,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 卡片底部的行内操作（删除等），与桌面端表格的「操作」列是同一份插槽 */
-.w-card__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--w-space-inline-gap);
-  margin-top: var(--w-space-inline-gap);
 }
 
 /* 卡片头部的选择框（批量操作用） */

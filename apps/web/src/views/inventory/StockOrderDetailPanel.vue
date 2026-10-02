@@ -389,8 +389,9 @@ watch(() => props.orderId, () => {
       </SectionBlock>
 
       <SectionBlock title="可以做的操作">
-        <div class="w-order-actions">
-          <div class="w-order-action">
+        <!-- 排布交给共享原语 `w-actionlist`：手机档竖排，桌面档排成一行 -->
+        <div class="w-actionlist">
+          <div class="w-actionlist__item">
             <ElButton
               size="large"
               type="primary"
@@ -403,14 +404,14 @@ watch(() => props.orderId, () => {
             <span v-if="!canDoSubmit" class="w-order-reason">{{ submitBlockedReason }}</span>
           </div>
 
-          <div class="w-order-action">
+          <div class="w-actionlist__item">
             <ElButton size="large" :disabled="!canDoWithdraw || busy" :loading="withdrawMutation.pending.value" @click="open('withdraw')">
               撤回
             </ElButton>
             <span v-if="!canDoWithdraw" class="w-order-reason">{{ reason ?? '只有待审核的单据可以撤回。' }}</span>
           </div>
 
-          <div class="w-order-action">
+          <div class="w-actionlist__item">
             <ElButton size="large" type="primary" :disabled="!canDoAudit || busy" @click="open('approve')">审核通过</ElButton>
             <ElButton size="large" type="danger" :disabled="!canDoAudit || busy" @click="open('reject')">驳回</ElButton>
             <span v-if="!canDoAudit" class="w-order-reason">{{ reason ?? '只有待审核的单据可以审核。' }}</span>
@@ -479,20 +480,7 @@ watch(() => props.orderId, () => {
   font-size: var(--w-type-body-size);
 }
 
-.w-order-actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--w-space-group-gap);
-}
-
-.w-order-action {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--w-space-inline-gap);
-}
-
-/* 不能点的原因写在按钮旁边：让操作员点一下才发现没反应，等于把服务端实现细节丢给用户 */
+/* 排布（竖排/成排）由共享原语 `w-actionlist` 负责，本屏只管"原因怎么写" */
 .w-order-reason {
   flex-basis: 100%;
   color: var(--w-color-on-surface-muted);

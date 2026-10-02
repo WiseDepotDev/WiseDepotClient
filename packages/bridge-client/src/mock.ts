@@ -61,6 +61,29 @@ export class MockTransport implements BridgeTransport {
   /** 后端挂掉开关（开发态专用，见构造函数里的说明）。 */
   private backendDown = false;
 
+  /*
+   * 「把某个方法的下一次调用挂住」—— 开发态测试钩子。
+   *
+   * 为什么需要它：有一类 bug 只在**写操作正好撞上一次在途刷新**时出现
+   * （资源层把在途请求复用给了已经被失效删掉的旧条目，屏上于是停在空态）。
+   * 靠"祈祷 15 秒的自动刷新恰好在那一刻打过来"是测不出来的 —— 只能把响应按住，
+   * 让它确定性地悬在那里。`holdOnce` 只按一次：后续那次"补取"必须能正常返回。
+   */
+  private readonly heldOnce = new Set<string>();
+  private heldWaiters: (() => void)[] = [];
+
+  holdOnce(method: string): void {
+    this.heldOnce.add(method);
+  }
+
+  releaseHeld(): void {
+    const waiters = this.heldWaiters;
+    this.heldWaiters = [];
+    for (const w of waiters) {
+      w();
+    }
+  }
+
   /** 会话是否已过期（开发态：由 `expireSession()` 触发，真宿主在令牌失效/被吊销时推同样的事件）。 */
   private sessionExpired = false;
 
@@ -139,6 +162,11 @@ export class MockTransport implements BridgeTransport {
 
   private async callInternal<T>(method: string, params?: unknown, _meta?: ReqMeta): Promise<T> {
     await new Promise((r) => setTimeout(r, 120)); // 模拟一次 loopback 往返 + 后端耗时
+
+    // 测试钩子：这一次调用被按住，直到 `releaseHeld()`（见 `holdOnce` 的说明）
+    if (this.heldOnce.delete(method)) {
+      await new Promise<void>((resolve) => this.heldWaiters.push(resolve));
+    }
 
     // 后端挂掉开关（开发态）：用来验"出问题真的会显示异常"
     if (this.backendDown && method !== 'bridge.session') {

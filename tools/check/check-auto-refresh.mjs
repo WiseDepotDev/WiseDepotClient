@@ -166,6 +166,11 @@ check(
   /autoRefresh === false \|\| !enabled\(\)/.test(resource) && /if \(!enabled\(\)\) \{\s*return;\s*\}\s*const current = cache\.entryOf/.test(resource),
 );
 check(
+  '单飞复用要求"在途请求绑的还是当前条目"（失效删条目后不许复用老请求，否则屏上停在空态）',
+  /pending\.entry === \(entries\.get\(key\)/.test(resource) &&
+    /inflight\.set\(key, \{ task: task as Promise<unknown>, entry: entry as ResourceEntry<unknown> \}\)/.test(resource),
+);
+check(
   '退出自动刷新的用法只有一处，且写明了理由（服务端读缓存不随写失效）',
   read('apps/web/src/views/inventory/TagDetailPanel.vue').includes('autoRefresh: false'),
 );

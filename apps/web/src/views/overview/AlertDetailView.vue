@@ -241,8 +241,12 @@ watch(eventId, () => {
       </SectionBlock>
 
       <SectionBlock title="可以做的操作">
-        <div class="w-alert-actions">
-          <div class="w-alert-action">
+        <!--
+          排布交给共享原语 `w-actionlist`：手机档竖排（整行宽、好按），桌面档排成一行。
+          以前这里是本屏自己的 `flex-direction: column`，桌面档于是三个宽度不一的按钮一列往下掉。
+        -->
+        <div class="w-actionlist">
+          <div class="w-actionlist__item">
             <ElButton
               size="large"
               :disabled="!actions.ack.enabled || busy"
@@ -254,7 +258,7 @@ watch(eventId, () => {
             <span v-if="!actions.ack.enabled" class="w-alert-reason">{{ actions.ack.reason }}</span>
           </div>
 
-          <div class="w-alert-action">
+          <div class="w-actionlist__item">
             <ElButton
               size="large"
               type="primary"
@@ -267,7 +271,7 @@ watch(eventId, () => {
             <span v-if="!actions.resolve.enabled" class="w-alert-reason">{{ actions.resolve.reason }}</span>
           </div>
 
-          <div class="w-alert-action">
+          <div class="w-actionlist__item">
             <ElButton
               size="large"
               type="danger"
@@ -365,18 +369,7 @@ watch(eventId, () => {
   font-size: var(--w-type-body-size);
 }
 
-.w-alert-actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--w-space-group-gap);
-}
-
-.w-alert-action {
-  display: flex;
-  flex-direction: column;
-  gap: var(--w-space-inline-gap);
-  align-items: flex-start;
-}
+/* 排布（竖排/成排）由共享原语 `w-actionlist` 负责，本屏只管"原因怎么写" */
 
 /* 不能点的原因必须写在按钮旁边：让操作员点一下才发现没反应，等于把服务端实现细节丢给用户 */
 .w-alert-reason {

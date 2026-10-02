@@ -143,10 +143,16 @@ function onRowClick(row: T): void {
           <template v-else>{{ valueOf(row, col) }}</template>
         </template>
       </ElTableColumn>
-      <!-- 有 #actions 插槽时追加「操作」列：CRUD 屏（商品/仓库/用户）都需要"每行一个删除" -->
-      <ElTableColumn v-if="hasActions" label="操作" width="120">
+      <!--
+        有 #actions 插槽时追加「操作」列：CRUD 屏（商品/仓库/计划）都需要"每行一个删除"。
+        宽度 140 是按"两枚 small 文字按钮 + 两倍单元格内边距"算的，窄一点就会换行；
+        右对齐让表头与按钮同一条竖线（左对齐时表头在左、按钮在右，怎么看都不齐）。
+      -->
+      <ElTableColumn v-if="hasActions" label="操作" width="140" align="right">
         <template #default="{ row }">
-          <slot name="actions" :row="row" />
+          <div class="w-datatable__actions">
+            <slot name="actions" :row="row" />
+          </div>
         </template>
       </ElTableColumn>
     </ElTable>

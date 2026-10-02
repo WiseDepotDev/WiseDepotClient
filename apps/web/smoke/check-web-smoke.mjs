@@ -858,6 +858,36 @@ for (const [listHash, listTitle, detailPattern, label] of [
   );
 }
 
+/*
+ * ---- 手机档：卡片操作按钮的间距只由令牌决定（不许 Element Plus 的相邻外边距叠加）----
+ *
+ * Element Plus 默认给 `.el-button + .el-button` 加 12px 左边距；我们这套布局用 `gap`。
+ * 两者一叠加，按钮之间就是"令牌间距 + 12px"，视觉上不齐（桌面「操作」列换行时更明显）。
+ * 所以这里量的是：两枚按钮的间距**正好等于** `--w-space-inline-gap`。
+ */
+await cdp.evaluate(`(location.hash = '#/inventory/products')`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '商品管理' ? true : null`, 20_000, 200);
+await waitFor(`document.querySelector('.w-cardrow .w-card__actions button') ? true : null`, 20_000, 200);
+await sleep(400);
+const cardActionGap = await cdp.evaluate(
+  `(() => {
+     const token = getComputedStyle(document.documentElement).getPropertyValue('--w-space-inline-gap').trim();
+     const btns = [...document.querySelectorAll('.w-cardrow .w-card__actions button')].slice(0, 2);
+     if (btns.length !== 2) return { token, gap: null };
+     const a = btns[0].getBoundingClientRect();
+     const b = btns[1].getBoundingClientRect();
+     return { token, gap: Math.round(b.left - a.right), sameTop: Math.round(a.top) === Math.round(b.top), first: btns[0].innerText.trim(), second: btns[1].innerText.trim() };
+   })()`,
+  { awaitPromise: false },
+);
+check(
+  '手机档：卡片里两枚操作按钮同高、间距只由令牌决定（没叠加 Element Plus 的 12px）',
+  cardActionGap.gap !== null &&
+    cardActionGap.sameTop === true &&
+    `${cardActionGap.gap}px` === cardActionGap.token,
+  JSON.stringify(cardActionGap),
+);
+
 await cdp.send('Emulation.clearDeviceMetricsOverride');
 
 /*
@@ -1052,6 +1082,25 @@ check('桌面宽档：右栏就地显示告警详情', alertWide.detailColumns =
  */
 const alertPanelText = await text('.w-masterdetail__detail');
 check('右栏里确实画出了那条告警的字段（不是空壳）', alertPanelText.length > 20, alertPanelText.replace(/\s+/g, ' ').slice(0, 70));
+/*
+ * 「可以做的操作」在桌面档必须**排成一行**。
+ *
+ * 这条来自用户看着截图报出来的问题：那三个按钮原来是本屏自己的
+ * `flex-direction: column`，桌面上就是三个宽度不一、左对齐的按钮一列往下掉。
+ * 现在排布交给共享原语 `w-actionlist`（手机竖排 / 桌面成排），这里量几何钉住它。
+ */
+const alertActionRow = await cdp.evaluate(
+  `(() => {
+     const btns = [...document.querySelectorAll('.w-masterdetail__detail .w-actionlist > .w-actionlist__item > button')];
+     return btns.map((b) => ({ text: b.innerText.trim(), top: Math.round(b.getBoundingClientRect().top) }));
+   })()`,
+  { awaitPromise: false },
+);
+check(
+  '桌面宽档：告警动作按钮排成一行（不是一列往下掉）',
+  alertActionRow.length === 3 && new Set(alertActionRow.map((b) => b.top)).size === 1,
+  JSON.stringify(alertActionRow),
+);
 
 // 下面的断言依赖"详情在屏上"，主从右栏里它就在同一屏，所以继续可用
 const detailHash = await cdp.evaluate(`location.hash`, { awaitPromise: false });
@@ -1502,6 +1551,32 @@ await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '�
 await waitRows(3);
 check('商品列表 3 行', (await rowsNow()) === 3, `rows=${await rowsNow()}`);
 
+/*
+ * 「操作」列必须**竖向对齐**（用户看着截图报的"右边按钮不齐"）。
+ *
+ * 原来的三个毛病：Element Plus 给相邻按钮的 12px 左外边距让换行后的第二枚缩进一截、
+ * 列宽 120 装不下两枚文字按钮（必然换行）、表头左对齐而按钮靠右。
+ * 现在：列宽 140 + 右对齐 + `.w-datatable__actions`（间距只由 gap 负责）。
+ * 这条断言量的是几何：每行两枚按钮同高，且**所有行**的编辑/删除各自在同一条竖线上。
+ */
+const productActionGeometry = await cdp.evaluate(
+  `(() => {
+     return [...document.querySelectorAll('.w-datatable .el-table__body tbody tr.el-table__row')].map((tr) => {
+       const btns = [...tr.querySelectorAll('button')].filter((b) => ['编辑', '删除'].includes(b.innerText.trim()));
+       return btns.map((b) => ({ text: b.innerText.trim(), left: Math.round(b.getBoundingClientRect().left), top: Math.round(b.getBoundingClientRect().top) }));
+     });
+   })()`,
+  { awaitPromise: false },
+);
+const editXs = new Set(productActionGeometry.map((r) => r.find((b) => b.text === '编辑')?.left));
+const deleteXs = new Set(productActionGeometry.map((r) => r.find((b) => b.text === '删除')?.left));
+const sameLine = productActionGeometry.every((r) => r.length === 2 && r[0].top === r[1].top);
+check(
+  '商品「操作」列：每行两枚按钮同高、且各列都在同一条竖线上',
+  productActionGeometry.length >= 3 && sameLine && editXs.size === 1 && deleteXs.size === 1,
+  `行数=${productActionGeometry.length} 同高=${sameLine} 编辑x=${[...editXs].join(',')} 删除x=${[...deleteXs].join(',')}`,
+);
+
 await clickByText('新增商品');
 await sleep(400);
 await clickByText('创建');
@@ -1577,25 +1652,45 @@ check(
   editCalls.includes('product.update') && editCalls.includes('"productId"'),
   editCalls,
 );
-const editedRowText = await text('.el-table__body tbody tr.el-table__row');
+/*
+ * 读"第一行"之前先把现场一起带出来：这一条曾经因为列表**一行都没有**而只报一句失败，
+ * 看不出是骨架、空态、错误态还是跑去了别的屏（下面那段还因此抛了个 undefined 异常）。
+ */
+const editedRowState = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     return {
+       text: row ? row.innerText.replace(/\\s+/g, ' ') : '',
+       rows: document.querySelectorAll('.el-table__body tbody tr.el-table__row').length,
+       skeleton: !!document.querySelector('.w-skeleton'),
+       errorText: document.querySelector('.w-error__text')?.innerText ?? null,
+       emptyText: document.querySelector('.w-empty')?.innerText?.slice(0, 60) ?? null,
+       hash: location.hash,
+       productCalls: (window.__bridgeMock?.__calls ?? []).filter((c) => c.startsWith('product')).join(' | '),
+     };
+   })()`,
+  { awaitPromise: false },
+);
 check(
   '列表显示新型号，且名称没被部分更新语义擦掉',
-  /T-9/.test(editedRowText) && /测试物料/.test(editedRowText),
-  editedRowText.slice(0, 60),
+  /T-9/.test(editedRowState.text) && /测试物料/.test(editedRowState.text),
+  JSON.stringify(editedRowState),
 );
 
 // 删除被库存引用的商品（mock 会抛 VAL-0002）→ 界面要把服务端原文显示出来
-await cdp.evaluate(
+const clickedDeleteOnLastRow = await cdp.evaluate(
   `(() => {
      // 刚新建的那条在最前面、还没有库存引用；被库存引用的在下面，取最后一行
      const rows = [...document.querySelectorAll('.el-table__body tbody tr.el-table__row')];
      const row = rows[rows.length - 1];
+     if (!row) return false;
      const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '删除');
      btn?.click();
      return true;
    })()`,
   { awaitPromise: false },
 );
+check('最后一行点得到「删除」（否则下面那条是假红）', clickedDeleteOnLastRow === true);
 await sleep(400);
 await clickByText('删除');
 await sleep(600);
@@ -1612,6 +1707,58 @@ check(
   /已有库存记录/.test(deleteError.err),
   JSON.stringify(deleteError),
 );
+
+/*
+ * ---- 回归：**写操作撞上一次在途刷新**时，列表不能停在空态 ----
+ *
+ * 这是本轮真踩到的数据层竞态（第一次跑冒烟偶发红、第二次又绿，靠诊断字段才看清是"空态"）：
+ * 刷新发出 `product.list` 之后、它还没回来之前，写操作做了 `invalidate('product')`（删条目）。
+ * 老的资源层单飞复用只看"这个键上有在途请求吗"，于是把**那条老请求**复用回来，
+ * 而它的响应写进的是**已经被删掉的旧条目** —— 屏上那条新条目永远是空的，
+ * 列表就显示成"还没有商品"。15 秒一次的自动刷新让这个竞态从"罕见"变成"迟早"。
+ *
+ * 假桥的 `holdOnce` 让这一次刷新确定性地悬在那里，于是这条断言**每次都重现**那个窗口。
+ */
+await cdp.evaluate(`(window.__bridgeMock.holdOnce('product.list'), true)`, { awaitPromise: false });
+await clearCalls();
+await backToForeground();
+const listRefreshInFlight = await waitFor(
+  `(window.__bridgeMock.__calls ?? []).some((c) => c.startsWith('product.list')) ? true : null`,
+  20_000,
+  200,
+);
+check('（前置）确实有一次 product.list 悬在半路（否则下面那条测不到东西）', listRefreshInFlight === true);
+// 在途请求还悬着的时候做一次写：改第一行的型号（不动条数，免得影响后面几段）
+const raceEditOpened = await cdp.evaluate(
+  `(() => {
+     const row = document.querySelector('.el-table__body tbody tr.el-table__row');
+     const btn = [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '编辑');
+     if (!btn) return false;
+     btn.click();
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+await sleep(400);
+await fillDialogInputs(['测试物料', 'TEST-001', 'R-1', '个']);
+await sleep(200);
+await clickByText('保存');
+await sleep(1500);
+const afterRace = await cdp.evaluate(
+  `({
+     rows: document.querySelectorAll('.el-table__body tbody tr.el-table__row').length,
+     empty: !!document.querySelector('.w-empty'),
+     firstRow: document.querySelector('.el-table__body tbody tr.el-table__row')?.innerText.replace(/\\s+/g, ' ') ?? '',
+   })`,
+  { awaitPromise: false },
+);
+check(
+  '写操作撞上在途刷新后，列表自己补了一次（没有停在空态）',
+  raceEditOpened === true && afterRace.rows >= 3 && afterRace.empty === false,
+  JSON.stringify(afterRace),
+);
+await cdp.evaluate(`(window.__bridgeMock.releaseHeld(), true)`, { awaitPromise: false });
+await sleep(600);
 
 // ---- 仓库管理：编辑（`!= null` 就写语义）+ 删除的参数名是 id ----
 await cdp.evaluate(`(location.hash = '#/inventory/warehouses')`, { awaitPromise: false });

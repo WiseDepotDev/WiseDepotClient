@@ -74,7 +74,19 @@ export function toBridgeError(e: unknown): BridgeError {
 
 export const useResourceCacheStore = defineStore('wise.resources', () => {
   const entries = reactive(new Map<string, ResourceEntry<unknown>>());
-  const inflight = new Map<string, Promise<unknown>>();
+  /*
+   * 在途请求：键 → **请求 + 它绑定的那个缓存条目**。
+   *
+   * 为什么必须连条目一起记（这个 bug 真发生过）：单飞复用的判据原来只是"这个键上有在途请求吗"。
+   * 可失效（`invalidate`）是**删条目**——删完之后 `run()` 一看键上有在途请求，
+   * 就把那条**老请求**复用回来，而它的响应会写到**已经被删掉的旧条目**上：
+   * 屏幕上那个新条目永远空着，于是刚写完的列表变成"还没有商品"。
+   * 触发条件是"写操作正好撞上一次在途刷新"，15 秒一次的自动刷新让它从"罕见"变成"迟早"。
+   *
+   * 现在的判据是"键上那条在途请求，绑的还是**当前**这条目吗"：条目被删掉就不复用了，
+   * 新请求照发；老请求回来时写进孤儿条目（没人读），它的 `finally` 也不会误删新请求的记录。
+   */
+  const inflight = new Map<string, { readonly task: Promise<unknown>; readonly entry: ResourceEntry<unknown> }>();
   const inflightMutations = new Map<string, Promise<unknown>>();
 
   /**
@@ -153,8 +165,12 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
     const key = keyOf(method, params);
     const pending = inflight.get(key);
     if (pending) {
-      // 同一份数据的并发请求合并成一次 —— 这是"集中缓存"相对"每屏各拉一次"的第一处收益
-      return pending as Promise<T>;
+      // 同一份数据的并发请求合并成一次 —— 这是"集中缓存"相对"每屏各拉一次"的第一处收益。
+      // **但只在"这条在途请求绑的还是当前条目"时才算同一个请求**：
+      // 条目已被失效删掉的话，那条老请求的响应会写进孤儿条目，屏上就永远是空的。
+      if (pending.entry === (entries.get(key) as ResourceEntry<unknown> | undefined)) {
+        return pending.task as Promise<T>;
+      }
     }
 
     const bridge = useBridgeStore();
@@ -190,14 +206,14 @@ export const useResourceCacheStore = defineStore('wise.resources', () => {
          * 单飞没了，同一个键就会并发重复请求。反过来，孤儿若一个都不删，
          * `inflight` 里会留下一条永远不清理的记录，后面的 `run` 会一直复用它（再也刷不新）。
          */
-        if (inflight.get(key) === self.task) {
+        if (inflight.get(key)?.task === self.task) {
           inflight.delete(key);
         }
       }
     })();
 
     self.task = task as Promise<unknown>;
-    inflight.set(key, task as Promise<unknown>);
+    inflight.set(key, { task: task as Promise<unknown>, entry: entry as ResourceEntry<unknown> });
     return task;
   }
 
