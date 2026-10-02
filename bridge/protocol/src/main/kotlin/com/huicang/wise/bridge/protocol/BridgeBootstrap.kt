@@ -34,7 +34,24 @@ data class BridgeBootstrap(
     val protocol: Int = BridgeProtocol.VERSION,
     /** 本平台实际具备的能力 id 列表（见 [BridgeCapabilities]）。 */
     val capabilities: List<String> = emptyList(),
+    /**
+     * 本壳实际执行的上限（v4）。
+     *
+     * 为什么要下发而不是让客户端硬编码常量：客户端在**发之前**就能判断
+     * "这个 6MiB 的图片能不能走帧内"，而不是靠撞上限来学习 —— 后者在 v3 里表现为
+     * "明明只是发了张图，却收到一条 BRIDGE_FRAME_TOO_LARGE"。
+     */
+    val limits: BridgeLimits = BridgeLimits(),
 ) {
     /** 能力判定。UI 用它启用/隐藏功能，而不是判断 `platform == "desktop"`。 */
     fun supports(capability: String): Boolean = capability in capabilities
 }
+
+/** 线格式上限（字节）。默认值就是协议常量，壳只在确有理由时才收紧。 */
+@Serializable
+data class BridgeLimits(
+    /** 控制面正文上限（`req`/`res`/`err`/`evt`）。 */
+    val textMaxBytes: Int = BridgeProtocol.MAX_FRAME_BYTES,
+    /** 数据面（`bin`）正文上限。 */
+    val binMaxBytes: Int = BridgeProtocol.MAX_BIN_BYTES,
+)

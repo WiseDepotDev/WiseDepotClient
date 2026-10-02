@@ -1,8 +1,11 @@
 package com.huicang.wise.bridge.server
 
-import com.huicang.wise.bridge.protocol.BridgeCodec
+import com.huicang.wise.bridge.protocol.BridgeErrorCodes
 import com.huicang.wise.bridge.protocol.BridgeFrame
 import com.huicang.wise.bridge.protocol.BridgeProtocol
+import com.huicang.wise.bridge.protocol.BridgeWire
+import com.huicang.wise.bridge.protocol.WireRead
+import com.huicang.wise.bridge.protocol.WireReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -74,8 +77,15 @@ class PlainWebSocketServer(
     private val pingIntervalMs: Long = 20_000,
     /** 允许同时存在的连接数上限（超出直接关掉新来的，并留一条日志）。 */
     private val maxConnections: Int = 8,
-    /** 单帧硬上限（超过就直接断开，连错误帧都不写）。见 [FrameBudget]。 */
-    private val hardLimitBytes: Int = FrameBudget.HARD_LIMIT,
+    /**
+     * 单个 WebSocket 帧的字节上限（超过就直接断开，连错误帧都不写）。
+     *
+     * 取"最大合法消息 + 帧头 + 最大 id"：**消息**的结构上限由共用的
+     * [com.huicang.wise.bridge.protocol.WireReader] 按 kind 判（控制面 1MiB / 数据面 8MiB），
+     * 这里只管"别为一个声称 8MiB、实际 2GB 的帧先分配内存"。
+     */
+    private val hardLimitBytes: Int =
+        BridgeWire.HARD_BIN_BYTES + BridgeWire.HEADER_BYTES + BridgeWire.MAX_ID_BYTES,
 ) {
     private val clients: MutableSet<PlainConnection> = Collections.synchronizedSet(mutableSetOf())
     private val scope = CoroutineScope(SupervisorJob())
@@ -154,16 +164,18 @@ class PlainWebSocketServer(
         if (clients.isEmpty()) {
             return
         }
-        val text = BridgeCodec.encode(frame)
+        val bytes = BridgeWire.encode(frame)
         /*
          * **先快照、再出锁写。**
          *
          * 原先是在 `synchronized(clients)` 里逐个 `sendText`（内含 socket write + flush）：
          * 一个不读数据的客户端就能把整个广播拖住，`stop()`（同样要在锁里关连接）也跟着卡住 ——
          * 桥"关不掉"就是这么来的。锁内只允许做"取快照"这种 O(n) 且不阻塞的事。
+         *
+         * v4：编码只做**一次**，广播给 N 个连接的是同一份字节（v3 是每个连接各编码一遍）。
          */
         for (connection in snapshotClients()) {
-            connection.sendText(text)
+            connection.sendMessage(bytes)
         }
     }
 
@@ -218,11 +230,12 @@ class PlainWebSocketServer(
                 // 广播只在 token/origin 与 WebSocket 升级都通过之后才加入
                 clients.add(this)
 
-                val accumulator = FragmentAccumulator()
+                // v4：分片装配只有一份实现（BridgeWire 的 WireReader），两条传输共用它
+                val reader = WireReader()
                 while (!closed) {
                     val frame =
                         try {
-                            readFrame(input, accumulator)
+                            readFrame(input)
                         } catch (e: SocketTimeoutException) {
                             // 30 秒什么都没收到：保活线程会去 ping，这里直接判死（双保险）
                             BridgeLog.info("[bridge] 读超时（${idleTimeoutMs}ms），关闭 $peer")
@@ -232,7 +245,7 @@ class PlainWebSocketServer(
                         break
                     }
                     lastInboundAt = System.currentTimeMillis()
-                    dispatch(frame)
+                    dispatch(frame, reader)
                 }
             } catch (e: IOException) {
                 // 客户端断开是常态，不刷屏；但**不是**什么都不记 —— 其它 IOException 仍然要给线索
@@ -257,14 +270,43 @@ class PlainWebSocketServer(
          *  - ping → 回 pong（把 ping 的 payload 原样带回，RFC6455 §5.5.3）；
          *  - close → 结束。
          */
-        private fun dispatch(frame: WsFrame) {
+        private fun dispatch(
+            frame: WsFrame,
+            reader: WireReader,
+        ) {
             when (frame.opcode) {
-                OPCODE_TEXT ->
-                    callHandler.handleAsync(frame.text(), frame.byteLength, limiter, scope) { reply ->
-                        sendText(reply)
-                    }
+                OPCODE_BINARY, OPCODE_CONTINUATION -> {
+                    when (val read = reader.accept(frame.payload, frame.fin)) {
+                        is WireRead.NeedMore -> Unit
 
-                OPCODE_CONTINUATION -> Unit // 聚合逻辑已经在 readFrame 里处理完，不会走到这里
+                        is WireRead.Complete ->
+                            callHandler.handleAsync(read.message, limiter, scope) { reply ->
+                                sendMessage(BridgeWire.encode(reply))
+                            }
+
+                        is WireRead.OverLimit -> {
+                            if (!read.needsMore) {
+                                sendMessage(
+                                    BridgeWire.encode(
+                                        callHandler.errorFrame(
+                                            read.id,
+                                            BridgeErrorCodes.FRAME_TOO_LARGE,
+                                            "bridge.frameTooLarge",
+                                        ),
+                                    ),
+                                )
+                            }
+                            // 超结构上限：对方要么是坏的要么是恶意的，不再为它读下去
+                            close()
+                        }
+                    }
+                }
+
+                OPCODE_TEXT ->
+                    // v4 只走二进制帧。收到文本帧说明客户端与壳不是同一版协议 ——
+                    // 明确回一个码好过"看起来连上了但什么都不对"。
+                    sendMessage(BridgeWire.encode(callHandler.wireModeFrame("")))
+
                 OPCODE_PING -> sendFrame(OPCODE_PONG, frame.payload)
                 OPCODE_PONG -> Unit // 保活线程只关心 lastInboundAt，在读到帧时已经刷新
                 OPCODE_CLOSE -> close()
@@ -319,8 +361,10 @@ class PlainWebSocketServer(
                         405 -> "Method Not Allowed"
                         else -> "Bad Request"
                     }
-                val body = callHandler.unauthorizedFrame()
-                val bytes = body.toByteArray(Charsets.UTF_8)
+                // 握手在 HTTP 层被拒：这时**还没有任何帧**，所以回普通 JSON 错误体（与 Netty 侧同形）
+                val bytes =
+                    """{"code":"${BridgeErrorCodes.UNAUTHORIZED}","messageKey":"bridge.handshakeRejected"}"""
+                        .toByteArray(Charsets.UTF_8)
                 output.write(
                     ("HTTP/1.1 $code $status\r\n" +
                         "Content-Type: application/json; charset=utf-8\r\n" +
@@ -355,8 +399,9 @@ class PlainWebSocketServer(
                 ?.get(1)
                 ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }
 
-        fun sendText(text: String) {
-            sendFrame(OPCODE_TEXT, text.toByteArray(Charsets.UTF_8))
+        /** 发一条**已编码好的** v4 二进制消息（编码只做一次，广播时尤其重要）。 */
+        fun sendMessage(bytes: ByteArray) {
+            sendFrame(OPCODE_BINARY, bytes)
         }
 
         /** 保活用：空 payload 的 ping。浏览器会按规范自动回 pong。 */
@@ -409,60 +454,26 @@ class PlainWebSocketServer(
 
     // ------------------------------------------------------------ 帧编解码
 
-    /** 一帧（或聚合后的一条消息）。 */
+    /** 一个 WebSocket 帧（RFC6455 层面，不含任何桥协议语义）。 */
     private data class WsFrame(
         val opcode: Int,
         val payload: ByteArray,
-        /** 这条消息在**线上**的字节数（分片场景是各片之和）。 */
+        /** FIN：这是否为一条消息的最后一片（v4 由共用的 WireReader 按它做装配）。 */
+        val fin: Boolean,
+        /** 这一片在**线上**的字节数（脱掩码前）。 */
         val byteLength: Int,
-    ) {
-        fun text(): String = payload.toString(Charsets.UTF_8)
-    }
+    )
 
-    /**
-     * 分片累积器（RFC6455 §5.4）。
+    /*
+     * v3 这里有一份自写的 `FragmentAccumulator`：按**字符**累积文本、保留 id 嗅探前缀、
+     * 超过硬上限就断开。v4 把它删了 —— 分片装配改由
+     * `com.huicang.wise.bridge.protocol.WireReader` 统一负责（按 kind 选上限、保留帧头片段抠 id）。
      *
-     * 为什么要它：一条消息**允许**被拆成多帧（浏览器发大 payload 时就会）。
-     * 原先的实现在第一条分片上就当成完整文本帧去解析 —— 结果是回一句
-     * `bridge.notARequestFrame`（"这不是请求帧"），而真正原因是"它还没发完"。
-     * 更糟的是它在 Netty 与自写传输上**表现不同**（Netty 侧由协议处理器兜着），
-     * 于是同一个大请求在手机上能用、在电脑上不能用。
-     *
-     * 两条硬边界：
-     *  - 超过 [FrameBudget.PROTOCOL_LIMIT] 之后**不再累积正文**，只留前 [ID_SNIFF_BYTES] 个字符
-     *    （够抠出 `id` 好回一条对得上号的错误），并继续把字节数记准；
-     *  - 超过 [FrameBudget.HARD_LIMIT] 直接当"不可信对端"断开。
+     * 这一处的收益不只是"少一份代码"：v3 那两份实现已经真实漂移过一次
+     * （同一个二进制帧在 Netty 侧回结构化错误、在这里被静默丢弃）。
+     * 收口之后，"两条传输行为必须逐条一致"从人工对照变成结构保证。
      */
-    private class FragmentAccumulator {
-        private val head = StringBuilder()
-        private var bytes = 0
 
-        /** 追加一片；返回是否已经超过硬上限（调用方据此断开）。 */
-        fun append(
-            text: String,
-            byteLength: Int,
-        ): Boolean {
-            bytes += byteLength
-            if (bytes > FrameBudget.HARD_LIMIT) {
-                return true
-            }
-            // 只保留消息开头的一段用于抠 `id`；**取"还能装下的那一段"**，
-            // 而不是"整片装不下就一片都不装"（第一片本身就可能超长，那样 id 会丢）。
-            val room = ID_SNIFF_BYTES - head.length
-            if (room > 0) {
-                head.append(text, 0, minOf(room, text.length))
-            }
-            return false
-        }
-
-        /** 结束一条消息：返回 (用于解析或抠 id 的文本, 线上字节数)。 */
-        fun finish(): Pair<String, Int> = head.toString() to bytes
-
-        fun reset() {
-            head.setLength(0)
-            bytes = 0
-        }
-    }
 
     /**
      * 读一帧。客户端发来的帧**必须**带掩码（RFC6455 §5.1），这里照规矩解掩码。
@@ -476,10 +487,7 @@ class PlainWebSocketServer(
      *
      * @return null 表示对端正常关闭或流结束
      */
-    private fun readFrame(
-        input: InputStream,
-        accumulator: FragmentAccumulator,
-    ): WsFrame? {
+    private fun readFrame(input: InputStream): WsFrame? {
         val b0 = readByte(input) ?: return null
         val b1 = readByte(input) ?: return null
         val fin = (b0 and 0x80) != 0
@@ -511,21 +519,13 @@ class PlainWebSocketServer(
         val isControlFrame = opcode >= 0x8
         if (isControlFrame) {
             // 控制帧不允许分片（RFC6455 §5.5），也不会参与累积
-            return WsFrame(opcode, payload, length.toInt())
+            return WsFrame(opcode, payload, fin, length.toInt())
         }
 
-        // 文本/续帧：累积到 FIN 再交出去
-        val overHardLimit = accumulator.append(payload.toString(Charsets.UTF_8), length.toInt())
-        if (overHardLimit) {
-            throw IOException("fragmented message exceeds hard limit")
-        }
-        if (!fin) {
-            // 还没发完：本次不产生"可分发"的帧
-            return WsFrame(OPCODE_CONTINUATION, EMPTY_PAYLOAD, 0)
-        }
-        val (text, byteLength) = accumulator.finish()
-        accumulator.reset()
-        return WsFrame(if (opcode == OPCODE_CONTINUATION) OPCODE_TEXT else opcode, text.toByteArray(Charsets.UTF_8), byteLength)
+        // v4：传输层不再做任何聚合或文本解码 —— 原样把这一片交给共用的 WireReader。
+        // 这也顺手修掉一个真实缺陷：v3 把**二进制**帧当文本累积（UTF-8 解码后再按 TEXT 分发），
+        // 于同一个二进制帧在 Netty 侧回结构化错误、在这里被静默丢弃。
+        return WsFrame(opcode, payload, fin, length.toInt())
     }
 
     /** 读一个字节；EOF 返回 null（**不要**把它当 0，旧版就是这么坏的）。 */
@@ -576,6 +576,7 @@ class PlainWebSocketServer(
     private companion object {
         const val OPCODE_CONTINUATION = 0x0
         const val OPCODE_TEXT = 0x1
+        const val OPCODE_BINARY = 0x2
         const val OPCODE_CLOSE = 0x8
         const val OPCODE_PING = 0x9
         const val OPCODE_PONG = 0xA
@@ -583,6 +584,7 @@ class PlainWebSocketServer(
         /** 超大消息只留这么长的前缀用于抠 `id`（够用且不占内存）。 */
         const val ID_SNIFF_BYTES = 4096
 
+        /** 保活/控制用：空 payload。 */
         val EMPTY_PAYLOAD = ByteArray(0)
 
         const val WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"

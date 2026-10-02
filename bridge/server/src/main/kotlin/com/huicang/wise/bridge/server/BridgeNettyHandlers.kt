@@ -1,10 +1,11 @@
 package com.huicang.wise.bridge.server
 
-import com.huicang.wise.bridge.protocol.BridgeCodec
-import com.huicang.wise.bridge.protocol.BridgeError
 import com.huicang.wise.bridge.protocol.BridgeErrorCodes
+import com.huicang.wise.bridge.protocol.BridgeFrame
 import com.huicang.wise.bridge.protocol.BridgeProtocol
-import com.huicang.wise.bridge.protocol.ErrFrame
+import com.huicang.wise.bridge.protocol.BridgeWire
+import com.huicang.wise.bridge.protocol.WireRead
+import com.huicang.wise.bridge.protocol.WireReader
 import io.netty.buffer.Unpooled
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
@@ -99,10 +100,9 @@ class BridgeAuthHandler(
         ctx: ChannelHandlerContext,
         status: HttpResponseStatus,
     ) {
-        val body =
-            BridgeCodec.encode(
-                ErrFrame(id = "", error = BridgeError(code = BridgeErrorCodes.UNAUTHORIZED, messageKey = "bridge.handshakeRejected")),
-            )
+        // 握手在 HTTP 层就被拒了 —— 这时**还没有任何帧**，所以回的是普通 JSON 错误体，
+        // 不是 v4 帧（浏览器的 WebSocket API 不会把它交给 JS，只有工具/测试会看它）。
+        val body = """{"code":"${BridgeErrorCodes.UNAUTHORIZED}","messageKey":"bridge.handshakeRejected"}"""
         val content = Unpooled.copiedBuffer(body, CharsetUtil.UTF_8)
         val response =
             DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content).apply {
@@ -137,9 +137,8 @@ class BridgeFrameHandler(
     /** 分发用的协程作用域：**由 server 统一持有并在 stop() 时取消**（以前是每连接一个、从不取消）。 */
     private val scope: CoroutineScope,
 ) : SimpleChannelInboundHandler<WebSocketFrame>() {
-    /** 分片消息的累积缓冲：只在真的出现分片时才分配。 */
-    private var fragments: StringBuilder? = null
-    private var fragmentBytes = 0
+    /** v4：分片装配由共用的 [WireReader] 负责（两条传输同一份实现，不再各写一遍）。 */
+    private val reader = WireReader()
 
     override fun channelActive(ctx: ChannelHandlerContext) {
         // 注意：这一行只证明 **TCP accept 成功**，不证明 WebSocket 握手完成 ——
@@ -176,8 +175,7 @@ class BridgeFrameHandler(
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
         channels.remove(ctx.channel())
-        fragments = null
-        fragmentBytes = 0
+        reader.reset()
         super.channelInactive(ctx)
     }
 
@@ -195,77 +193,42 @@ class BridgeFrameHandler(
 
             frame is CloseWebSocketFrame -> ctx.close()
 
-            frame is TextWebSocketFrame || frame is ContinuationWebSocketFrame -> {
-                val text = frame.content().toString(CharsetUtil.UTF_8)
-                val bytes = frame.content().readableBytes()
-                if (frame.isFinalFragment) {
-                    if (fragments == null && frame is TextWebSocketFrame) {
-                        // 常见路径：单帧文本，零额外分配
-                        callHandler.handleAsync(text, bytes, rateLimiter, scope) { reply -> sendText(ctx, reply) }
-                    } else {
-                        appendFragment(text, bytes)
-                        val (message, total) = finishFragments()
-                        callHandler.handleAsync(message, total, rateLimiter, scope) { reply -> sendText(ctx, reply) }
-                    }
-                } else {
-                    appendFragment(text, bytes)
-                }
-            }
+            frame is TextWebSocketFrame ->
+                // v4 只走二进制帧。收到文本帧说明客户端与壳不是同一版协议 ——
+                // 明确回一个码，好过"看起来连上了但什么都不对"。
+                sendFrame(ctx, callHandler.wireModeFrame(""))
 
-            frame is BinaryWebSocketFrame -> {
-                // 桥只走文本帧；二进制一律当非法输入（不静默丢弃：给一条能对上号的错误）
-                if (frame.isFinalFragment) {
-                    callHandler.handleAsync(
-                        "",
-                        frame.content().readableBytes(),
-                        rateLimiter,
-                        scope,
-                    ) { reply -> sendText(ctx, reply) }
+            frame is BinaryWebSocketFrame || frame is ContinuationWebSocketFrame -> {
+                val bytes = ByteArray(frame.content().readableBytes())
+                frame.content().getBytes(frame.content().readerIndex(), bytes)
+                when (val read = reader.accept(bytes, frame.isFinalFragment)) {
+                    is WireRead.NeedMore -> Unit
+
+                    is WireRead.Complete ->
+                        callHandler.handleAsync(read.message, rateLimiter, scope) { reply ->
+                            sendFrame(ctx, reply)
+                        }
+
+                    is WireRead.OverLimit -> {
+                        if (!read.needsMore) {
+                            sendFrame(
+                                ctx,
+                                callHandler.errorFrame(
+                                    read.id,
+                                    BridgeErrorCodes.FRAME_TOO_LARGE,
+                                    "bridge.frameTooLarge",
+                                ),
+                            )
+                        }
+                        // 超结构上限：对方要么是坏的要么是恶意的，不值得继续读
+                        channels.remove(ctx.channel())
+                        ctx.close()
+                    }
                 }
             }
 
             else -> Unit
         }
-    }
-
-    /**
-     * 追加一个分片。
-     *
-     * 超过 [FrameBudget.PROTOCOL_LIMIT] 后**不再累积正文**（只留前若干字符用于抠 `id`），
-     * 但字节数照记 —— 最终由 [BridgeCallHandler] 回一条 `BRIDGE_FRAME_TOO_LARGE`，
-     * 与自写传输的行为完全一致。超过 [FrameBudget.HARD_LIMIT] 直接断开。
-     */
-    private fun appendFragment(
-        text: String,
-        byteLength: Int,
-    ) {
-        fragmentBytes += byteLength
-        if (fragmentBytes > FrameBudget.HARD_LIMIT) {
-            fragments = null
-            throw io.netty.handler.codec.TooLongFrameException("fragmented message exceeds hard limit")
-        }
-        val buffer = fragments ?: StringBuilder().also { fragments = it }
-        /*
-         * **只保留消息开头的若干个字符**（用于抠 `id` 好回一条对得上号的错误）。
-         *
-         * 注意这里取的是"还能装下的那一段"，而不是"整片都装不下就一片都不装"：
-         * 第一片本身就可能大于这个上限（客户端分片大小不确定），
-         * 那样 buffer 会一直是空的，错误帧的 `id` 就成了空串 —— 客户端匹配不到自己的请求，
-         * 只能等到超时。实测就是这么红的。
-         */
-        val room = ID_SNIFF_CHARS - buffer.length
-        if (room > 0) {
-            buffer.append(text, 0, minOf(room, text.length))
-        }
-    }
-
-    private fun finishFragments(): Pair<String, Int> {
-        val buffer = fragments
-        val text = buffer?.toString() ?: ""
-        val total = fragmentBytes
-        fragments = null
-        fragmentBytes = 0
-        return text to total
     }
 
     override fun exceptionCaught(
@@ -283,18 +246,14 @@ class BridgeFrameHandler(
         ctx.close()
     }
 
-    private fun sendText(
+    /** 发一帧：**编码只在这里发生**（传输层不自己拼线格式，v3 的漂移就是从这里开始的）。 */
+    private fun sendFrame(
         ctx: ChannelHandlerContext,
-        text: String,
+        frame: BridgeFrame,
     ) {
         if (!ctx.channel().isActive) {
             return
         }
-        ctx.writeAndFlush(TextWebSocketFrame(text))
-    }
-
-    private companion object {
-        /** 超大消息只留这么长的前缀用于抠 `id`（与自写传输取同一个数量级）。 */
-        const val ID_SNIFF_CHARS = 4096
+        ctx.writeAndFlush(BinaryWebSocketFrame(Unpooled.wrappedBuffer(BridgeWire.encode(frame))))
     }
 }

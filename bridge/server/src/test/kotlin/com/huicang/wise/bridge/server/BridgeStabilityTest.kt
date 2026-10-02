@@ -132,12 +132,12 @@ class BridgeStabilityTest {
             TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
                 // 受契约保护的方法：随便挑一条 AUTH 失败会触发续期路径的
                 client.send(reqFrame("r1", "dashboard.summary"))
-                val reply = client.awaitText()
-                assertTrue(reply!!.contains("AUTH-0001"), "原失败要如实回给界面，实得 $reply")
+                val reply = client.awaitFrame()
+                assertEquals("AUTH-0001", errCode(reply), "原失败要如实回给界面")
                 assertNotNull(tokens.accessToken(), "网络类续期失败不得清掉令牌")
                 assertEquals("refresh-1", tokens.refreshToken())
                 // 也不该广播 session.expired（那是"回登录屏"的信号）
-                assertNull(client.awaitText(600), "不该推送 session.expired")
+                assertNull(client.awaitFrame(600), "不该推送 session.expired")
             }
         } finally {
             srv.stop()
@@ -168,18 +168,27 @@ class BridgeStabilityTest {
                  * `session.expired` 是分发过程中广播的，而 err 帧是分发返回后才编码回写的 ——
                  * 实测事件会先到。断言"顺序"会把一个正确的实现判红（这条一开始就是这么红的）。
                  */
-                val seen = mutableListOf<String>()
+                val seen = mutableListOf<com.huicang.wise.bridge.protocol.BridgeFrame>()
                 val deadline = System.currentTimeMillis() + 5_000
                 while (System.currentTimeMillis() < deadline) {
-                    val frame = client.awaitText(500) ?: break
+                    val frame = client.awaitFrame(500) ?: break
                     seen += frame
-                    if (seen.any { it.contains("AUTH-0001") } && seen.any { it.contains(SessionManager.EVENT_SESSION_EXPIRED) }) {
+                    val hasErr = seen.any { errCode(it) == "AUTH-0001" }
+                    val hasEvt =
+                        seen.any {
+                            (it as? com.huicang.wise.bridge.protocol.EvtFrame)?.topic ==
+                                SessionManager.EVENT_SESSION_EXPIRED
+                        }
+                    if (hasErr && hasEvt) {
                         break
                     }
                 }
-                assertTrue(seen.any { it.contains("AUTH-0001") }, "原失败要如实回给界面，实得 $seen")
+                assertTrue(seen.any { errCode(it) == "AUTH-0001" }, "原失败要如实回给界面，实得 $seen")
                 assertTrue(
-                    seen.any { it.contains(SessionManager.EVENT_SESSION_EXPIRED) },
+                    seen.any {
+                        (it as? com.huicang.wise.bridge.protocol.EvtFrame)?.topic ==
+                            SessionManager.EVENT_SESSION_EXPIRED
+                    },
                     "凭据被拒必须广播 session.expired，实得 $seen",
                 )
                 assertNull(tokens.accessToken(), "凭据被拒要清令牌")
@@ -203,13 +212,13 @@ class BridgeStabilityTest {
         try {
             TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
                 client.send(reqFrame("k1", "dashboard.summary"))
-                assertTrue(client.awaitText()!!.contains("\"type\":\"res\""))
+                assertTrue(client.awaitFrame() is com.huicang.wise.bridge.protocol.ResFrame)
                 for (i in 2..4) {
                     client.send(reqFrame("k$i", "dashboard.summary"))
                 }
-                val rejects = (1..3).map { client.awaitText(2_000) }
+                val rejects = (1..3).map { client.awaitFrame(2_000) }
                 assertTrue(
-                    rejects.all { it != null && it.contains(BridgeErrorCodes.RATE_LIMITED) },
+                    rejects.all { errCode(it) == BridgeErrorCodes.RATE_LIMITED },
                     "每一帧都要拿到明确拒绝，实得 $rejects",
                 )
                 assertEquals(1, backend.calls.size, "被限流的帧不得打到后端")
@@ -228,11 +237,12 @@ class BridgeStabilityTest {
         try {
             TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
                 client.send(reqFrame("a1", "dashboard.summary"))
-                client.awaitText()
+                client.awaitFrame()
                 client.send(reqFrame("a2", "bridge.metrics"))
-                val snapshot = client.awaitText()
-                assertNotNull(snapshot)
-                assertTrue(snapshot!!.contains("\"methods\""), "要带方法表，实得 ${snapshot.take(160)}")
+                val snapshotText = (client.awaitFrame() as? com.huicang.wise.bridge.protocol.ResFrame)?.data?.toString()
+                assertNotNull(snapshotText, "bridge.metrics 要有应答")
+                val snapshot: String = snapshotText!!
+                assertTrue(snapshot.contains("\"methods\""), "要带方法表，实得 ${snapshot.take(160)}")
                 assertTrue(snapshot.contains("dashboard.summary"), "被调过的方法要出现在指标里")
                 assertTrue(snapshot.contains("\"count\":1"), "次数要对，实得 ${snapshot.take(200)}")
             }
@@ -263,9 +273,10 @@ class BridgeStabilityTest {
         try {
             TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
                 client.send(reqFrame("s1", "dashboard.summary"))
-                val reply = client.awaitText()
-                assertFalse(reply!!.contains("a-token"), "令牌不得下发到 Web，实得 $reply")
-                assertFalse(reply.contains("r-token"), "刷新令牌不得下发到 Web")
+                val reply = client.awaitFrame()
+                val payload = (reply as? com.huicang.wise.bridge.protocol.ResFrame)?.data?.toString() ?: ""
+                assertFalse(payload.contains("a-token"), "令牌不得下发到 Web，实得 $payload")
+                assertFalse(payload.contains("r-token"), "刷新令牌不得下发到 Web")
                 assertEquals("a-token", tokens.accessToken())
                 assertEquals("r-token", tokens.refreshToken())
             }

@@ -5,20 +5,27 @@ import com.huicang.wise.bridge.backend.BackendPort
 import com.huicang.wise.bridge.backend.BackendResult
 import com.huicang.wise.bridge.backend.TokenStore
 import com.huicang.wise.bridge.capability.PlatformPort
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
+import com.huicang.wise.bridge.protocol.BridgeFrame
+import com.huicang.wise.bridge.protocol.BridgeWire
+import com.huicang.wise.bridge.protocol.ErrFrame
+import com.huicang.wise.bridge.protocol.ReqFrame
+import com.huicang.wise.bridge.protocol.ResFrame
+import com.huicang.wise.bridge.protocol.WireDecode
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.WebSocket
+import java.nio.ByteBuffer
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * 桥的测试支撑件（`:bridge:server` 之前**一个测试都没有**，这份是那套底座）。
+ * 桥的测试支撑件。
  *
  * ## 为什么要"假后端 + 真 socket"这一层
  *
@@ -29,6 +36,13 @@ import java.util.concurrent.TimeUnit
  *  · [FakeBackend]：把"后端怎么答"变成测试的输入（[BackendPort] 是桥里唯一出口）；
  *  · [TestWsClient]：用 JDK 自带的 `HttpClient` WebSocket 当客户端 —— 它**会自动回 pong**，
  *    与浏览器行为一致（这正是"服务端主动 ping 探活"能否成立的前提，所以不能用裸 TCP 假装）。
+ *
+ * ## v4：测试客户端说的是**二进制帧**
+ *
+ * v3 时这里是 `onText` + 字符串队列；v4 的线上是二进制消息（[BridgeWire]），
+ * 所以客户端收 `onBinary` 并累积分片、按共用的 `BridgeWire.decode` 解成**逻辑帧**。
+ * 测试因此可以直接断言类型（`assertIs<ErrFrame>`），不必再对 JSON 文本做子串匹配 ——
+ * 那正是"线格式一改、断言全废"的根源。
  */
 class FakeBackend(
     /** 每一次调用的记录，断言"桥发了什么"用。 */
@@ -87,11 +101,12 @@ class FakePlatform(
  */
 class TestWsClient(
     uri: String,
-    /** 缺省在 [onText] 里自动 `request(1)`，让流不因为没请求而停住。 */
-    private val onTextHook: ((String) -> Unit)? = null,
+    /** 每收到一帧（已解码）时回调，便于"边收边记"的断言。 */
+    private val onFrameHook: ((BridgeFrame) -> Unit)? = null,
 ) : AutoCloseable {
-    private val texts = LinkedBlockingQueue<String>()
+    private val frames = LinkedBlockingQueue<BridgeFrame>()
     private val closedLatch = CountDownLatch(1)
+    private val pending = ByteArrayOutputStream()
 
     /** 对端关闭时的状态码（-1 表示没拿到）。 */
     @Volatile var closeCode: Int = -1
@@ -102,14 +117,22 @@ class TestWsClient(
     init {
         val listener =
             object : WebSocket.Listener {
-                override fun onText(
+                override fun onBinary(
                     webSocket: WebSocket,
-                    data: CharSequence,
+                    data: ByteBuffer,
                     last: Boolean,
                 ): CompletionStage<*>? {
-                    val text = data.toString()
-                    texts.add(text)
-                    onTextHook?.invoke(text)
+                    val chunk = ByteArray(data.remaining())
+                    data.get(chunk)
+                    synchronized(pending) { pending.write(chunk) }
+                    if (last) {
+                        val bytes = synchronized(pending) { pending.toByteArray().also { pending.reset() } }
+                        // 解不出来的入站消息**不入队**：那是"服务端发了非法帧"，由断言自己炸而不是这里静默补一个对象
+                        (BridgeWire.decode(bytes) as? WireDecode.Ok)?.let {
+                            frames.add(it.frame)
+                            onFrameHook?.invoke(it.frame)
+                        }
+                    }
                     webSocket.request(1)
                     return null
                 }
@@ -140,16 +163,27 @@ class TestWsClient(
                 .join()
     }
 
-    fun send(text: String) {
+    /** 发一帧（按 v4 线格式编码）。 */
+    fun send(frame: BridgeFrame) {
+        sendRaw(BridgeWire.encode(frame))
+    }
+
+    /** 发一段原始字节 —— 用于"结构不合法的帧"这类用例。 */
+    fun sendRaw(bytes: ByteArray) {
+        socket.sendBinary(ByteBuffer.wrap(bytes), true).orTimeout(10, TimeUnit.SECONDS).join()
+    }
+
+    /** 发一个**文本**帧：v4 只走二进制，这条路径专门用来验收 `BRIDGE_WIRE_MODE`。 */
+    fun sendTextRaw(text: String) {
         socket.sendText(text, true).orTimeout(10, TimeUnit.SECONDS).join()
     }
 
-    /** 读一帧文本；超时返回 null（不抛，方便断言"什么都不该来"）。 */
-    fun awaitText(timeoutMs: Long = 5_000): String? = texts.poll(timeoutMs, TimeUnit.MILLISECONDS)
+    /** 读一帧；超时返回 null（不抛，方便断言"什么都不该来"）。 */
+    fun awaitFrame(timeoutMs: Long = 5_000): BridgeFrame? = frames.poll(timeoutMs, TimeUnit.MILLISECONDS)
 
     /** 把已收到的帧全部取走（用于"排空"再断言后续）。 */
     fun drain() {
-        texts.clear()
+        frames.clear()
     }
 
     /** 等到对端关闭。 */
@@ -158,7 +192,7 @@ class TestWsClient(
     /** 主动发一个 ping（验服务端的 pong 路径）。 */
     fun ping() {
         // JDK 的签名收 ByteBuffer（Kotlin 里看到的是平台类型），给一个空 payload 就够
-        socket.sendPing(java.nio.ByteBuffer.allocate(0)).orTimeout(5, TimeUnit.SECONDS).join()
+        socket.sendPing(ByteBuffer.allocate(0)).orTimeout(5, TimeUnit.SECONDS).join()
     }
 
     override fun close() {
@@ -167,40 +201,25 @@ class TestWsClient(
     }
 }
 
-/** 组装一句请求帧文本（测试里到处要用，集中一处便于跟着协议改）。 */
+/** 组装一条请求帧（测试里到处要用，集中一处便于跟着协议改）。 */
 fun reqFrame(
     id: String,
     method: String,
     params: JsonElement? = null,
-    version: Int = 3,
-): String =
-    buildJsonObject {
-        put("v", JsonPrimitive(version))
-        put("type", JsonPrimitive("req"))
-        put("id", JsonPrimitive(id))
-        put("method", JsonPrimitive(method))
-        if (params != null) {
-            put("params", params)
-        }
-    }.toString()
+): BridgeFrame = ReqFrame(id = id, method = method, params = params)
 
-/** 从响应帧里抠出 `id` / `code`，避免每个断言都做一遍 JSON 解析样板。 */
-fun frameField(
-    text: String?,
-    field: String,
-): String? {
-    if (text == null) {
-        return null
+/** 响应/错误帧里的 id（每一处断言都要它，省得各写一遍 `when`）。 */
+fun frameId(frame: BridgeFrame?): String? =
+    when (frame) {
+        is ReqFrame -> frame.id
+        is ResFrame -> frame.id
+        is ErrFrame -> frame.id
+        null -> null
+        else -> null
     }
-    val marker = "\"$field\":\""
-    val from = text.indexOf(marker)
-    if (from < 0) {
-        return null
-    }
-    val start = from + marker.length
-    val end = text.indexOf('"', start)
-    return if (end > start) text.substring(start, end) else null
-}
+
+/** 错误码（非错误帧返回 null，让断言自己炸）。 */
+fun errCode(frame: BridgeFrame?): String? = (frame as? ErrFrame)?.error?.code
 
 /** 常用：`{"a":1}` 这样的参数对象。 */
 fun jsonParams(vararg pairs: Pair<String, Any>): JsonObject =

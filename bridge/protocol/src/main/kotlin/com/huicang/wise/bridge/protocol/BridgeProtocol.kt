@@ -9,8 +9,14 @@ package com.huicang.wise.bridge.protocol
  * 见 `docs/protocol.md`。
  */
 object BridgeProtocol {
-    /** 协议版本。任何不兼容改动都要 +1，并在 docs/protocol.md 里记变更。 */
-    const val VERSION: Int = 3
+    /**
+     * 协议版本。任何不兼容改动都要 +1，并在 docs/protocol.md 里记变更。
+     *
+     * v4：**全二进制线格式**（12 字节帧头，见 [BridgeWire]）。v3 的文本帧 JSON 信封不再使用，
+     * 收到文本帧一律回 [BridgeErrorCodes.WIRE_MODE] 而不是静默兼容 —— 半兼容的"看起来能用"
+     * 比明确失败更难查（与 `__bridge.json` 版本不符就报错是同一条纪律）。
+     */
+    const val VERSION: Int = 4
 
     /** WebSocket 握手路径（宿主绑定在 loopback 的临时端口上）。 */
     const val HANDSHAKE_PATH: String = "/bridge"
@@ -29,12 +35,25 @@ object BridgeProtocol {
     const val BOOTSTRAP_PATH: String = "/__bridge.json"
 
     /**
-     * 单帧上限 256KB。
+     * **控制面**正文上限 256KB（`req`/`res`/`err`/`evt`）。
      *
-     * 超过它的数据（照片、PDF、导出件、录像）一律走带外 `file.*` / `oss.*` 方法换取
+     * 超过它的数据（录像、大导出件、PDF）一律走带外 `file.*` / `oss.*` 方法换取
      * 一次性 URL，用普通 HTTP 取，避免把 WS 帧撑大（背压与内存都在这里失控）。
+     * 中等的二进制对象（照片、截图、验证码原图）走数据面 [MAX_BIN_BYTES]。
      */
     const val MAX_FRAME_BYTES: Int = 256 * 1024
+
+    /**
+     * **数据面**（`bin`）正文上限 8MiB。
+     *
+     * 为什么单开一个更大的上限、而不是把 256KB 抬上去：控制面是**每次交互都走**的通道，
+     * 它的上限要小到"失控的页面撑不爆内存"；而二进制对象是**偶发**的，
+     * 用同一个上限会逼着每个中等对象都去走带外 URL（多一条网络路径、多一套失效与鉴权语义）。
+     *
+     * 上限**由 `__bridge.json` 的 `limits` 下发**：客户端在**发之前**就知道能不能发，
+     * 不用靠撞上限来学习。
+     */
+    const val MAX_BIN_BYTES: Int = 8 * 1024 * 1024
 
     /** 进度类事件的最低间隔，防止上传/导出把 UI 刷爆。 */
     const val EVENT_MIN_INTERVAL_MS: Long = 100
@@ -49,6 +68,15 @@ object BridgeProtocol {
 object BridgeErrorCodes {
     /** 方法不在注册表白名单内。桥**不是**通用 HTTP 透传，这是安全红线。 */
     const val METHOD_UNKNOWN: String = "BRIDGE_METHOD_UNKNOWN"
+
+    /**
+     * 线格式不认识（v3 的文本帧、帧头 magic/版本不对、未知 kind/flags、非 0 的扩展头…）。
+     *
+     * 单列一个码而不是复用 `PARAMS_INVALID`：这两件事的**处理人不同** ——
+     * 参数错是调用方写错了业务参数；线格式错是**客户端与壳不是同一版协议**，
+     * 用户和开发者需要看到的是"重新装一次/换回匹配的版本"，而不是"参数不合法"。
+     */
+    const val WIRE_MODE: String = "BRIDGE_WIRE_MODE"
 
     /** 参数未通过 schema 校验。 */
     const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"

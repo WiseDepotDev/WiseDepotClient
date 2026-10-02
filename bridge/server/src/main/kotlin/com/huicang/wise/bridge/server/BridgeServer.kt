@@ -4,10 +4,11 @@ import com.huicang.wise.bridge.backend.BackendPort
 import com.huicang.wise.bridge.backend.TokenStore
 import com.huicang.wise.bridge.capability.LocalMethodPort
 import com.huicang.wise.bridge.capability.PlatformPort
-import com.huicang.wise.bridge.protocol.BridgeCodec
 import com.huicang.wise.bridge.protocol.BridgeProtocol
+import com.huicang.wise.bridge.protocol.BridgeWire
 import com.huicang.wise.bridge.protocol.EvtFrame
 import io.netty.bootstrap.ServerBootstrap
+import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.ChannelOption
@@ -19,7 +20,7 @@ import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.handler.codec.http.HttpObjectAggregator
 import io.netty.handler.codec.http.HttpServerCodec
-import io.netty.handler.codec.http.websocketx.TextWebSocketFrame
+import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler
 import io.netty.handler.timeout.IdleStateHandler
 import io.netty.util.concurrent.GlobalEventExecutor
@@ -206,16 +207,17 @@ class BridgeServer(
                                     /*
                                      * 第四个参数是**解码器**的单帧上限。
                                      *
-                                     * 这里刻意给到 FrameBudget.HARD_LIMIT（协议上限的 4 倍），而不是协议上限本身：
-                                     * 协议上限要由 BridgeCallHandler 判定并回一条 `BRIDGE_FRAME_TOO_LARGE`，
-                                     * 让界面能说清"这条请求太大了"；如果交给解码器拒，客户端只会看到
+                                     * v4：给到"最大合法帧"（8MiB 数据面正文 + 帧头 + 最大 id），
+                                     * 而不是**消息**上限 —— 消息层的结构上限（控制面 1MiB / 数据面 8MiB）
+                                     * 由共用的 WireReader 按 kind 判，超了回一条带 id 的
+                                     * `BRIDGE_FRAME_TOO_LARGE`；交给解码器拒的话，客户端只会看到
                                      * "连接突然断了"（1009），与自写传输的行为也不一致。
                                      */
                                     WebSocketServerProtocolHandler(
                                         BridgeProtocol.HANDSHAKE_PATH,
                                         null,
                                         true,
-                                        FrameBudget.HARD_LIMIT,
+                                        FrameBudget.MAX_FRAME_ON_WIRE,
                                     ),
                                 )
                                 // 读空闲：对端进程被杀（不发 FIN）时 TCP 会一直"看起来还在"，
@@ -260,9 +262,9 @@ class BridgeServer(
         if (channels.isEmpty()) {
             return
         }
-        // 同一个 TextWebSocketFrame 写给多个 channel 是安全的：
+        // 同一个 BinaryWebSocketFrame 写给多个 channel 是安全的：
         // DefaultChannelGroup 内部会对引用计数消息做 retainedDuplicate/retain（netty-transport 4.1.115 实测确认）。
-        channels.writeAndFlush(TextWebSocketFrame(BridgeCodec.encode(frame)))
+        channels.writeAndFlush(BinaryWebSocketFrame(Unpooled.wrappedBuffer(BridgeWire.encode(frame))))
     }
 
     /**
