@@ -133,15 +133,51 @@ function domainActive(id: DomainId): boolean {
   return !isHome.value && id === currentDomainId.value;
 }
 
+/**
+ * 内容区的重挂载计数器。
+ *
+ * 为什么需要它：内容换不换**只**由 `<RouterView :key="route.fullPath">` 决定，
+ * 而当一次导航**没有真的换掉 location** 时（`router.push` 到同一 location 会被 vue-router
+ * 静默忽略；本文件 `hasHistoryBack` 的注释里已记录过同一类坑："点返回什么都不发生"），
+ * 界面就会**静静地停在上一页** —— 而且连加载遮罩都不会出现，
+ * 因为遮罩只认 `useResource.loading`，而 `loading` 只表示"这个键从没有过数据"。
+ *
+ * 所以左侧导航每次点击都要保证"**看得见变化**"：location 没变就显式重挂载一次。
+ */
+const remountTick = ref(0);
+
 function goLeaf(path: string): void {
   mobileDrawerOpen.value = false;
-  void router.push(path);
+  navigateVisible(path);
 }
 
 function goDomain(id: DomainId): void {
   const first = domainOf(id).children[0];
   if (first) {
-    void router.push(first.path);
+    navigateVisible(first.path);
+  }
+}
+
+/**
+ * 导航一次，并**保证界面上看得见变化**。
+ *
+ * 两种"点了没反应"的成因都在这里兜住：
+ *  1. 目标就是当前 location（`push` 被静默忽略）→ 直接重挂载当前屏，回到它的首态；
+ *  2. 其他原因导致 `fullPath` 没变（守卫重定向、同一路由不同参数被合并…）→ `await` 之后
+ *     校验一次，确实没变再重挂载，并记一条日志 —— 下次复现时这条日志就是证据。
+ */
+async function navigateVisible(path: string): Promise<void> {
+  const before = router.currentRoute.value.fullPath;
+  if (router.currentRoute.value.path === path) {
+    remountTick.value += 1;
+    return;
+  }
+  await router.push(path);
+  const after = router.currentRoute.value.fullPath;
+  if (after === before) {
+    // 目标与当前不同、但导航后没变 —— 这是**别的**原因（守卫/同路由合并），必须留下线索
+    console.warn('[nav] 导航后 location 未变化，强制重挂载：', { target: path, before, after });
+    remountTick.value += 1;
   }
 }
 
@@ -395,7 +431,8 @@ onBeforeUnmount(() => {
            详情页复用时组件会带着上一条的数据（"查 NOPE-999 却还显示上一条的记录"），
            而 store 层的缓存键变化不保证模板里的派生值全部重算。整树重挂是最省心的正确做法。 -->
       <main class="w-content">
-        <RouterView :key="route.fullPath" />
+        <!-- `remountTick` 见 script 里的说明：导航没换掉 location 时靠它强制重挂载 -->
+        <RouterView :key="route.fullPath + '#' + remountTick" />
       </main>
 
       <!--
