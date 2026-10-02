@@ -343,3 +343,55 @@ I ActivityManager: Process com.huicang.wise.client (pid 13700) has died: prcp TO
 
 > 规则：**能力声明即承诺**。声明了 `scan.camera` 就必须有一条真的能走通的路径；
 > 走不通时应撤回声明（本节的机制），而不是留一个静默的按钮。
+
+---
+
+## 七、桌面端相机扫码（B1）：点了没反应时按顺序看这四处
+
+桌面与手机不是同一条路：手机是 WebView 崩（上一节），桌面是 **Electron 主进程的权限处理器 +
+Chromium 的 `getUserMedia`**，不会崩，但失败方式同样安静。
+
+### 1. 第一步：看主进程那一行 `[perm]`
+
+```
+[perm] media 请求（app://wise/index.html#/login）→ 允许
+[perm] media 请求（null）→ 拒绝          ← 这一行就是"点了没反应"的现场
+```
+
+- **没有这一行** = 页面根本没请求到权限（取景层没打开，或者按钮压根没画出来 → 先查能力位）；
+- **`→ 允许` 但画面还是黑的** = 问题在渲染进程（`<video>` 少了 `muted`、或预览被自动播放策略挡了）；
+- **`（null）→ 拒绝`** = origin 判据写错了。**`app:` 不是 URL 标准里的 special scheme**，
+  主进程里 `new URL('app://wise/index.html').origin` 会返回**字符串 `'null'`**（Chromium 里才是
+  `app://wise`）。判据必须用整串比较（`main.ts` 的 `isOurOrigin`）——
+  这条坑在 B1/S2c 第一次跑自检时就被抓到了（`check:desktop-camera` 现在有回归护栏）。
+
+### 2. 界面上三句话分别对应什么
+
+| 界面提示 | 真实原因 | 用户的下一步 |
+| --- | --- | --- |
+| 没有可用的摄像头 | 枚举到 0 枚（真没有 / 被系统禁了） | 接一个 / 查设备管理器 |
+| 相机权限被拒绝 | `NotAllowedError`（Windows 隐私设置、或策略拒绝） | 系统设置里允许相机 |
+| 摄像头正被其它程序占用 | `NotReadableError`（会议软件抢着） | 关掉那个程序再点重试 |
+
+三句都带出路（重试 / 换一个摄像头 / 关闭），**没有死状态**；换摄像头只在真的有两枚时才画。
+
+### 3. Windows 上没有 `BarcodeDetector`
+
+Chromium 的 Shape Detection 只在 macOS / Android / ChromeOS 提供条码识别，**Windows 不提供**。
+所以现场机器上真正干活的是 **ZXing 回退路径**（不是"以防万一"）：
+
+- 它的字节必须是**随包发出的资产**（`zxing_reader-*.wasm`，约 953KB）。
+  zxing-wasm 默认从 jsDelivr **CDN** 拉 wasm —— 断网现场会表现为"取景正常但永远识别不出"；
+  `scan-zxing.ts` 用 `?url` 覆盖了 `locateFile`，自检里有一条断言钉住"字节在产物里且 app:// 可读"。
+- 排障时可看这条日志：`[scan] ZXing 回退引擎加载失败…`（模块缺失 / wasm 404 / 版本不符）。
+
+### 4. 自检能替你验到哪一步
+
+`pnpm desktop:smoke` 会**真的开一次流**：枚举 → `getUserMedia` → track `live` → 停流后 `ended`，
+并断言权限处理器**真的被调用过**（不是"代码写了就算"）。
+
+两种"跳过"（**不算通过**）：本机没有摄像头、摄像头被其它程序占用。
+唯一仍需人工的是"拿一张实物条码解出码值" —— 相机拍不出条码这件事，自动化替代不了。
+
+> 规则：**跳过 ≠ 通过**。让自检在没验过的机器上永远是绿的，比没有这条断言更糟。
+

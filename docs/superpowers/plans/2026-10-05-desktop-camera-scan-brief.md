@@ -214,4 +214,43 @@ error(denied/unavailable/busy)     → 取景层内显示**对应中文**与"重
 **在 2 完成之前，桌面看不到扫码入口** —— 这是有意的（能力声明即承诺），
 不是漏接线：`check:render` 的两条用例正分别钉住"有能力就画"与"没能力一个字都不出现"。
 
+### 8.6 S2c 落码与三条实测（2026-10-05，`check:desktop-camera` 25 项）
+
+**做的两件事**（brief §8.3 的那两件）：
+
+1. **权限处理器**（`apps/desktop/src/main.ts` 的 `registerPermissionHandlers`）：只放行
+   `app://wise` 的 `media`；请求处理器与同步检查处理器**同源判据**；每次请求留一行 `[perm]` 日志
+   并进流水账。**真机自检已验**：`pnpm desktop:smoke` 真开一次流 —— 枚举 → `getUserMedia` →
+   track `live` → 停流 `ended`，并断言权限处理器**真的被调用过**（15 项通过 / 1 项跳过）。
+2. **能力声明**：`apps/desktop/src/bridgeProcess.ts` 的 `--capabilities` 加了
+   `scan.camera,scan.camera.select`。
+
+**两条更正**（§8.1 / §5 里做不到的部分，以本节为准）：
+
+- §8.1 写"`scan.camera.select` 由壳在声明时判断（桌面：枚举数 > 1 时才加）"——**做不到**：
+  Electron 主进程**没有 `mediaDevices`**，枚举只能在渲染进程里做。
+  所以能力位表达"这个宿主能枚举并选择"，而"这台机器有没有得选"由**界面**按
+  `cameras.length > 1` 把关（单摄像头机器上不会出现只有一项的下拉）。
+- §5 的"无摄像头时能力位不声明"在桌面**不可实现**（同上：宿主看不到设备）。
+  于是"没有摄像头"由取景层的**明确文案 + 出路**承担（"没有可用的摄像头" + 重试/关闭），
+  而不是靠不声明 —— 能说清原因的失败，不是死入口。
+
+**三条实测**（都是第一次跑真机自检就抓到的，全部来自 `pnpm desktop:smoke`）：
+
+1. **`app:` 不是 URL 标准里的 special scheme**：主进程里
+   `new URL('app://wise/index.html').origin` 返回的是**字符串 `'null'`**（Chromium 里才是
+   `app://wise`）。第一版权限处理器拿它判 origin，于是把请求全拒了 ——
+   表现正是"点了没反应"。判据改成整串比较（`isOurOrigin`），门禁里有回归护栏。
+2. **`MediaStreamTrack.readyState` 只有 `live` / `ended`**，没有 `running`：
+   写成 `running` 的断言会把"真的取到画面"误判成失败。
+3. **Windows 上 Chromium 没有 `BarcodeDetector`**（Shape Detection 的条码识别只在
+   macOS / Android / ChromeOS 提供）→ **现场机器上真正干活的是 ZXing 回退路径**。
+   §7.2 说"回退必须实现"是设计判断，到这一步变成了实测事实：它不是以防万一，是主路径。
+   所以自检里单独钉住它的两件事 —— wasm 的字节随包发出（953,527 B，`app://` 可读）、
+   模块可加载且导出 `readBarcodes` / `prepareZXingModule`。
+
+**还剩唯一一步人工**：拿一张实物条码走查（相机拍不出条码这件事，自动化替代不了）。
+排障入口已写进 `docs/troubleshooting.md` 第七节（`[perm]` 那一行是第一现场）。
+
+
 
