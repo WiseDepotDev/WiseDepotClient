@@ -1,7 +1,6 @@
 package com.huicang.wise.bridge.backend
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -53,6 +52,13 @@ class PersistentTokenStore(
     private val codec: SecretCodec,
     private val log: (String) -> Unit = {},
 ) : TokenStore {
+    /** Android API 25 compatible entry point; path conversion stays in this JVM-shared module. */
+    constructor(
+        filePath: String,
+        codec: SecretCodec,
+        log: (String) -> Unit = {},
+    ) : this(java.nio.file.Paths.get(filePath), codec, log)
+
     @Volatile private var access: String? = null
     @Volatile private var refresh: String? = null
     private val writeLock = Any()
@@ -200,16 +206,5 @@ class PersistentTokenStore(
 
         private val JSON = Json { ignoreUnknownKeys = true }
 
-        /** 需要序列化成 JSON 的形态（测试也用得到）。 */
-        fun envelopeOf(
-            version: Int,
-            codecId: String,
-            sealedBase64: String,
-        ): JsonObject =
-            buildJsonObject {
-                put("v", JsonPrimitive(version))
-                put("codec", JsonPrimitive(codecId))
-                put("data", JsonPrimitive(sealedBase64))
-            }
     }
 }

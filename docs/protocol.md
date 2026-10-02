@@ -80,6 +80,13 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
   才执行 —— 救不了 `@Valid`，客户端不放进 body 就必然校验失败。
   登记在 `bridge-overlay.json` 的 `bodyPathParams`（要写清服务端为什么要求两处都带），
   生成期校验 id 存在、方法有 body、路径里真有路径参数。见 [feature-parity.md](./feature-parity.md) §5.2。
+- **内建方法（不走后端、不进契约表）**：`bridge.ping` / `bridge.capabilities` / `bridge.session`
+  / `bridge.metrics`。实现在 `BridgeBuiltins` + `BridgeDispatcher.dispatchBuiltin`，
+  白名单是"内建 ∪ 本机 ∪ 契约"三段并集。
+  - `bridge.ping`：宿主版本与平台，UI 用它做"桥是否活着"（客户端回前台时也用它验活）。
+  - `bridge.metrics`：**桥自己的运行观测**（按方法的次数/失败/最近耗时/p50 近似/max/avg），
+    只读、不下发任何令牌或配置。它回答的是"慢在桥上还是慢在后端"——
+    界面右上角那个耗时是端到端总耗时，分不出这两者。
 
 ## 5. 错误码
 

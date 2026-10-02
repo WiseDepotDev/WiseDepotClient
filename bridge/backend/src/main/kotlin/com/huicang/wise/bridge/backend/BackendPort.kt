@@ -44,8 +44,17 @@ enum class ParamStyle {
 
 /** 后端调用结果。**不抛异常**：所有失败都变成 `Failed`，让桥统一转成 err 帧。 */
 sealed interface BackendResult {
-    /** `data` 就是后端 `payload.data`，原样交给 Web。 */
-    data class Ok(val data: JsonElement?) : BackendResult
+    /**
+     * `data` 就是后端 `payload.data`，原样交给 Web。
+     *
+     * @param raw 这次响应的**原始文本**（可选）。
+     *   用途只有一个：让"令牌截留"（`SessionManager.scrub`）能用一次廉价的
+     *   `contains("accessToken")` 预检**跳过**绝大多数响应的深度遍历 ——
+     *   列表类响应动辄几十 KB，而它们里本来就不可能有令牌字段。
+     *   传 null 时调用方退化为"总是深度扫一遍"（正确，只是慢一点），
+     *   所以假后端/测试不必强行构造它。
+     */
+    data class Ok(val data: JsonElement?, val raw: String? = null) : BackendResult
 
     /**
      * @param code 后端业务码（原样透传）或桥/HTTP 层码，如 `HTTP-401`
@@ -117,12 +126,18 @@ interface BackendPort {
 
 /** 桥层错误码（与 `BridgeErrorCodes` 对齐，但这里是后端侧用到的子集）。 */
 object BackendErrorCodes {
-    const val UNAUTHORIZED: String = "HTTP-401"
-    const val FORBIDDEN: String = "HTTP-403"
-    const val NOT_FOUND: String = "HTTP-404"
     const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"
     const val UNREACHABLE: String = "BRIDGE_BACKEND_UNREACHABLE"
     const val INTERNAL: String = "BRIDGE_INTERNAL"
+
+    /**
+     * 后端响应体超过 [OkHttpBackend.MAX_RESPONSE_BYTES]。
+     *
+     * 复用 `BRIDGE_FRAME_TOO_LARGE` 这个**已存在的桥错误码**：对 Web 侧来说
+     * "这条数据的体量超出了桥愿意搬运的上限"是同一件事，而且它的文案已经映射好了
+     * （不必再往 `humanize` 里加一条没人见过的键）。
+     */
+    const val UNREACHABLE_RESPONSE_TOO_LARGE: String = "BRIDGE_FRAME_TOO_LARGE"
 
     /**
      * **允许把后端原文带到界面上的错误码前缀**。

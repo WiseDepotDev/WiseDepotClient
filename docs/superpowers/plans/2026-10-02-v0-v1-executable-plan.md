@@ -2240,6 +2240,86 @@ if (pending.entry === entries.get(key)) return pending.task;   // 只有绑的�
 新增的 4 条断言都用假桥的 `holdOnce` 把请求按住，所以是**确定性**复现，不靠时序运气；
 截图另存 `.dsh-tmp/overlay-desktop.png`（右栏遮罩）与 `overlay-mobile.png`（整屏遮罩）。
 
+## 第十九轮：桥的整理与加固（性能 + 稳定，2026-10-03）
+
+用户要求："优化整理桥的代码，性能优化加上稳定优化"，注释要按仓库的口径写标准，
+并且**新增 `bridge.metrics` 内建**。以下是"体检 → 改法 → 证据"的完整一笔。
+
+### 〇、先补测试底座（这是**一切改动的前提**）
+
+`:bridge:server` 之前是 **0 个测试**（`gradlew :bridge:server:test` → `NO-SOURCE`），
+而它装着 WS 服务端、分发器、会话管理、限流器 —— 也就是本轮要动的全部代码。
+先补：
+
+- `TestWsClient`：用 JDK 自带的 `HttpClient` WebSocket 当客户端。**它收到 ping 会自动回 pong**，
+  与浏览器行为一致 —— "服务端主动 ping 探活"这条设计只有在它上面才验得出来（裸 TCP 假装不出来）。
+- `FakeBackend`：把"后端怎么答"变成测试的输入（401 / 500 / 干脆不答）。
+- 金丝雀用例：两条传输各过一遍同样的断言（内建方法、白名单、超大帧、非法帧、错误 token）。
+- 门禁入口：`pnpm check:bridge`（已在 `check:full` 里），
+  并把 `kotlinx-coroutines-test`、`mockwebserver` 加到 `:bridge:server` 的测试依赖。
+
+### 一、稳定（6 处，全部有回归用例）
+
+| 改动 | 原来的问题 | 现在的行为 |
+| --- | --- | --- |
+| **自写传输加读空闲 + 服务端 ping** | 读线程阻塞在 `read()` 上没有超时：WebView 被杀（不发 FIN）时线程永久挂住，连接还留在广播列表里；而浏览器 WebSocket **不能主动发 ping**，这条路上双向都没有保活 | `soTimeout = idleTimeoutMs`（默认 30s）+ 全局保活线程每 20s 发 ping（浏览器自动回 pong，收到任何帧都刷新"还活着"）+ 连接数上限 8 |
+| **`readFrame` 的 EOF 与异常类型** | `input.read()` 返回 -1 被当字节参与长度拼装 → 负长度 → `NegativeArraySizeException`（**不是 IOException**）逃出 catch，线程带异常死掉、只剩 logcat 一句栈 | 长度字节逐个判 EOF；错误统一成 `IOException`；读循环补 `catch (Throwable)` 并记原因 |
+| **分片帧（RFC6455 §5.4）** | 第一条分片就被当完整帧解析 → 回 `bridge.notARequestFrame`（"这不是请求帧"），而真因是"还没发完"；Netty 与自写传输**表现还不一样** → 同一个大请求在手机上能用、电脑上不能用 | 两条传输都做分片聚合；超过协议上限只留开头 4096 字符用于抠 `id` 并回 `BRIDGE_FRAME_TOO_LARGE`；超过硬上限（4×）直接断开 |
+| **帧上限两侧一致** | Netty 用的协议处理器默认单帧 64KB，而协议写的是 256KB —— 64KB~256KB 的帧在桌面端会被"连接突然断掉" | 解码器上限放宽到硬上限，**协议上限由 `BridgeCallHandler` 判定**并回一条对得上号的错误（两条传输一致） |
+| **广播/关停不持锁做 IO** | `synchronized(clients) { for (...) sendText(...) }`：一个不读数据的客户端就能拖住整个广播，`stop()` 也一起卡住（桥"关不掉"） | 锁内只取快照，出锁再写；写失败即关该连接 |
+| **会话续期不再把网络抖动当过期**（真 bug） | `refresh()` 只要失败就 `markExpired()`，而失败里既有 401 也有"后端不可达" → 家里网络抖一下/应用刚从后台回来，用户被踢回登录屏 | 改成三值 `RefreshOutcome`：`REFRESHED` 重放、`EXPIRED` 清会话+广播、`UNAVAILABLE` **保留会话**并如实回 `retryable=true` |
+
+另外两处工程性的：
+- **每连接的 `CoroutineScope` 从不取消** → 改成 server 级一个共享作用域，`stop()` 统一取消；
+- **无背压** → 大小/解析/限流全部前移到 `BridgeCallHandler.preflight`（**同步**），
+  被拒的帧原地回写、根本不进协程；分发跑在一个**固定 8 线程**的池上（不再借 `Dispatchers.IO` 的 64 个）。
+
+### 二、性能（4 处）
+
+| 改动 | 省掉了什么 |
+| --- | --- |
+| `handle(text, byteLength, limiter)` | 原来 `text.toByteArray(UTF_8).size` 只为量长度：最坏每请求多分配并编码 256KB。字节数两条传输本来就知道 |
+| `SessionManager.scrub(data, raw)` | 每个响应都做一次**整棵 JSON 树的遍历 + 重建**；现在先用原文做一次 `contains("token")` 预检，不含就直接原样返回（列表类响应动辄几十 KB）。预检只用于"跳过"，不可能漏剥 |
+| `PathTemplate` 解析缓存 | 模板是契约里固定的一百多条字符串，而 `resolve`/`remaining` 每次请求都要 `split` 两遍 + 造 Set。现在每个模板只解析一次（键空间有界），无参数方法直接返回模板本身 |
+| `OkHttpBackend` 改 `enqueue` + 挂起 | 阻塞 `execute()` 不响应取消：连接断开/桥关停时那次 HTTP 仍要跑满 10s 才释放线程。现在取消即时生效 |
+
+顺带加了两条边界：**响应体上限 4MiB**（超过回明确错误而不是 OOM）、**握手 token 常量时间比较**
+（`HandshakePolicy.constantTimeEquals`）。
+
+### 三、可维护性
+
+- **`HandshakePolicy`**：两条传输的握手校验（方法/路径、token、Origin）原是各写一遍、靠人工对照；
+  现在只有一份判定，"语义一致"从注释承诺变成结构保证。
+- **`BridgeMetrics` + `bridge.metrics` 内建**（按用户要求新增）：按方法记次数/失败/最近耗时/
+  p50 近似/max/avg，只读、内存里有界（每方法 64 槽环）、热路径无锁。
+  它回答的是"慢在桥上还是慢在后端" —— 界面右上角那个耗时是端到端总耗时，分不出这两者。
+- `exceptionCaught` 不再静默关连接（记一条含异常类与消息的 WARN）。
+
+### 四、测试逼出来的两个真 bug（值得单列）
+
+1. **超大帧的错误帧丢了 `id`**：为了不把巨帧读进内存，我原本"整片装不下就一片都不装"——
+   而第一片本身就可能大于 4096 字符，于是 buffer 为空、`id` 成了空串，
+   客户端匹配不到自己的请求只能等超时。改成"只保留还能装下的那一段"。
+2. **响应体只读一次的假设是错的**：`source().read(buffer, n)` 只保证"读到了一部分"
+   （socket 分片到达），一次调用常常只返回几 KB —— 大响应会被当成"半截 JSON"，
+   报 `bridge.envelopeMalformed`（一个完全不指向真因的错误）。改成循环读。
+   同一轮还发现：**把 body 读放在协程里，取消就无效**（200ms 超时实测要 8 秒才回来），
+   于是把读取挪进 `onResponse`（OkHttp 自己的线程），`cancel()` 才能真正掐断连接。
+
+### 验收（真跑）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 桥单测 | `pnpm check:bridge` | **19 个用例全绿**（protocol 2 / backend 6 / server 11，覆盖两条传输） |
+| Node 门禁 | `pnpm check` | **27 条全绿**（含 `check:timeout-budget` / `check:transport` 对桥源码的跨语言对账） |
+| 桥往返性能 | `pnpm bench` | 握手 469ms（≤700）、**p50 0.26ms**（基线 0.27）、p95 0.53ms、限流与关停照旧 ✓ |
+| 真后端端到端 | `pnpm bench:backend` | `captcha.generate` 走通、HTTP-400 透传、`AUTH-0002` 带业务原文 ✓ |
+| 手机壳编译 | `gradlew :apps:mobile:shell:assembleDebug` | BUILD SUCCESSFUL（自写传输的 API 兼容） |
+
+**还差一项**：WSA 当时已关闭（`adb connect 127.0.0.1:58526` 被拒），
+所以"真机上前后台切换不再出现半死连接"这条**没有**在设备上走一遍 ——
+它目前由单测（半死连接 800ms 内被关）+ 真后端 bench 兜着。等 WSA 起来补一条即可。
+
 
 
 

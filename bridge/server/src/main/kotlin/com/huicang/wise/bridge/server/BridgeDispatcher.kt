@@ -1,7 +1,6 @@
 package com.huicang.wise.bridge.server
 
 import com.huicang.wise.bridge.backend.BackendCall
-import com.huicang.wise.bridge.backend.BackendErrorCodes
 import com.huicang.wise.bridge.backend.BackendPort
 import com.huicang.wise.bridge.backend.BackendResult
 import com.huicang.wise.bridge.backend.ParamStyle
@@ -13,18 +12,18 @@ import com.huicang.wise.bridge.protocol.BridgeErrorCodes
 import com.huicang.wise.bridge.protocol.BridgeProtocol
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 方法分发：**唯一**决定"这个方法能不能被调用、由谁处理"的地方。
  *
- * 白名单是两段的并集：
- *  1. 内建方法（[BridgeBuiltins]，固定三个，测试里断言不与契约重名）；
- *  2. 契约方法（[BridgeContract]，由服务端注解生成，167 条）。
+ * 白名单是三段的并集：
+ *  1. 内建方法（[BridgeBuiltins]，固定四个，测试里断言不与契约重名）；
+ *  2. 本机方法（宿主声明的 [LocalMethodPort]）；
+ *  3. 契约方法（[BridgeContract]，由服务端注解生成）。
  *
- * 不在这两段里的方法一律 `BRIDGE_METHOD_UNKNOWN` —— 桥**不是**通用 HTTP 透传。
+ * 不在这三段里的方法一律 `BRIDGE_METHOD_UNKNOWN` —— 桥**不是**通用 HTTP 透传。
  * 这条是本方案的安全红线：Web 层一旦 XSS，透传等于拿到任意后端接口。
  */
 class BridgeDispatcher(
@@ -44,8 +43,21 @@ class BridgeDispatcher(
      * 详见 `SessionManager.EVENT_SESSION_EXPIRED`。
      */
     private val onSessionExpired: () -> Unit = {},
+    /** 指标：按方法记次数/失败/耗时。默认给一个不共享的实例，测试不必关心它。 */
+    private val metrics: BridgeMetrics = BridgeMetrics(),
 ) {
     suspend fun dispatch(
+        method: String,
+        params: JsonElement?,
+        requestId: String,
+    ): BackendResult {
+        val started = metrics.start()
+        val outcome = dispatchInner(method, params, requestId)
+        metrics.record(method, outcome is BackendResult.Ok, metrics.elapsedMs(started))
+        return outcome
+    }
+
+    private suspend fun dispatchInner(
         method: String,
         params: JsonElement?,
         requestId: String,
@@ -92,17 +104,27 @@ class BridgeDispatcher(
         // 只有"本来持有令牌却失效"才走这条；未登录时的 AUTH 失败（例如密码错）直接透传，
         // 否则会把"密码错误"也变成一次无谓的续期请求。
         if (result is BackendResult.Failed && SessionManager.isAuthFailure(result.code) && session.authenticated) {
-            result =
-                if (session.refresh()) {
-                    backend.call(call)
-                } else {
-                    // 续期也失败了 → 桥里已经没有会话。**必须告诉界面**，
+            when (session.refresh()) {
+                RefreshOutcome.REFRESHED -> result = backend.call(call)
+
+                RefreshOutcome.EXPIRED -> {
+                    // 后端明确说凭据不行 → 桥里已经没有会话。**必须告诉界面**，
                     // 否则它会停在"已登录"的画面上继续发请求，而每条请求都会被后端
                     // 以误导性的"缺少签名参数"拒掉（真因是没登录）。
                     session.markExpired()
                     onSessionExpired()
-                    result
                 }
+
+                RefreshOutcome.UNAVAILABLE -> {
+                    /*
+                     * 续期**没能完成**（网络/超时）—— 既不是成功也不是过期：
+                     *  · 不清令牌、不广播 `session.expired`：用户什么都没做错，不该被踢回登录屏；
+                     *  · 原样把那次失败交回去（它是 `retryable=true`），由界面按既有口径提示与重试。
+                     * 以前这里一律 `markExpired()`，于是"家里网络抖一下"就等于"登录过期"。
+                     */
+                    BridgeLog.info("[bridge] 续期暂时不可用，保留会话：method=$method")
+                }
+            }
         }
 
         // 登出：本地先行（后端不可达也必须能登出），但返回值仍如实反映后端结果
@@ -111,8 +133,9 @@ class BridgeDispatcher(
         }
 
         // 令牌截留：出站前扫一遍，`accessToken`/`refreshToken` 一律留在桥里。
+        // `raw` 只是让这一步能用一次廉价预检跳过绝大多数响应（见 SessionManager.scrub）。
         return when (result) {
-            is BackendResult.Ok -> BackendResult.Ok(session.scrub(result.data))
+            is BackendResult.Ok -> BackendResult.Ok(session.scrub(result.data, result.raw))
             is BackendResult.Failed -> result
         }
     }
@@ -142,21 +165,16 @@ class BridgeDispatcher(
 
             BridgeBuiltins.SESSION -> BackendResult.Ok(session.sessionInfo())
 
+            /*
+             * 指标：**本地观测**，不经过后端、也不改协议里任何既有语义。
+             *
+             * 为什么做成内建方法而不是日志：日志只能"回头看"，而现场需要的是
+             * "现在哪条方法慢" —— 一个可以随时拉取的快照，配合 `tools/bench` 能直接对比。
+             * 它是只读的（不改任何状态），因此不需要额外的权限检查。
+             */
+            BridgeBuiltins.METRICS -> BackendResult.Ok(metrics.snapshot())
+
             else ->
                 BackendResult.Failed(BridgeErrorCodes.METHOD_UNKNOWN, "bridge.methodUnknown", retryable = false)
         }
-
-    companion object {
-        /** 供测试与文档使用：桥实际接受的全部方法 id。 */
-        fun allowedMethodIds(local: LocalMethodPort?): Set<String> =
-            BridgeBuiltins.all + BridgeContract.methods.map { it.id } + (local?.methodIds ?: emptySet())
-
-        /** 参数非法（例如 req 帧里 params 不是对象）。 */
-        fun invalidParams(messageKey: String): BackendResult =
-            BackendResult.Failed(BridgeErrorCodes.PARAMS_INVALID, messageKey, retryable = false)
-
-        /** 后端不可达时的兜底（[BackendErrorCodes] 与 [BridgeErrorCodes] 同值，这里显式引用避免漂移）。 */
-        val unreachable: BackendResult
-            get() = BackendResult.Failed(BridgeErrorCodes.BACKEND_UNREACHABLE, "bridge.backendUnreachable", retryable = true)
-    }
 }

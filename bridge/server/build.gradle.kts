@@ -22,6 +22,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit.jupiter)
+    // 端到端用真 socket + 一个假后端：`MockWebServer` 用来验"后端怎么答，桥就怎么判"
+    // （会话续期、超时、错误码映射），不必起真的服务端。
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

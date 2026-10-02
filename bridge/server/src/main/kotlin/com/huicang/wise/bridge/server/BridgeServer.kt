@@ -19,16 +19,19 @@ import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.handler.codec.http.HttpObjectAggregator
 import io.netty.handler.codec.http.HttpServerCodec
-import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame
+import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler
+import io.netty.handler.timeout.IdleStateHandler
 import io.netty.util.concurrent.GlobalEventExecutor
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.JsonElement
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 允许的 Origin。
@@ -87,6 +90,29 @@ data class BridgeServerConfig(
     val host: String = "127.0.0.1",
     /** 传输实现；桌面用 NETTY，手机用 PLAIN_SOCKET。 */
     val transport: BridgeTransportKind = BridgeTransportKind.NETTY,
+    /**
+     * 同时在跑的分发上限（**有界线程池**）。
+     *
+     * 为什么要有界：以前每连接的每个帧都 `launch` 到 `Dispatchers.IO`，那个池会为阻塞任务
+     * 扩到 64 个线程 —— 桥的核心工作只是"转发一次 HTTP"，用不着，也不该让一个失控页面
+     * 把线程吃满。8 个足够（UI 侧真正并发的取数不会有这么多）。
+     */
+    val maxConcurrentDispatches: Int = 8,
+    /**
+     * 读空闲多久算"对端不在了"（毫秒）。
+     *
+     * 正常流量是每 5~10 秒一次调用，60 秒已经非常宽松；它的作用是**把半死连接清掉**：
+     * 对端进程被杀（不发 FIN）时，TCP 连接会一直"看起来还在"，
+     * 桥如果不清，广播与诊断都会指向一个已经不存在的客户端。
+     */
+    val readerIdleMs: Long = 60_000,
+    /**
+     * 自写传输（手机）的服务端 ping 间隔（毫秒）。
+     *
+     * 必须**小于** [readerIdleMs]，否则永远等不到回音：pong 是刷新"对方还活着"的唯一信号
+     * （浏览器 WebSocket API 不能主动发 ping，只能被动回）。
+     */
+    val plainPingIntervalMs: Long = 20_000,
 )
 
 /**
@@ -94,6 +120,10 @@ data class BridgeServerConfig(
  *
  * 线程与内存（`docs/architecture.md` §4）：boss 与 worker **复用同一个** `NioEventLoopGroup(1)`——
  * loopback 上只有一个客户端，多开线程纯属浪费，这也是移动端内存门禁（≤8MB）能过的前提之一。
+ *
+ * 另一处共享的是**分发用的协程作用域**：它由本类持有、`stop()` 时统一取消。
+ * 以前是"每个连接一个 scope 且从不取消"，每次重连都会多留一份 ——
+ * 而"切后台再回来"恰恰会不停重连。
  */
 class BridgeServer(
     private val config: BridgeServerConfig,
@@ -114,10 +144,19 @@ class BridgeServer(
         )
 
     private val channels: ChannelGroup = DefaultChannelGroup("wise-bridge", GlobalEventExecutor.INSTANCE)
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
     /** 两种传输共用的"一帧怎么处理"（解析/限流/分发/编码）。 */
     private val callHandler = BridgeCallHandler(dispatcher)
+
+    /**
+     * 分发用的有界线程池 + 协程作用域。
+     *
+     * 用固定线程池而不是 `Dispatchers.IO`：桥的每个任务都是一次阻塞 HTTP 调用，
+     * 固定 8 个线程足够、也把"一个失控页面的并发"钉死在可解释的上限里。
+     */
+    private val dispatchExecutor = Executors.newFixedThreadPool(config.maxConcurrentDispatches) { runnable ->
+        Thread(runnable, "bridge-dispatch").apply { isDaemon = true }
+    }
+    private val scope = CoroutineScope(SupervisorJob() + dispatchExecutor.asCoroutineDispatcher())
 
     /** 纯 socket 传输（手机）；为 null 表示走 Netty。 */
     private var plain: PlainWebSocketServer? = null
@@ -125,12 +164,6 @@ class BridgeServer(
     private var group: EventLoopGroup? = null
     private var serverChannel: Channel? = null
     private var actualPort: Int = -1
-
-    /** 实际绑定端口（[BridgeServerConfig.port] 为 0 时由系统分配）。 */
-    val port: Int get() = actualPort
-
-    /** 当前连接数（健康检查与测试用）。 */
-    val connectionCount: Int get() = plain?.connectionCount ?: channels.size
 
     /** 同步启动并返回绑定端口；失败抛异常（启动失败必须响亮地失败）。 */
     fun start(): Int {
@@ -144,6 +177,8 @@ class BridgeServer(
                     maxPerSecond = config.maxPerSecond,
                     burst = config.burst,
                     callHandler = callHandler,
+                    idleTimeoutMs = config.readerIdleMs.toInt(),
+                    pingIntervalMs = config.plainPingIntervalMs,
                 )
             plain = server
             actualPort = server.start()
@@ -168,17 +203,30 @@ class BridgeServer(
                                 .addLast(HttpObjectAggregator(config.maxHttpContentLength))
                                 .addLast(BridgeAuthHandler(config.token, config.allowedOrigins))
                                 .addLast(
+                                    /*
+                                     * 第四个参数是**解码器**的单帧上限。
+                                     *
+                                     * 这里刻意给到 FrameBudget.HARD_LIMIT（协议上限的 4 倍），而不是协议上限本身：
+                                     * 协议上限要由 BridgeCallHandler 判定并回一条 `BRIDGE_FRAME_TOO_LARGE`，
+                                     * 让界面能说清"这条请求太大了"；如果交给解码器拒，客户端只会看到
+                                     * "连接突然断了"（1009），与自写传输的行为也不一致。
+                                     */
                                     WebSocketServerProtocolHandler(
                                         BridgeProtocol.HANDSHAKE_PATH,
                                         null,
                                         true,
+                                        FrameBudget.HARD_LIMIT,
                                     ),
                                 )
+                                // 读空闲：对端进程被杀（不发 FIN）时 TCP 会一直"看起来还在"，
+                                // 连接不清掉就会被一直广播写到，而且诊断也指向不存在的客户端。
+                                .addLast(IdleStateHandler(config.readerIdleMs, 0, 0, TimeUnit.MILLISECONDS))
                                 .addLast(
                                     BridgeFrameHandler(
                                         callHandler = callHandler,
                                         rateLimiter = RateLimiter(config.maxPerSecond, config.burst),
                                         channels = channels,
+                                        scope = scope,
                                     ),
                                 )
                         }
@@ -209,20 +257,28 @@ class BridgeServer(
             it.broadcast(frame)
             return
         }
-        if (channels.isEmpty) {
+        if (channels.isEmpty()) {
             return
         }
+        // 同一个 TextWebSocketFrame 写给多个 channel 是安全的：
+        // DefaultChannelGroup 内部会对引用计数消息做 retainedDuplicate/retain（netty-transport 4.1.115 实测确认）。
         channels.writeAndFlush(TextWebSocketFrame(BridgeCodec.encode(frame)))
     }
 
-    /** 关停：先关连接，再关 event loop。可重复调用。 */
+    /**
+     * 关停：先关连接，再关 event loop 与分发线程池。可重复调用。
+     *
+     * `shutdownGracefully(0, 500ms)` 是刻意的：默认的 2 秒静默期会让宿主退出时白等，
+     * 而桥的场景是"父进程要马上退出"，不需要优雅到那个程度。
+     */
     fun stop() {
-        plain?.stop()
+        runCatching { plain?.stop() }
         plain = null
         runCatching { serverChannel?.close()?.sync() }
         runCatching { channels.close()?.await() }
-        runCatching { group?.shutdownGracefully() }
+        runCatching { group?.shutdownGracefully(0, 500, TimeUnit.MILLISECONDS) }
         runCatching { scope.cancel() }
+        runCatching { dispatchExecutor.shutdownNow() }
         serverChannel = null
         group = null
         actualPort = -1

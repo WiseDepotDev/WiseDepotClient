@@ -18,5 +18,16 @@ object BridgeBuiltins {
     /** 当前会话身份（谁登录了、有哪些权限点）。令牌本身永不下发。 */
     const val SESSION: String = "bridge.session"
 
-    val all: Set<String> = setOf(PING, CAPABILITIES, SESSION)
+    /**
+     * 桥内指标：按方法记次数/失败/耗时（含 p50 近似）。
+     *
+     * 为什么也要做成内建：它是**桥自己的运行观测**，没有任何后端路由与之对应，
+     * 混进契约表会破坏"生成物 == 后端接口集合"这条不变量
+     * （`gen-bridge-contract --verify-legacy` 就靠它做交叉校验）。
+     *
+     * 只读、不改状态、也不下发任何令牌或配置，因此不需要额外权限。
+     */
+    const val METRICS: String = "bridge.metrics"
+
+    val all: Set<String> = setOf(PING, CAPABILITIES, SESSION, METRICS)
 }
