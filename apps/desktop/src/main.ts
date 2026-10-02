@@ -156,6 +156,27 @@ async function createWindow(): Promise<void> {
     },
   });
 
+  /*
+   * F12 / Ctrl+Shift+I 打开开发者工具。
+   *
+   * 为什么必须自己绑：本应用刻意去掉了菜单栏（Menu.setApplicationMenu(null)），
+   * 而 **Electron 默认不绑任何 DevTools 快捷键** —— 不写这一段，按 F12 是没有任何反应的
+   * （实测"按 F12 没反应"，原因在这里，不是环境或权限问题）。
+   *
+   * 用 before-input-event 而不是菜单 accelerator：accelerator 依赖菜单项，
+   * 而这里只要求"焦点在窗口里时 F12 生效"。
+   */
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') {
+      return;
+    }
+    const isF12 = input.key === 'F12';
+    const isInspectCombo = input.control && input.shift && input.key.toLowerCase() === 'i';
+    if (isF12 || isInspectCombo) {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
+
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => {
     mainWindow = null;
