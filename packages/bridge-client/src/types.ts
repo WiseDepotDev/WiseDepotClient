@@ -6,11 +6,14 @@
  * `@wise/contract` 从服务端注解生成。若帧结构发生不兼容变化，协议版本必须 +1，这里同步改。
  */
 
-/** 与 `BridgeProtocol.VERSION` 一致。 */
-export const BRIDGE_PROTOCOL_VERSION = 3 as const;
+/** 与 `BridgeProtocol.VERSION` 一致。v4 起线格式是全二进制帧（见 `wire.ts`）。 */
+export const BRIDGE_PROTOCOL_VERSION = 4 as const;
 
-/** 单帧上限，与 `BridgeProtocol.MAX_FRAME_BYTES` 一致。 */
+/** 控制面正文上限，与 `BridgeProtocol.MAX_FRAME_BYTES` 一致。 */
 export const MAX_FRAME_BYTES = 256 * 1024;
+
+/** 数据面（`bin`）正文上限，与 `BridgeProtocol.MAX_BIN_BYTES` 一致。 */
+export const MAX_BIN_BYTES = 8 * 1024 * 1024;
 
 /** 引导文件路径，与 `BridgeProtocol.BOOTSTRAP_PATH` 一致。 */
 export const BOOTSTRAP_PATH = '/__bridge.json';
@@ -46,6 +49,17 @@ export interface BridgeBootstrap {
   readonly ver: string;
   readonly protocol: number;
   readonly capabilities: readonly string[];
+  /**
+   * 本壳实际执行的上限（v4 新增）。
+   *
+   * 为什么要下发：客户端在**发之前**就能判断"这个 6MiB 的图片能不能走帧内"，
+   * 而不是靠撞上限来学习（后者在 v3 里表现为"只发了张图，却收到 FRAME_TOO_LARGE"）。
+   * 可选是为了兼容旧宿主。
+   */
+  readonly limits?: {
+    readonly textMaxBytes: number;
+    readonly binMaxBytes: number;
+  };
 }
 
 /** 桥错误：`code` 是桥错误码或后端原样透传的 `RES-xxxx`；文案不下发，只给 messageKey。 */
@@ -67,8 +81,14 @@ export interface ResMeta {
   readonly traceId?: string;
 }
 
+/**
+ * 帧的内存模型。
+ *
+ * v4 起 `v` / `type` / `id` / `ok` **不在线上**（它们在 12 字节帧头里，见 `wire.ts`）：
+ * 这里的 `type` 是解码器按 kind 填上的**内存判别字段**，让调用点的 `switch (frame.type)` 保持可读；
+ * 成功与否由 `type === 'res'` 唯一表达（v3 的 `ok` 是同一事实的第二份副本，已删）。
+ */
 export interface ReqFrame {
-  readonly v: number;
   readonly type: 'req';
   readonly id: string;
   readonly method: string;
@@ -77,29 +97,38 @@ export interface ReqFrame {
 }
 
 export interface ResFrame {
-  readonly v: number;
   readonly type: 'res';
   readonly id: string;
-  readonly ok: true;
   readonly data?: unknown;
   readonly meta?: ResMeta;
 }
 
 export interface ErrFrame {
-  readonly v: number;
   readonly type: 'err';
   readonly id: string;
   readonly error: BridgeErrorPayload;
 }
 
 export interface EvtFrame {
-  readonly v: number;
   readonly type: 'evt';
   readonly topic: string;
   readonly data?: unknown;
 }
 
-export type BridgeFrame = ReqFrame | ResFrame | ErrFrame | EvtFrame;
+/**
+ * 数据面（`bin`）帧。
+ *
+ * 本批**没有任何方法用它** —— 只是让"壳真的发了 bin"这件事不会把前端打崩。
+ * 等第一个真实消费方（大图/摄像头帧）落地时再补渲染路径。
+ */
+export interface BinFrame {
+  readonly type: 'bin';
+  readonly id: string;
+  readonly body: Uint8Array;
+  readonly final: boolean;
+}
+
+export type BridgeFrame = ReqFrame | ResFrame | ErrFrame | EvtFrame | BinFrame;
 
 /** 桥错误码，与 Kotlin `BridgeErrorCodes` 一致。 */
 export const BridgeErrorCode = {
@@ -107,6 +136,13 @@ export const BridgeErrorCode = {
   PARAMS_INVALID: 'BRIDGE_PARAMS_INVALID',
   UNAUTHORIZED: 'BRIDGE_UNAUTHORIZED',
   FRAME_TOO_LARGE: 'BRIDGE_FRAME_TOO_LARGE',
+  /**
+   * 线格式不认识（v3 的文本帧、帧头 magic/版本不对…）。
+   *
+   * 单列一个码因为它要告诉用户的是"客户端与壳不是同一版协议"，
+   * 而不是"参数写错了" —— 两者的处理人不同。
+   */
+  WIRE_MODE: 'BRIDGE_WIRE_MODE',
   RATE_LIMITED: 'BRIDGE_RATE_LIMITED',
   BACKEND_UNREACHABLE: 'BRIDGE_BACKEND_UNREACHABLE',
   INTERNAL: 'BRIDGE_INTERNAL',

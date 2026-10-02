@@ -1,13 +1,15 @@
 import {
-  BRIDGE_PROTOCOL_VERSION,
   BridgeError,
   BridgeErrorCode,
   HANDSHAKE_PATH,
+  MAX_BIN_BYTES,
   MAX_FRAME_BYTES,
   type BridgeBootstrap,
   type BridgeFrame,
+  type ReqFrame,
   type ReqMeta,
 } from './types.js';
+import { bodyLength, decodeFrame, encodeFrame, WIRE_HEADER_BYTES, WIRE_MAX_ID_BYTES, WireDecodeError } from './wire.js';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -88,6 +90,16 @@ export interface WebSocketTransportOptions {
   readonly maxAttempts?: number;
   /** 宿主重启后刷新端口/token；返回 null 时保留旧引导并让本次连接自然失败重试。 */
   readonly refreshBootstrap?: () => Promise<BridgeBootstrap | null>;
+  /**
+   * 本壳声明的上限（来自 `__bridge.json.limits`）。
+   *
+   * 缺省回落到协议常量：**不硬编码**是 v4 的改进点之一 —— 客户端在发之前就知道能不能发，
+   * 而不是靠撞上限来学习（v3 的表现是"只发了张图，却收到 FRAME_TOO_LARGE"）。
+   */
+  readonly limits?: {
+    readonly textMaxBytes?: number;
+    readonly binMaxBytes?: number;
+  };
 }
 
 /**
@@ -123,35 +135,18 @@ const DEFAULTS = {
   maxBackoffMs: 5_000,
   maxAttempts: 6,
   refreshBootstrap: undefined,
+  limits: undefined,
 } as const;
-
-const utf8Encoder = new TextEncoder();
-
-function utf8ByteLength(text: string): number {
-  return utf8Encoder.encode(text).byteLength;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function isBridgeFrame(value: unknown): value is BridgeFrame {
-  if (!isRecord(value) || value.v !== BRIDGE_PROTOCOL_VERSION || typeof value.type !== 'string') {
-    return false;
-  }
-  switch (value.type) {
-    case 'res':
-      return typeof value.id === 'string' && value.ok === true;
-    case 'err':
-      return typeof value.id === 'string' && isRecord(value.error) && typeof value.error.code === 'string';
-    case 'evt':
-      return typeof value.topic === 'string';
-    case 'req':
-      return typeof value.id === 'string' && typeof value.method === 'string';
-    default:
-      return false;
-  }
-}
+/*
+ * v3 这里有一个 `isBridgeFrame(value)`：按 JSON 字段（`v`/`type`/`ok`）校验入站文本。
+ * v4 把它删了 —— 线格式的校验现在是**解码器**的职责（`wire.ts` 的 `decodeFrame` 抛 `WireDecodeError`），
+ * 再留一份字段级校验就是第二个定义同一件事的地方。
+ */
 
 /**
  * 生产传输：`ws://127.0.0.1:{port}{HANDSHAKE_PATH}?token=…`。
@@ -174,6 +169,7 @@ export class WebSocketTransport implements BridgeTransport {
     readonly maxBackoffMs: number;
     readonly maxAttempts: number;
     readonly refreshBootstrap: (() => Promise<BridgeBootstrap | null>) | undefined;
+    readonly limits: { readonly textMaxBytes?: number; readonly binMaxBytes?: number } | undefined;
   };
   private currentState: ConnectionState = 'idle';
   private connecting: Promise<void> | null = null;
@@ -277,16 +273,17 @@ export class WebSocketTransport implements BridgeTransport {
           if (settled) {
             return;
           }
-          const frame = {
-            v: BRIDGE_PROTOCOL_VERSION,
-            type: 'req' as const,
+          const frame: ReqFrame = {
+            type: 'req',
             id,
             method,
             ...(params === undefined ? {} : { params }),
             ...(meta === undefined ? {} : { meta }),
           };
-          const text = JSON.stringify(frame);
-          if (utf8ByteLength(text) > MAX_FRAME_BYTES) {
+          const bytes = encodeFrame(frame);
+          // v4：上限按**正文**算，且以引导下发的 limits 为准（缺省才用协议常量）
+          const textMaxBytes = this.opts.limits?.textMaxBytes ?? MAX_FRAME_BYTES;
+          if (bodyLength(bytes) > textMaxBytes) {
             fail(new BridgeError({ code: BridgeErrorCode.FRAME_TOO_LARGE, messageKey: 'bridge.frameTooLarge' }));
             return;
           }
@@ -303,7 +300,7 @@ export class WebSocketTransport implements BridgeTransport {
             reject: fail,
             timer: timer as unknown as number,
           });
-          this.socket?.send(text);
+          this.socket?.send(bytes);
         })
         .catch(fail);
     });
@@ -417,7 +414,9 @@ export class WebSocketTransport implements BridgeTransport {
         this.setState('open');
         settle(resolve);
       };
-      socket.onmessage = (ev) => this.dispatch(String(ev.data));
+      // v4：线上全是二进制消息。`arraybuffer` 让我们拿到字节（缺省是 Blob，还要异步读一次）
+      socket.binaryType = 'arraybuffer';
+      socket.onmessage = (ev) => this.dispatch(ev.data);
       socket.onerror = () => {
         // onerror 之后一定会有 onclose，统一在 onclose 里做重试判定
       };
@@ -468,19 +467,33 @@ export class WebSocketTransport implements BridgeTransport {
     }
   }
 
-  private dispatch(text: string): void {
-    if (utf8ByteLength(text) > MAX_FRAME_BYTES) {
+  private dispatch(data: unknown): void {
+    if (typeof data === 'string') {
+      // 文本帧：v4 只走二进制 —— 壳会回一条 WIRE_MODE 错误帧，而这里收到的是**裸文本**，
+      // 说明两端不是同一版协议。记一条、别静默。
+      this.setState('closed');
+      return;
+    }
+    const bytes =
+      data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : null;
+    if (bytes === null) {
+      return;
+    }
+    // 入站防御：壳不该发超过它自己声明的数据面上限（真发了说明有 bug，早关好过先把内存吃满）
+    const binMaxBytes = this.opts.limits?.binMaxBytes ?? MAX_BIN_BYTES;
+    if (bytes.length > binMaxBytes + WIRE_HEADER_BYTES + WIRE_MAX_ID_BYTES) {
       this.socket?.close(1009, 'frame too large');
       return;
     }
+
     let frame: BridgeFrame;
     try {
-      const parsed: unknown = JSON.parse(text);
-      if (!isBridgeFrame(parsed)) {
-        return;
+      frame = decodeFrame(bytes);
+    } catch (e) {
+      if (e instanceof WireDecodeError) {
+        // 结构不合法：不猜、不静默。把在途调用判失败（重连会拿到新引导），并留一条线索。
+        this.failPending();
       }
-      frame = parsed;
-    } catch {
       return;
     }
 

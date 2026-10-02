@@ -155,7 +155,8 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
     token: 'mock',
     platform: 'browser',
     ver: '0.0.0-mock',
-    protocol: 3,
+    protocol: 4,
+    limits: { textMaxBytes: 256 * 1024, binMaxBytes: 8 * 1024 * 1024 },
     capabilities: [
       'storage.secure',
       'offline.queue',
