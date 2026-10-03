@@ -92,6 +92,17 @@ object BridgeErrorCodes {
     /** 摄像头被其它程序独占。 */
     const val CAMERA_BUSY: String = "BRIDGE_CAMERA_BUSY"
 
+    /*
+     * NFC 类错误（B3）。两个分开的理由与相机那三个同源：**出路不同**。
+     * UNSUPPORTED 没有出路（这台设备就没这个硬件，只能换设备）；
+     * DISABLED 有出路（去系统设置里点一下）。合成一个码，界面只能说"NFC 不可用"。
+     */
+    /** 本机没有 NFC 硬件（此时壳**不声明** `nfc.read`）。 */
+    const val NFC_UNSUPPORTED: String = "BRIDGE_NFC_UNSUPPORTED"
+
+    /** 有硬件但系统里关着（界面应给"去开启"，由本机方法 `nfc.openSettings` 跳设置页）。 */
+    const val NFC_DISABLED: String = "BRIDGE_NFC_DISABLED"
+
     /** 参数未通过 schema 校验。 */
     const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"
 

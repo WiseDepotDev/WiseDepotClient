@@ -33,6 +33,16 @@ export const HANDSHAKE_PATH = '/bridge';
  */
 export const BRIDGE_EVENT_SESSION_EXPIRED = 'session.expired';
 
+/**
+ * NFC 事件主题（B3）。
+ *
+ * 两条分开：`nfc.tag` 是"读到了什么"，`nfc.state` 是"现在能不能读"。
+ * 没有标签时界面也要能说清状态（未开启 / 就绪待刷），所以状态不能挤在 tag 事件里表达。
+ * 与 Kotlin 侧 `NfcReader` 发出的 topic **必须逐字一致**（跨语言线上契约串）。
+ */
+export const BRIDGE_EVENT_NFC_TAG = 'nfc.tag';
+export const BRIDGE_EVENT_NFC_STATE = 'nfc.state';
+
 /** 引导契约：Web 启动后读到的第一份数据，见 Kotlin 侧 `BridgeBootstrap`。 */
 export interface BridgeBootstrap {
   /**
@@ -150,6 +160,11 @@ export const BridgeErrorCode = {
   CAMERA_UNAVAILABLE: 'BRIDGE_CAMERA_UNAVAILABLE',
   CAMERA_DENIED: 'BRIDGE_CAMERA_DENIED',
   CAMERA_BUSY: 'BRIDGE_CAMERA_BUSY',
+  /*
+   * NFC 类错误（B3）：UNSUPPORTED 没有出路（换设备），DISABLED 有出路（去设置里开启）。
+   */
+  NFC_UNSUPPORTED: 'BRIDGE_NFC_UNSUPPORTED',
+  NFC_DISABLED: 'BRIDGE_NFC_DISABLED',
   RATE_LIMITED: 'BRIDGE_RATE_LIMITED',
   BACKEND_UNREACHABLE: 'BRIDGE_BACKEND_UNREACHABLE',
   INTERNAL: 'BRIDGE_INTERNAL',
