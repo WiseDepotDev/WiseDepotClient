@@ -27,6 +27,22 @@ enum class NfcAvailability {
     READY,
 }
 
+/**
+ * 系统 NFC 开关被拨动之后，壳该对 reader 做什么。
+ *
+ * 为什么这不是"重新 `start()` 一下"那么随意：**关闭**时如果只重新 start()，
+ * `NfcReader.reading` 还立着 `true`（我们没调 stop），而系统那边已经把 reader mode 丢掉了；
+ * 等用户再把 NFC 打开，`start()` 会以为"已经在读"而**不再注册** ——
+ * 表现是界面说"就绪"、贴卡却毫无反应。这正是"状态显示是真的"要避免的那种假象。
+ */
+enum class NfcAdapterChangeAction {
+    /** 开着：重新注册（`start()` 幂等，已经在读就只重报一次状态）。 */
+    RECONNECT,
+
+    /** 关着：**先 `stop()`**（让内部标志与系统一致），再报状态。 */
+    STOP_THEN_REPORT,
+}
+
 object NfcReaderState {
     /** 与 Kotlin `BridgeErrorCodes` / TS `BridgeErrorCode` 逐字一致的错误码。 */
     const val ERROR_UNSUPPORTED: String = "BRIDGE_NFC_UNSUPPORTED"
@@ -58,6 +74,20 @@ object NfcReaderState {
             NfcAvailability.UNSUPPORTED -> ERROR_UNSUPPORTED
             NfcAvailability.DISABLED -> ERROR_DISABLED
             NfcAvailability.READY -> null
+        }
+
+    /**
+     * 系统里 NFC 开关被拨动之后该做什么（见 [NfcAdapterChangeAction] 里那条"必须先 stop"的原因）。
+     *
+     * 判据只用**重新读到的真实状态**，不用广播里带的那点信息：`ACTION_ADAPTER_STATE_CHANGED`
+     * 的 extras 是系统给的快照，而"现在到底能不能读"要以适配器为准 —— 否则就是拿一份可能
+     * 已经过期的数据决定要不要注册 reader mode。
+     */
+    fun actionAfterAdapterChange(state: NfcAvailability): NfcAdapterChangeAction =
+        if (state == NfcAvailability.READY) {
+            NfcAdapterChangeAction.RECONNECT
+        } else {
+            NfcAdapterChangeAction.STOP_THEN_REPORT
         }
 
     /** 该状态对应的 `nfc.state` 载荷值（界面据此渲染四种表现）。 */

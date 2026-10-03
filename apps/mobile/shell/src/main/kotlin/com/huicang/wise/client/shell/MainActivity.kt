@@ -1,7 +1,12 @@
 package com.huicang.wise.client.shell
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
+import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -12,6 +17,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import com.huicang.wise.bridge.protocol.BridgeCapabilities
@@ -119,6 +125,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         nfcForeground = true
+        registerNfcAdapterListener()
         nfcReader?.start()
     }
 
@@ -130,8 +137,81 @@ class MainActivity : ComponentActivity() {
      */
     override fun onPause() {
         nfcForeground = false
+        unregisterNfcAdapterListener()
         nfcReader?.stop()
         super.onPause()
+    }
+
+    /** 系统 NFC 开关被拨动时重新判定；只在前台挂着（见 [registerNfcAdapterListener]）。 */
+    private val nfcAdapterReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                context: Context?,
+                intent: Intent?,
+            ) {
+                if (intent?.action != NfcAdapter.ACTION_ADAPTER_STATE_CHANGED) {
+                    return
+                }
+                refreshNfc()
+            }
+        }
+
+    /** 广播监听是否挂着（`onResume`/`onPause` 成对调用，这里防重复注册与漏注销）。 */
+    private var nfcListening = false
+
+    /**
+     * 听 `ACTION_ADAPTER_STATE_CHANGED`。
+     *
+     * **为什么必须有这条广播**：`nfc.state` 原本只在 `onResume` 与"页面加载完成"时报，
+     * 而用户从**通知栏那枚开关**拨 NFC 时，Activity 并不会 pause ——
+     * 少了这条广播，界面会一直说"请将标签靠近手机背部"（哪怕 NFC 已经关了），
+     * 用户贴卡没反应且没有任何提示。
+     *
+     * 用 `ContextCompat.registerReceiver` 而不是裸 `registerReceiver`：targetSdk 34 起
+     * 动态注册必须显式声明导出性，这个兼容方法在各版本上都对（而且不留废弃告警）。
+     * `RECEIVER_NOT_EXPORTED` 是正确的选择 —— 我们只收**系统**发的这条广播，
+     * 不收别的应用的消息。
+     */
+    private fun registerNfcAdapterListener() {
+        if (nfcListening) {
+            return
+        }
+        ContextCompat.registerReceiver(
+            this,
+            nfcAdapterReceiver,
+            IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        nfcListening = true
+    }
+
+    private fun unregisterNfcAdapterListener() {
+        if (!nfcListening) {
+            return
+        }
+        nfcListening = false
+        // 注销失败不该把 onPause 弄崩（进程正在退出时见过），但它会被记下来
+        runCatching { unregisterReceiver(nfcAdapterReceiver) }
+            .onFailure { android.util.Log.w(TAG, "[nfc] 注销 NFC 状态广播失败：${it.javaClass.simpleName}") }
+    }
+
+    /**
+     * 系统里 NFC 被拨动后重新判定 reader 的处置。
+     *
+     * 判据与"关着时必须先 stop"的理由见 [NfcReaderState.actionAfterAdapterChange] ——
+     * 那个 if 看着简单，写错的后果是"再打开 NFC 后贴卡没反应"，所以它被提到了可单测的那一层。
+     */
+    private fun refreshNfc() {
+        val reader = nfcReader ?: return
+        android.util.Log.i(TAG, "[nfc] 系统开关变化，重新判定：${reader.availability}")
+        when (NfcReaderState.actionAfterAdapterChange(reader.availability)) {
+            NfcAdapterChangeAction.RECONNECT -> reader.start()
+
+            NfcAdapterChangeAction.STOP_THEN_REPORT -> {
+                reader.stop()
+                reader.start()
+            }
+        }
     }
 
     /**

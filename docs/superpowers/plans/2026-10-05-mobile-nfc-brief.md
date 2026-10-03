@@ -183,3 +183,44 @@
 2. `pnpm check:nfc` 里有一条断言是"当前还没验"这个**事实**的钉子，同一次提交里带着 logcat 证据一起更新；
 3. 走查上面 ①②③，把结果追加到本节（哪台机器、什么系统版本、哪张卡）。
 
+## 9. 追加（紧接着 S3/S4）：把"`nfc.state` 只在 `onResume` 刷新"这个缺口补掉
+
+§8 的"没做完的 2"当时写成"要做是下一片"——紧接着就做了它，因为它的后果正是本 brief 最忌讳的那类：
+**从通知栏拨 NFC 开关不会 pause Activity**，于是界面会一直说"请将标签靠近手机背部"，
+而系统里 NFC 已经关了：用户贴卡没反应，且没有任何提示（一个"说自己在就绪"的死状态）。
+
+落点：
+
+- `MainActivity` 注册 `ACTION_ADAPTER_STATE_CHANGED`（`ContextCompat.registerReceiver` +
+  `RECEIVER_NOT_EXPORTED`：我们只收**系统**这一条广播），`onResume` 挂、`onPause` 摘；
+- 收到后**重新读适配器**再决定，不信广播 extras 里那份可能过期的快照；
+- **关闭时必须先 `stop()` 再报状态**：只重新 `start()` 的话 `reading` 还立着 `true`，
+  而系统那边已经丢掉了 reader mode —— 等 NFC 再打开，`start()` 会以为"已经在读"而**不再注册**，
+  表现还是"贴卡没反应"（只是这次发生在打开之后，更难查）。
+  这条判据提到 `NfcReaderState.actionAfterAdapterChange`（可 JVM 穷举），单测覆盖两个分支。
+
+验证：`gradlew :apps:mobile:shell:testDebugUnitTest` → `NfcReaderStateTest` tests=15（+1）；
+`pnpm check:nfc` 64 项。**§8 那三条真机走查仍然没做，未完成的口径不变。**
+
+## 10. 同一批：把"四态"提成可执行的那一层（否则 S4 只有源文本证据）
+
+§6 给 S4 的验收是"门禁加一条『无能力不画入口 + 两种文案不同』"——而**源文本断言只能证明
+"模板里写了这几个词"**，证明不了"收到 `{state:1}` 或 `null` 时会怎样"。这一片最容易错、
+又**不会报错**的恰恰是没有配对的输入：壳将来多一个状态取值、或者事件被打包成别的形状时，
+正确行为是"保持原状、不要清空界面"。
+
+因此把判定从组件里提出来，做法与相机那一套完全相同（`scan-camera.ts` / `scan-stream.ts`）：
+
+- 新增 `packages/layouts/src/nfc-state.ts`（**零依赖**，所以门禁能用 `esbuild + node`
+  把真模块执行一遍）：`shouldRenderNfc` / `nfcPhaseOf` / `nextNfcPhase` / `nfcTagOf` /
+  `openSettingsSucceeded`，以及四个契约串字面量；
+- `NfcStatus.vue` 只做订阅与渲染（`v-if="visible"`）；
+- `check-nfc.mjs` 第 8 节真跑这个模块：入口判据 5 条、状态映射含"未知识别不出来时保持原状"、
+  标签载荷 3 条、「去开启」返回值判定 2 条 —— "没有能力时一个像素都不画"这条从此有**可执行证据**。
+
+**仍然没有任何运行期证据的部分**：组件在真浏览器里的渲染结果（DOM 长什么样、层级对不对）。
+那需要把 `nfc.read` 注入一次 dev 会话（`pnpm dev` 的假桥**不声明**它 —— 浏览器真的读不了 NFC，
+声明了就是撒谎），或者等真机走查。这一段不做，理由写在这里，免得下一个人以为它验过了。
+
+
+

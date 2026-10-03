@@ -122,6 +122,20 @@ class NfcReaderStateTest {
         assertTrue(debouncer.shouldReport("aa", 120), "停了十分钟再贴同一张，不该被当成连击")
     }
 
+    // ---- 系统开关被拨动（通知栏那枚开关不会 pause Activity）----
+
+    @Test
+    fun `系统开关被拨动：开着就重连，关着必须先停再报状态`() {
+        assertEquals(NfcAdapterChangeAction.RECONNECT, NfcReaderState.actionAfterAdapterChange(NfcAvailability.READY))
+        /*
+         * 这两条是同一个陷阱：**只重新 start() 不够**。
+         * 关掉时 `NfcReader.reading` 还立着 true（我们没 stop），而系统那边已经丢了 reader mode；
+         * 等 NFC 再打开，start() 会以为"已经在读"而不再注册 —— 表现是界面说"就绪"、贴卡没反应。
+         */
+        assertEquals(NfcAdapterChangeAction.STOP_THEN_REPORT, NfcReaderState.actionAfterAdapterChange(NfcAvailability.DISABLED))
+        assertEquals(NfcAdapterChangeAction.STOP_THEN_REPORT, NfcReaderState.actionAfterAdapterChange(NfcAvailability.UNSUPPORTED))
+    }
+
     // ---- 本机方法表（B3/S3）----
 
     @Test

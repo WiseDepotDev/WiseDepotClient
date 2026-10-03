@@ -14,8 +14,9 @@
  * 真机那一步（读到标签 / 关 NFC 看「去开启」/ 切后台别的应用能接管）**本文件验不了**，
  * 它只能钉住"代码结构与判据"。见 brief §8 记账里那条未完成的验收。
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { transformSync } from 'esbuild';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 
@@ -47,6 +48,7 @@ const shellGradle = read('apps/mobile/shell/build.gradle.kts');
 const shellTestKt = read('apps/mobile/shell/src/test/kotlin/com/huicang/wise/client/shell/NfcReaderStateTest.kt');
 const typesTs = read('packages/bridge-client/src/types.ts');
 const nfcVue = read('packages/layouts/src/NfcStatus.vue');
+const nfcStateTs = read('packages/layouts/src/nfc-state.ts');
 const appFrameVue = read('packages/layouts/src/AppFrame.vue');
 
 const grab = (source, re) => re.exec(source)?.[1] ?? null;
@@ -152,6 +154,34 @@ check(
   /private fun warmUpNfc\(\)[\s\S]{0,200}?if \(nfcForeground\)/.test(mainActivityKt),
 );
 
+console.log('--- 4b. 系统开关被拨动：通知栏那枚开关不会 pause Activity ---');
+check(
+  '收了 ACTION_ADAPTER_STATE_CHANGED（不收 = 界面一直说"就绪"，而 NFC 已经关了）',
+  /NfcAdapter\.ACTION_ADAPTER_STATE_CHANGED/.test(mainActivityKt),
+);
+check(
+  '用 ContextCompat.registerReceiver + RECEIVER_NOT_EXPORTED（targetSdk 34 起必须显式声明导出性）',
+  /ContextCompat\.registerReceiver\([\s\S]{0,300}?ContextCompat\.RECEIVER_NOT_EXPORTED/.test(mainActivityKt),
+);
+check(
+  'onResume 挂、onPause 摘（成对；挂着不放会在 Activity 销毁后继续收广播）',
+  /override fun onResume\(\)[\s\S]{0,300}?registerNfcAdapterListener\(\)/.test(mainActivityKt) &&
+    /override fun onPause\(\)[\s\S]{0,300}?unregisterNfcAdapterListener\(\)/.test(mainActivityKt),
+);
+check(
+  '判据走可单测的那一层（actionAfterAdapterChange），不在 Activity 里再写一遍 if',
+  /NfcReaderState\.actionAfterAdapterChange\(reader\.availability\)/.test(mainActivityKt),
+);
+check(
+  '关闭时**先 stop 再 start**（只 start 的话 reading 还立着，NFC 再打开时不会重新注册 reader mode）',
+  /STOP_THEN_REPORT -> \{[\s\S]{0,120}?reader\.stop\(\)[\s\S]{0,60}?reader\.start\(\)/.test(mainActivityKt),
+);
+check(
+  '单测覆盖这两个分支（RECONNECT / STOP_THEN_REPORT）',
+  /actionAfterAdapterChange\(NfcAvailability\.READY\)/.test(shellTestKt) &&
+    /actionAfterAdapterChange\(NfcAvailability\.DISABLED\)/.test(shellTestKt),
+);
+
 console.log('--- 5. 去抖：不做不会崩，只会刷屏（所以最容易被漏）---');
 check('去抖窗口是 1.5 秒（DEFAULT_WINDOW_MS）', /DEFAULT_WINDOW_MS:\s*Long\s*=\s*1_500/.test(stateKt));
 check('reader 的回调接了去抖（shouldReport → debouncer）', /debouncer\.shouldReport\(id, nowMs\)/.test(readerKt));
@@ -165,17 +195,20 @@ check(
 );
 
 console.log('--- 6. Web 侧：入口只由能力位决定，两态两文案 ---');
-check('入口判据是能力位 nfc.read（不是平台字符串）', /supports\('nfc\.read'\)/.test(nfcVue));
+check('入口判据是能力位 nfc.read（不是平台字符串）', /NFC_CAPABILITY\s*=\s*'nfc\.read'/.test(nfcStateTs) && /supports\(NFC_CAPABILITY\)/.test(nfcVue));
 check(
-  '没有能力 / unsupported → 一个像素都不画',
-  /v-if="canRead && phase !== 'unsupported'"/.test(nfcVue),
+  '渲染与否交给判定层（shouldRenderNfc）——不是模板里各写一份 if',
+  /shouldRenderNfc\(canRead\.value, phase\.value\)/.test(nfcVue) && /v-if="visible"/.test(nfcVue),
 );
 check('「NFC 未开启」与「请将标签靠近手机背部」是两句不同的话（出路不同）', /NFC 未开启/.test(nfcVue) && /请将标签靠近手机背部/.test(nfcVue));
-check('「去开启」真的调本机方法（用常量，不写字面量）', /bridge\.call<\{ opened\?: boolean \}>\(LocalMethod\.NFC_OPEN_SETTINGS\)/.test(nfcVue));
-check('打不开系统设置时如实改口（不假装成功）', /openFailed\.value\s*=\s*result\?\.opened !== true/.test(nfcVue));
+check('「去开启」真的调本机方法（用常量，不写字面量）', /bridge\.call<\{ opened\?: boolean \}>\(NFC_OPEN_SETTINGS\)/.test(nfcVue));
 check(
-  '订阅用的是 TS 侧的事件常量（与壳的 topic 同源）',
-  /bridge\.subscribe\(BRIDGE_EVENT_NFC_STATE/.test(nfcVue) && /bridge\.subscribe\(BRIDGE_EVENT_NFC_TAG/.test(nfcVue),
+  '打不开系统设置时如实改口（只有明确的 opened:true 才算成功，判定在 nfc-state.ts）',
+  /openSettingsSucceeded\(result\)/.test(nfcVue) && /readField\(result, 'opened'\) === true/.test(nfcStateTs),
+);
+check(
+  '订阅用的是判定层的常量（与壳的 topic 同源）',
+  /bridge\.subscribe\(NFC_EVENT_STATE/.test(nfcVue) && /bridge\.subscribe\(NFC_EVENT_TAG/.test(nfcVue),
 );
 check('外壳只挂一份 NfcStatus（两处各挂一份 = 同一个事件画两张卡）', (appFrameVue.match(/<NfcStatus/g) ?? []).length === 1);
 check('且挂在 `.w-main` 的流内（挂到 shell 末尾会变成侧栏旁边的一列）', /<NfcStatus \/>[\s\S]*?唯一的内容实例/.test(appFrameVue));
@@ -203,6 +236,73 @@ check(
 
 console.log(
   `  · 真机那一步（本文件验不了）：读到标签 / 关 NFC 看「去开启」/ 切后台别的应用能接管 —— 见 brief §8 记账`,
+);
+
+console.log('--- 8. 真的跑一遍四态判定（esbuild + node 执行真模块，不是源文本断言）---');
+/*
+ * 为什么值得单独一节：第 6 节那些断言只能证明"模板里写了哪几个词"，
+ * 证明不了"收到 `{state:1}` 或 `null` 时会怎样"。而这一片最容易错、又不会报错的正是
+ * **没有配对的输入**（壳多一个取值 / 事件被打包成别的形状）—— 那时的正确行为是
+ * "保持原状、不要清空界面"。做法与相机那一套一致（`check-scan-camera.mjs` 同款）。
+ */
+const nfcStateJs = transformSync(nfcStateTs, { loader: 'ts', format: 'esm' }).code;
+const st = await import(`data:text/javascript;base64,${Buffer.from(nfcStateJs).toString('base64')}`);
+
+check(
+  '判定层的三个契约串与 TS 常量逐字一致（这里是字面量，一旦漂移两边都看不出）',
+  st.NFC_EVENT_TAG === tsTag && st.NFC_EVENT_STATE === tsState && st.NFC_OPEN_SETTINGS === tsLocal,
+  `模块=${st.NFC_EVENT_TAG}/${st.NFC_EVENT_STATE}/${st.NFC_OPEN_SETTINGS} ts=${tsTag}/${tsState}/${tsLocal}`,
+);
+check(
+  '能力位的字符串也与 TS `Capability` 一致',
+  grab(typesTs, /NFC_READ:\s*'([^']+)'/) === st.NFC_CAPABILITY,
+  `${st.NFC_CAPABILITY}`,
+);
+
+// —— 入口判据：无能力 / unsupported 一律不画 ——
+check('没有能力 → 不画（哪怕状态是就绪）', st.shouldRenderNfc(false, 'ready') === false);
+check('没有能力 + 未开启 → 也不画（不是"改画一条未开启提示"）', st.shouldRenderNfc(false, 'off') === false);
+check('有能力但壳报 unsupported → 不画（那条路没有出路）', st.shouldRenderNfc(true, 'unsupported') === false);
+check('有能力 + 就绪 → 画', st.shouldRenderNfc(true, 'ready') === true);
+check('有能力 + 未开启 → 画（要给出「去开启」这条出路）', st.shouldRenderNfc(true, 'off') === true);
+
+// —— 状态映射：三种取值 + 认不出来的保持原状 ——
+check('on → 就绪（壳自己的用词是 on，不是 ready）', st.nfcPhaseOf({ state: 'on' }) === 'ready');
+check('off → 未开启', st.nfcPhaseOf({ state: 'off' }) === 'off');
+check('unsupported → 无硬件', st.nfcPhaseOf({ state: 'unsupported' }) === 'unsupported');
+check(
+  '认不出来的取值回 null（调用方据此保持原状，而不是清空或假装就绪）',
+  st.nfcPhaseOf({ state: 'sleeping' }) === null &&
+    st.nfcPhaseOf({ state: 1 }) === null &&
+    st.nfcPhaseOf({}) === null &&
+    st.nfcPhaseOf(null) === null &&
+    st.nfcPhaseOf('off') === null,
+);
+check(
+  '未知取值不改变当前状态（"壳比 Web 新"时界面要还能用）',
+  st.nextNfcPhase('off', { state: 'sleeping' }) === 'off' && st.nextNfcPhase('ready', null) === 'ready',
+);
+check(
+  '已知取值照常切换（就绪 ⇄ 未开启都要动）',
+  st.nextNfcPhase('ready', { state: 'off' }) === 'off' && st.nextNfcPhase('off', { state: 'on' }) === 'ready',
+);
+
+// —— 标签载荷 ——
+const tagOk = st.nfcTagOf({ id: '04a1b2c3', tech: 'NfcA', at: 1_731_000_000_000 });
+check('完整载荷 → id/tech/at 原样', tagOk.id === '04a1b2c3' && tagOk.tech === 'NfcA' && tagOk.at === 1_731_000_000_000);
+const tagNoTech = st.nfcTagOf({ id: 'aa' });
+check('缺 tech → Unknown（与壳侧的兜底一致），缺 at 用当前时间', tagNoTech.tech === 'Unknown' && typeof tagNoTech.at === 'number' && tagNoTech.at > 0);
+check('没有 id / 空 id / 不是对象 → 不画空卡片', st.nfcTagOf({}) === null && st.nfcTagOf({ id: '' }) === null && st.nfcTagOf(null) === null);
+
+// —— 「去开启」的返回值判定 ——
+check('opened:true 才算打开成功', st.openSettingsSucceeded({ opened: true }) === true);
+check(
+  '其余一律算没打开（false / 缺字段 / 类型不对 / 老壳没有这个方法）',
+  st.openSettingsSucceeded({ opened: false }) === false &&
+    st.openSettingsSucceeded({}) === false &&
+    st.openSettingsSucceeded({ opened: 'true' }) === false &&
+    st.openSettingsSucceeded(undefined) === false &&
+    st.openSettingsSucceeded(null) === false,
 );
 
 const total = pass + fail;
