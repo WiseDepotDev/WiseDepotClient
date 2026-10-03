@@ -50,6 +50,8 @@ const typesTs = read('packages/bridge-client/src/types.ts');
 const nfcVue = read('packages/layouts/src/NfcStatus.vue');
 const nfcStateTs = read('packages/layouts/src/nfc-state.ts');
 const appFrameVue = read('packages/layouts/src/AppFrame.vue');
+const pkgJson = read('package.json');
+const devScript = read('scripts/nfc-device-check.ps1');
 
 const grab = (source, re) => re.exec(source)?.[1] ?? null;
 
@@ -303,6 +305,55 @@ check(
     st.openSettingsSucceeded({ opened: 'true' }) === false &&
     st.openSettingsSucceeded(undefined) === false &&
     st.openSettingsSucceeded(null) === false,
+);
+
+console.log('--- 9. 真机走查脚本：跳过不等于通过，判定只认 ASCII 锚点 ---');
+const anchors = ['readerMode=on', 'readerMode=off', 'readerMode=skipped state=', 'adapterChanged state=', 'tagRead id='];
+check(
+  '判定只用 ASCII 锚点（日志里的中文措辞或控制台编码变了，也不会"看起来跑过了"）',
+  anchors.every((a) => devScript.includes(a)),
+  anchors.filter((a) => !devScript.includes(a)).join(', '),
+);
+check(
+  '这些锚点壳里真的打了（脚本与代码同源：改日志名就会红）',
+  /readerMode=on/.test(readerKt) &&
+    /readerMode=off/.test(readerKt) &&
+    /readerMode=skipped state=/.test(readerKt) &&
+    /tagRead id=/.test(mainActivityKt) &&
+    /adapterChanged state=/.test(mainActivityKt),
+);
+check(
+  '跳过 ≠ 通过：没设备 / 没贴卡 → exit 2，只有三项都真验到才 exit 0',
+  /exit 2/.test(devScript) && /exit 0/.test(devScript) && /跳过不等于通过/.test(devScript),
+);
+check(
+  '贴卡那一步是**跳过**而不是失败（脚本替不了人贴卡，硬判失败只会逼人忽略它）',
+  /Check-Skip '贴卡能读到'/.test(devScript),
+);
+check(
+  '没 adb / 没设备时立刻收工，不构建、不安装（否则会白跑几分钟 Gradle）',
+  /\$devices\.Count -eq 0[\s\S]{0,600}?exit 2/.test(devScript),
+);
+const checkChain = grab(pkgJson, /"check":\s*"([^"]+)"/) ?? '';
+check(
+  'package.json 有 smoke:nfc-device，且**不在** pnpm check 链里（没有手机的人不该天天红）',
+  /"smoke:nfc-device"/.test(pkgJson) && checkChain !== '' && !checkChain.includes('smoke:nfc-device'),
+);
+check(
+  '脚本里写清了"验证通过才翻 NFC_READ_VERIFIED"，以及要带机型/系统/卡型',
+  /NFC_READ_VERIFIED/.test(devScript) && /机型/.test(devScript),
+);
+/*
+ * **UTF-8 BOM 是硬要求**：`pnpm smoke:nfc-device` 走 `powershell -File`（Windows PowerShell 5.1），
+ * 它按**当前 ANSI 代码页**读取没有 BOM 的 .ps1 —— 中文被当成 GBK 之后字节会串位，
+ * 连字符串的收尾引号都可能被吞掉，报出来的是"某一行少个引号"这种与真因毫不相干的错。
+ * 这条断言就是这么发现的（先写文件、后补 BOM，一次 edit 又把 BOM 弄掉了）。
+ */
+const devScriptBytes = readFileSync(path.join(ROOT, 'scripts/nfc-device-check.ps1'));
+check(
+  '走查脚本带 UTF-8 BOM（否则 powershell 5.1 按 ANSI 读，中文串位后连解析都过不去）',
+  devScriptBytes[0] === 0xef && devScriptBytes[1] === 0xbb && devScriptBytes[2] === 0xbf,
+  `前三个字节 ${[...devScriptBytes.slice(0, 3)].map((b) => b.toString(16)).join(' ')}`,
 );
 
 const total = pass + fail;

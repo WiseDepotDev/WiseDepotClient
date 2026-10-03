@@ -69,7 +69,8 @@
     "smoke:real": "node tools/bench/real-smoke.mjs",
     "smoke:real:admin": "node tools/bench/real-smoke.mjs --user admin",
     "desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop.ps1",
-    "desktop:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop.ps1 -Smoke"
+    "desktop:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop.ps1 -Smoke",
+    "smoke:nfc-device": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/nfc-device-check.ps1"
   },
   "devDependencies": {
     "@wise/bridge-client": "workspace:*",

@@ -222,5 +222,31 @@
 那需要把 `nfc.read` 注入一次 dev 会话（`pnpm dev` 的假桥**不声明**它 —— 浏览器真的读不了 NFC，
 声明了就是撒谎），或者等真机走查。这一段不做，理由写在这里，免得下一个人以为它验过了。
 
+## 11. §8 的三条走查有了可执行的形式：`pnpm smoke:nfc-device`
+
+§8 的走查原先只是一段说明书 —— 而"说明书式的验收"最容易变成"看着像做过了"。
+`scripts/nfc-device-check.ps1` 把它落成一次可复现的检查（做法与 `desktop.ps1 -Smoke` 同源）：
+
+| 步骤 | 判据（logcat） |
+| --- | --- |
+| 进入应用能读到 | `readerMode=on` |
+| 关掉系统 NFC | `adapterChanged state=DISABLED`（界面出现「去开启」） |
+| 再打开 | `adapterChanged state=READY`（**重新注册**，不重开会表现为贴卡没反应） |
+| 贴卡能读到 | `tagRead id=… tech=…`（要人真的贴卡） |
+| 切后台 | `readerMode=off`（别的 NFC 应用能接管） |
+
+三条口径刻意写死在这里，免得下一个人"顺手放宽"：
+
+1. **跳过 ≠ 通过**。没 adb / 没插设备 / 这台机器没有 NFC / 没人贴卡 → 记**跳过**并
+   **退出码 2**（`0` 只给"三项都真验到了"，`1` 是失败）。所以 `exit 0` 才是能写进交付的那份记录。
+2. **判定只认 ASCII 锚点**（`readerMode=on` 这类）。壳里的日志行因此带上了这些锚点
+   （`NfcReader` / `MainActivity`）—— 控制台编码或中文措辞变了也不会"看起来跑过了"，
+   而且现场可以直接 `adb logcat -s WiseShell:I | findstr tagRead`。
+3. **它不在 `pnpm check` 链里**：没有手机的人不该天天红（`check-nfc.mjs` 有一条断言钉住这件事）。
+
+本机现在跑它得到的是 `通过 0 / 跳过 1 / 失败 0`、退出码 **2** ——
+即"**未验**"，与 §8 的口径一致。
+
+
 
 

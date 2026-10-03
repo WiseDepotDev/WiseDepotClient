@@ -65,7 +65,7 @@ class NfcReader(
          */
         mainHandler.post { onState(state) }
         if (state != NfcAvailability.READY) {
-            log("[nfc] 未进入读卡：$state")
+            log("[nfc] readerMode=skipped state=$state（未进入读卡）")
             return state
         }
         if (reading) {
@@ -93,11 +93,11 @@ class NfcReader(
                 },
             )
             reading = true
-            log("[nfc] 已进入读卡（reader mode）")
+            log("[nfc] readerMode=on（已进入读卡）")
         } catch (e: Throwable) {
             // 部分定制 ROM 在 NFC 服务异常时会抛 —— 不吞掉，回一条明确状态
             reading = false
-            log("[nfc] enableReaderMode 失败：${e.javaClass.simpleName}: ${e.message}")
+            log("[nfc] readerMode=failed ${e.javaClass.simpleName}: ${e.message}")
         }
         return state
     }
@@ -110,8 +110,8 @@ class NfcReader(
         }
         reading = false
         runCatching { adapter?.disableReaderMode(activity) }
-            .onFailure { log("[nfc] disableReaderMode 失败：${it.javaClass.simpleName}") }
-        log("[nfc] 已停止读卡")
+            .onFailure { log("[nfc] readerMode=off-failed ${it.javaClass.simpleName}") }
+        log("[nfc] readerMode=off（已停止读卡）")
     }
 
     /**
@@ -126,7 +126,7 @@ class NfcReader(
             activity.startActivity(intent)
             true
         }.getOrElse {
-            log("[nfc] 打开 NFC 设置页失败：${it.javaClass.simpleName}: ${it.message}")
+            log("[nfc] openSettings=failed ${it.javaClass.simpleName}: ${it.message}")
             false
         }
 

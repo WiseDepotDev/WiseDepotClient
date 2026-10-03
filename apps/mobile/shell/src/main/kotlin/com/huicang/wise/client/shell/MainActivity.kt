@@ -102,12 +102,14 @@ class MainActivity : ComponentActivity() {
             NfcReader(
                 activity = this,
                 onTag = { id, tech, at ->
-                    // 这行日志就是 S3 真机验收看的那一行（"进入应用能读到"）
-                    android.util.Log.i(TAG, "[nfc] 读到标签 id=$id tech=$tech")
+                    // 这行日志就是 S3 真机验收看的那一行（"进入应用能读到"）。
+                    // `tagRead id=` 是**纯 ASCII 锚点**：`scripts/nfc-device-check.ps1` 靠它判定，
+                    // 现场排障也能直接 `adb logcat -s WiseShell:I | findstr tagRead`。
+                    android.util.Log.i(TAG, "[nfc] tagRead id=$id tech=$tech")
                     ShellBridge.emit(NfcReaderState.EVENT_TAG, NfcReaderState.tagEventPayload(id, tech, at))
                 },
                 onState = { state ->
-                    android.util.Log.i(TAG, "[nfc] 状态：$state")
+                    android.util.Log.i(TAG, "[nfc] state=$state")
                     ShellBridge.emit(NfcReaderState.EVENT_STATE, NfcReaderState.stateEventPayload(state))
                 },
                 log = { android.util.Log.i(TAG, it) },
@@ -203,7 +205,8 @@ class MainActivity : ComponentActivity() {
      */
     private fun refreshNfc() {
         val reader = nfcReader ?: return
-        android.util.Log.i(TAG, "[nfc] 系统开关变化，重新判定：${reader.availability}")
+        // 同样是 ASCII 锚点（脚本按 `adapterChanged state=` 判定）
+        android.util.Log.i(TAG, "[nfc] adapterChanged state=${reader.availability}")
         when (NfcReaderState.actionAfterAdapterChange(reader.availability)) {
             NfcAdapterChangeAction.RECONNECT -> reader.start()
 
