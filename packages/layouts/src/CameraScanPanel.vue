@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { ElButton, ElIcon, ElOption, ElSelect } from 'element-plus';
+import { ElButton, ElIcon, ElOption, ElSelect, useZIndex } from 'element-plus';
 import { Camera, Close } from '@element-plus/icons-vue';
 import { useBridgeStore } from '@wise/stores';
 import { errorTextOf } from '@wise/ui';
@@ -51,6 +51,20 @@ const emit = defineEmits<{
 
 const bridge = useBridgeStore();
 
+/**
+ * 取景层的层级：**必须比 Element Plus 的弹层大**。
+ *
+ * 用户实测反馈"取景框出现在弹窗后面"—— 条形码输入框在 `ElDialog` 里，而那个弹窗的
+ * z-index 是 EP 的 `--el-index-*` 序列（2000 起、每开一个弹层 +1），
+ * 第一版取景层写的是 `z-index: 40`，于是被弹窗整个盖住：看不见画面、也没法对准。
+ *
+ * 不写死一个大数字（写 3000 迟早被下一个弹层超过），而是**开层时向 EP 要一个**
+ * `nextZIndex()` —— 它保证比当前已经出现过的所有 EP 弹层都大。
+ * 本组件是 `v-if` 挂载的（每次打开都新建），所以 setup 里取一次就够。
+ */
+const { nextZIndex } = useZIndex();
+const layerZ = nextZIndex();
+
 /** 多摄像头才有"换一个"可言；手机不声明这条能力（画出来就是死入口）。 */
 const canSelect = computed(() => bridge.supports('scan.camera.select'));
 
@@ -79,6 +93,8 @@ const detector = shallowRef<BarcodeDetectorLike | null>(null);
 const engineKind = ref<string>('');
 const frames = ref(0);
 const lastError = ref<string | null>(null);
+/** 画面被系统/别的窗口遮住时 Chromium 会暂停播放；诊断行要说出来（见 tick）。 */
+const videoPaused = ref(false);
 /** 取景超过一段时间还没有命中：把提示换成更具体的动作（而不是一直"正在找"）。 */
 const patience = ref(false);
 
@@ -126,7 +142,14 @@ const status = computed(() => {
         ? '回退识别'
         : '无识别引擎';
   const frameText = frames.value === 0 ? '画面还没进来' : `已取 ${frames.value} 帧`;
-  return lastError.value === null ? `${engineText} · ${frameText}` : `${engineText} · ${frameText} · 识别出错：${lastError.value}`;
+  const parts = [engineText, frameText];
+  if (videoPaused.value) {
+    parts.push('画面被遮挡已暂停（自动恢复中）');
+  }
+  if (lastError.value !== null) {
+    parts.push(`识别出错：${lastError.value}`);
+  }
+  return parts.join(' · ');
 });
 
 /** 取景中的提示语：等久了要说清"该怎么放"，而不是一直"正在找"。 */
@@ -190,7 +213,8 @@ async function begin(): Promise<void> {
     return;
   }
 
-  const { camera, fellBack } = resolveSelectedCamera(options, readSelectedCameraId(storage()));
+  const savedId = readSelectedCameraId(storage());
+  const { camera, fellBack } = resolveSelectedCamera(options, savedId);
   if (camera === null) {
     fail({ code: 'BRIDGE_CAMERA_UNAVAILABLE', messageKey: 'scan.cameraUnavailable', retryable: true });
     return;
@@ -199,6 +223,18 @@ async function begin(): Promise<void> {
   if (fellBack) {
     // 上次那台不在了：**回写**，免得每次打开都要重算一次回退
     writeSelectedCameraId(storage(), camera.id);
+  }
+  /*
+   * **只有"用户真的选过这一枚"时才带 `deviceId: {exact}`。**
+   *
+   * 为什么：授权之前 `enumerateDevices()` 给出的 deviceId 是**不可用**的（Chromium 只给
+   * 一个占位值/空串），拿它去 `getUserMedia({deviceId: {exact}})` 会抛 `OverconstrainedError`
+   * —— 全新装的机器上第一次点扫码正是这个状态，用户看到的是"点了没反应"或一句莫名其妙的
+   * "没有可用的摄像头"。不带 deviceId 时浏览器给的就是系统默认那一枚，也正是他要的。
+   */
+  const pinned = savedId !== null && !fellBack && camera.id === savedId;
+  if (!pinned) {
+    console.info('[scan] 未指定摄像头，使用系统默认（首次授权前 deviceId 不可用）');
   }
 
   const engine = await openScanDecoder({ nativeCtor: nativeDetectorCtor(), loadZxing: loadZxingReader });
@@ -218,7 +254,7 @@ async function begin(): Promise<void> {
     console.info(`[scan] 识别引擎：${engine.kind}（本机没有内置 BarcodeDetector 时走回退）`);
   }
 
-  const started = await session.start(media, camera.id);
+  const started = await session.start(media, pinned ? camera.id : null);
   if (disposed) {
     // 这条流是在"已经关层"之后才开出来的 —— 唯一能收掉它的人就是这里
     finish();
@@ -279,6 +315,16 @@ async function tick(): Promise<void> {
   const engine = detector.value;
   if (detecting || el === null || engine === null) {
     return;
+  }
+  /*
+   * **被遮住的 `<video>` 会被 Chromium 挂起播放**（取景层被弹窗盖住、窗口被别的窗口遮住、
+   * 或者标签页不可见时）：表现是"取景层开着、画面却停在同一张上"，用户把条码推到镜头前
+   * 也永远解不出来 —— 又一例"给了条码没反应"。这里每帧兜一次：暂停就继续播。
+   * （层级那件事已经修了，但"被遮住"还有别的来源：别的应用窗口、系统弹窗、多屏切换。）
+   */
+  videoPaused.value = el.paused;
+  if (el.paused) {
+    void el.play().catch(() => undefined);
   }
   // 画面还没进来时**不要去调引擎**：zxing 拿到空帧只会白跑一趟 wasm 往返，
   // 而且"每帧都空跑"会让 CPU 白转（现场机器上感受得到风扇）
@@ -416,7 +462,7 @@ function optionProps(item: CameraOption): any {
 </script>
 
 <template>
-  <div class="w-camera" role="dialog" aria-modal="true" aria-label="相机扫码">
+  <div class="w-camera" role="dialog" aria-modal="true" aria-label="相机扫码" :style="{ zIndex: layerZ }">
     <div class="w-camera__stage">
       <!-- `muted` 是必须的：不静音时 Chromium 会拒绝自动播放，画面停在第一帧 -->
       <video ref="videoEl" class="w-camera__video" autoplay playsinline muted></video>
@@ -476,7 +522,7 @@ function optionProps(item: CameraOption): any {
 .w-camera {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  /* z-index 由脚本给（要向 EP 要 nextZIndex，见 setup 里的说明），这里不写死 */
   display: flex;
   flex-direction: column;
   background: var(--w-color-surface-sunken);

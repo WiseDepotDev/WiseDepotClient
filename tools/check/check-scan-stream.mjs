@@ -77,7 +77,14 @@ await session.start(media, 'cam-2');
 check('换过之后交出的就是新流', session.mediaStream === s2);
 check('第二次 start 成功后会停掉第一条流', s1.tracks.every((t) => t.stopped === 1), JSON.stringify(s1.tracks.map((t) => t.stopped)));
 check('旧流已不再是当前流', session.active === true);
-check('显式传了 deviceId 时约束里带 exact', JSON.stringify(withDevice[0]) === JSON.stringify({ video: { deviceId: { exact: 'cam-2' } } }), JSON.stringify(withDevice[0]));
+check('显式传了 deviceId 时约束里带 exact', JSON.stringify(withDevice[0]?.video?.deviceId) === JSON.stringify({ exact: 'cam-2' }), JSON.stringify(withDevice[0]));
+// 分辨率用 ideal（"尽量给"）：密集一维码在 640 宽下每根条只有 1~2 像素，很难解；
+// 但写成 exact 会让不支持 720p 的低端相机直接开不了流。
+check(
+  '分辨率按 ideal 提要求（提得高，但不强求）',
+  withDevice[0]?.video?.width?.ideal === 1280 && withDevice[0]?.video?.height?.ideal === 720 && withDevice[0]?.video?.width?.exact === undefined,
+  JSON.stringify(withDevice[0]?.video),
+);
 
 const failingMedia = { getUserMedia: async () => { throw domException('NotReadableError'); } };
 const before = session.active;
@@ -112,7 +119,11 @@ const r2 = await new CameraSession().start({}, null);
 check('mediaDevices 无 getUserMedia → UNAVAILABLE', r2.ok === false && r2.failure.code === CAMERA_ERROR.UNAVAILABLE);
 const noDevice = new CameraSession();
 await noDevice.start(media, null);
-check('deviceId=null 时不带 exact 约束（用系统默认）', JSON.stringify(calls[calls.length - 1]) === JSON.stringify({ video: true }), JSON.stringify(calls[calls.length - 1]));
+check(
+  'deviceId=null 时不带 exact 约束（用系统默认）',
+  calls[calls.length - 1]?.video?.deviceId === undefined && calls[calls.length - 1]?.video?.width?.ideal === 1280,
+  JSON.stringify(calls[calls.length - 1]),
+);
 
 const total = pass + fail;
 if (fail > 0) {

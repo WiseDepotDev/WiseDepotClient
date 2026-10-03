@@ -34,13 +34,16 @@ import {
 /**
  * 内置 `BarcodeDetector` 认得的格式名。
  *
- * 只列**一维码 + 二维码里现场真会遇到的**：工业标签以 Code128 / EAN-13 / QR 为主。
+ * 覆盖现场真会遇到的：一维（Code128/39/93、EAN/UPC、ITF、Codabar）+ 二维（QR/DataMatrix/PDF417/Aztec）。
+ * **2026-10-05 加宽**：用户拿实物条码试时"没反应"，而当时只有 10 种码制 ——
+ * 工业标签上 Code 93 / PDF417 / Aztec 都不罕见，少一种就是"这个码扫不出来"而没有别的解释。
  * 要求引擎支持的格式越多，遇到"某个名字这台构建不认"而整体构造失败的概率越大，
- * 所以宁少勿滥（`createNativeDecoder` 里对构造失败的处理见注释）。
+ * 所以 `createNativeDecoder` 对构造失败有回退（见下）。
  */
 export const NATIVE_FORMATS = [
   'code_128',
   'code_39',
+  'code_93',
   'ean_13',
   'ean_8',
   'itf',
@@ -49,12 +52,15 @@ export const NATIVE_FORMATS = [
   'upc_e',
   'codabar',
   'data_matrix',
+  'pdf417',
+  'aztec',
 ] as const;
 
 /** ZXing 的格式名。与 [NATIVE_FORMATS] **逐项同义**（顺序一一对应）。 */
 export const ZXING_FORMATS = [
   'Code128',
   'Code39',
+  'Code93',
   'EAN-13',
   'EAN-8',
   'ITF',
@@ -63,6 +69,8 @@ export const ZXING_FORMATS = [
   'UPC-E',
   'Codabar',
   'DataMatrix',
+  'PDF417',
+  'Aztec',
 ] as const;
 
 /** `BarcodeDetector` 的构造签名（只写用得到的那一部分）。 */

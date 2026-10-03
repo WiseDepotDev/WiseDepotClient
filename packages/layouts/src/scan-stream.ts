@@ -35,9 +35,20 @@ export interface CameraFailure {
 /** 可注入的最小 `mediaDevices` 形状。 */
 export interface CameraMediaLike {
   getUserMedia?: (constraints: {
-    video: { deviceId?: { exact: string } } | true;
+    video: { deviceId?: { exact: string }; width?: { ideal: number }; height?: { ideal: number } } | true;
   }) => Promise<MediaStreamLike>;
 }
+
+/**
+ * 取景分辨率（`ideal`，不是 `exact`）。
+ *
+ * 为什么要提要求：不写就是浏览器给什么是什么（常见 640×480），而**密集的一维码
+ * （Code128 长串、EAN-13 小区）在 640 宽下每根条可能只有 1~2 像素**，
+ * 解码器容错窗口很窄 —— 现场感受就是"明明对准了却扫不出来"。
+ * `ideal` 是"尽量给"，给不了也不报错，所以不会让低端设备开不了流。
+ */
+const PREFERRED_WIDTH = 1280;
+const PREFERRED_HEIGHT = 720;
 
 /** 可注入的最小"流"形状（真的是 `MediaStream` 时结构兼容）。 */
 export interface MediaStreamLike {
@@ -153,7 +164,16 @@ export class CameraSession {
         },
       };
     }
-    const constraints = deviceId === null ? { video: true as const } : { video: { deviceId: { exact: deviceId } } };
+    const constraints =
+      deviceId === null
+        ? { video: { width: { ideal: PREFERRED_WIDTH }, height: { ideal: PREFERRED_HEIGHT } } as const }
+        : {
+            video: {
+              deviceId: { exact: deviceId },
+              width: { ideal: PREFERRED_WIDTH },
+              height: { ideal: PREFERRED_HEIGHT },
+            },
+          };
     let next: MediaStreamLike;
     try {
       next = await media.getUserMedia(constraints);

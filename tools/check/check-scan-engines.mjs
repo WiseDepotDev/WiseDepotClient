@@ -254,7 +254,19 @@ try {
   );
   check('结果卡两端都画（相机只有桌面声明，只画手机等于扫到了不显示）', /<ScanResultCard\s*\/>/.test(appFrame));
 
-  check('打开时枚举设备并解析上次选择', /listCameras\(/.test(panel) && /resolveSelectedCamera\(/.test(panel));
+  check(
+    '打开时枚举设备并解析上次选择',
+    /listCameras\(/.test(panel) && /resolveSelectedCamera\(/.test(panel),
+  );
+  /*
+   * **首次授权前不要带 `deviceId: {exact}`**：那时 `enumerateDevices()` 给的 deviceId
+   * 是不可用的占位值，带上 `exact` 会抛 `OverconstrainedError` —— 全新机器第一次点扫码
+   * 正是这个状态，表现就是"点了没反应"。只有用户真的选过那一枚才钉 deviceId。
+   */
+  check(
+    '只有用户选过的摄像头才用 deviceId 钉住（首次授权前枚举出来的 deviceId 不可用）',
+    /pinned/.test(panel) && /session\.start\(media, pinned \? camera\.id : null\)/.test(panel),
+  );
   check('设备被拔掉时回写选择（不每次重新回退）', /if\s*\(fellBack\)[\s\S]{0,160}writeSelectedCameraId/.test(panel));
   check('卸载时停流（关闭层 / 切页都到这里）', /onBeforeUnmount\([\s\S]{0,400}finish\(\)/.test(panel));
   check('失焦停流', /addEventListener\(\s*'blur'/.test(panel));

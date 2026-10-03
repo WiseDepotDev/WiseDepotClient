@@ -3601,6 +3601,28 @@ const clickedScanIcon = await cdp.evaluate(
 );
 check('那个图标点得动', clickedScanIcon === true);
 
+/*
+ * **取景层必须在弹窗之上**（用户实测："取景框出现在弹窗后面"）。
+ *
+ * 不能只断言 `z-index` 是个大数字：真正的判据是"屏幕正中间那一点，命中的元素属于取景层"，
+ * 而这正是用户能看见/看不见的东西。用 `elementFromPoint` 直接问浏览器。
+ */
+const panelOnTop = await waitFor(
+  `(() => {
+     const panel = document.querySelector('.w-camera');
+     if (!panel) return null;
+     const hit = document.elementFromPoint(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2));
+     return hit && panel.contains(hit) ? true : 'blocked-by:' + (hit?.className ?? 'unknown');
+   })()`,
+  10_000,
+  200,
+);
+check(
+  '取景层盖在弹窗**之上**（打开时屏幕中心命中的是取景层，不是弹窗）',
+  panelOnTop === true,
+  String(panelOnTop),
+);
+
 const scanLanded = await waitFor(
   `(() => {
      const input = document.querySelector('.w-inv-field input');
