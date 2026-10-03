@@ -150,6 +150,9 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
     throw new Error(`等待 ${waitMs}ms 仍没有可用的桥（${loaded.reason}），且未允许 mock 回退。`);
   }
 
+  // 开发态显式模拟的能力（默认空；见 simulatedCapabilities）
+  const simulated = simulatedCapabilities();
+
   const bootstrap: BridgeBootstrap = {
     port: 0,
     token: 'mock',
@@ -174,10 +177,48 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
       // （`getUserMedia` + ZXing-wasm），宿主只提供权限与能力位。所以 pnpm dev 里
       // 可以完整走一遍"点条码框里的相机图标 → 扫到码填进框"。
       'scan.gun.keyboard',
+      // 上面这些是**浏览器里真的做得到**的；做不到的那些（NFC、打印、系统窗口控制）
+      // 一律不在这里 —— 声明了做不到的能力就是"假通过"的来源。
+      // 需要在开发态验它们的**界面**时，用下面的 `?simulate=` 显式模拟（见 simulatedCapabilities）。
+      ...simulated,
     ],
   };
   return {
     bridge: new BridgeImpl(new MockTransport(), bootstrap),
-    origin: `开发态 mock（${loaded.reason}）`,
+    origin: `开发态 mock（${loaded.reason}${simulated.length === 0 ? '' : `；已模拟能力 ${simulated.join(', ')}`}）`,
   };
+}
+
+/**
+ * 开发态**显式模拟**宿主能力：`http://127.0.0.1:5173/?simulate=nfc.read,nfc.other`。
+ *
+ * ## 为什么要有它
+ *
+ * 有一类界面只在"宿主声明了某能力"时才存在（NFC 的四态、打印入口…），而这些能力
+ * 在浏览器里**真的做不到** —— 假桥默认不声明它们，这正是纪律（上面那段注释）。
+ * 代价是：那些界面的**渲染**在开发态一条都验不到，只能靠源文本门禁"看着像对的"。
+ * 于是把它们交给冒烟脚本去驱动（`apps/web/smoke/check-web-smoke.mjs` 的 NFC 一节），
+ * 需要一条显式的、写在 URL 上的**模拟**通道。
+ *
+ * ## 三条边界
+ *
+ * 1. **只在 mock 分支生效**：真实宿主（`__bridge.json` 就绪）走的是上面那条 return，
+ *    这个函数根本不会被调用 —— 生产不可能因为一个查询串多出一项能力；
+ * 2. **必须显式写在 URL 上**，没有默认勾选、没有环境变量兜底：默认的开发态界面与真机上
+ *    （未声明时）**表现一致**（一个像素都不多画）；
+ * 3. **模拟了什么会被说出来**：引导来源串（`origin`）会带上"已模拟能力 …"，
+ *    界面上那行"开发态假桥"的横幅因此不会骗人。
+ */
+function simulatedCapabilities(): readonly string[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  const raw = new URLSearchParams(window.location.search).get('simulate');
+  if (raw === null || raw === '') {
+    return [];
+  }
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
 }

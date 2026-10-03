@@ -100,6 +100,23 @@ export class MockTransport implements BridgeTransport {
     }
   }
 
+  /**
+   * 开发态：让 `nfc.openSettings` 回报"没打开"。
+   *
+   * 为什么需要它：界面上有一条**如实改口**的分支（打不开系统设置页时说"请手动到系统设置里开启"）。
+   * 真机上这条分支只在少数没有那个 Activity 的 ROM 上出现，平时碰不到 ——
+   * 而"假装成功"恰恰是"点了没反应"最常见的来源，所以它必须能被按需复现：
+   *
+   *   window.__bridgeMock.setNfcSettingsOpens(false)
+   *
+   * 只在 `?simulate=nfc.read` 的会话里可达（假桥默认不声明 `nfc.read`，见 `createBridge`）。
+   */
+  setNfcSettingsOpens(opens: boolean): void {
+    this.nfcSettingsOpens = opens;
+  }
+
+  private nfcSettingsOpens = true;
+
   /** 会话是否已过期（开发态：由 `expireSession()` 触发，真宿主在令牌失效/被吊销时推同样的事件）。 */
   private sessionExpired = false;
 
@@ -220,8 +237,17 @@ export class MockTransport implements BridgeTransport {
       this.username = p.username && p.username !== '' ? p.username : 'operator';
       return {} as T;
     }
-    if (method === 'captcha.generate') {
-      return {
+    /*
+     * NFC 本机方法（B3/S4）。**只有带 `?simulate=nfc.read` 的会话才可能调到它** ——
+     * 假桥默认不声明 `nfc.read`（浏览器真的读不了 NFC，声明了就是撒谎）。
+     * 真机上这一步是壳真的跳系统设置页（`NfcReader.openSettings`）；这里只能假装成功，
+     * 所以另给 `setNfcSettingsOpens(false)` 用来验界面"打不开就如实改口"那条分支。
+     */
+    if (method === 'nfc.openSettings') {
+      return { opened: this.nfcSettingsOpens } as T;
+    }
+
+    if (method === 'captcha.generate') {      return {
         captchaId: `mock-${Date.now()}`,
         // 内联 SVG，避免开发态再依赖网络；真后端给的是 `data:image/png;base64,…`
         captchaImage:

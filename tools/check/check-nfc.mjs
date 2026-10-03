@@ -356,6 +356,40 @@ check(
   `前三个字节 ${[...devScriptBytes.slice(0, 3)].map((b) => b.toString(16)).join(' ')}`,
 );
 
+console.log('--- 10. 开发态模拟：只有显式 `?simulate=` 才多出能力，且冒烟真的跑过四态 ---');
+const clientTs = read('packages/bridge-client/src/client.ts');
+const mockTs = read('packages/bridge-client/src/mock.ts');
+const smokeMjs = read('apps/web/smoke/check-web-smoke.mjs');
+
+check(
+  '假桥的默认能力表里**没有** nfc.read（浏览器真读不了 NFC，声明了就是撒谎）',
+  !/'nfc\.read'/.test(clientTs),
+);
+check(
+  '模拟只在 mock 分支生效（真实宿主那条 return 在它之前，生产不可能因为一个查询串多出能力）',
+  clientTs.indexOf('const simulated = simulatedCapabilities()') > clientTs.indexOf('if (!allowMock)'),
+);
+check(
+  '模拟了什么会被说出来（引导来源串带上"已模拟能力 …"），横幅不会骗人',
+  /已模拟能力/.test(clientTs),
+);
+check(
+  '假桥实现了 nfc.openSettings 且形状与真壳一致（{opened:boolean}）',
+  /method === 'nfc\.openSettings'/.test(mockTs) && /opened: this\.nfcSettingsOpens/.test(mockTs),
+);
+check(
+  '并且能按需回报"没打开"（验界面如实改口那条分支 —— 真机上只有少数 ROM 碰得到）',
+  /setNfcSettingsOpens\(/.test(mockTs),
+);
+check(
+  '冒烟用 `?simulate=nfc.read` 走四态，且先钉住"没有能力不画入口"这个**当前交付配置**',
+  /simulate=nfc\.read/.test(smokeMjs) && /没有 nfc\.read 能力时不画任何 NFC 入口/.test(smokeMjs),
+);
+check(
+  '冒烟断言的是"真的调了本机方法"（读调用记录），不是"画了个按钮"',
+  /__calls[\s\S]{0,200}?nfc\.openSettings/.test(smokeMjs) && /继续读下一张/.test(smokeMjs),
+);
+
 const total = pass + fail;
 if (fail > 0) {
   console.error(`check-nfc FAIL：${fail}/${total} 项未通过`);

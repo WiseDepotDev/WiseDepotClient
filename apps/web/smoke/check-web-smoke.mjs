@@ -3672,8 +3672,120 @@ if (scanLanded === true) {
   );
 }
 
-check('页面无 JS 异常', pageErrors.length === 0, pageErrors.join(' | '));
+/*
+ * ---- NFC 四态（B3/S4）：真浏览器里的渲染 + 「去开启」的真实调用 ----
+ *
+ * 为什么需要这一节：NFC 的界面只在宿主声明 `nfc.read` 时才存在，而**浏览器真的读不了 NFC** ——
+ * 假桥默认不声明它（声明了就是撒谎）。于是那四个状态在开发态一条都验不到，
+ * 只剩源文本门禁"看着像对的"。这里用 `?simulate=nfc.read` 显式模拟一次能力
+ * （只有 mock 分支会读这个查询串，见 `createBridge` 的 simulatedCapabilities），
+ * 把"没能力不画入口 / 未开启有出路 / 就绪怎么说 / 读到标签画什么"全走一遍。
+ *
+ * 这一节**必须放在最后**：它会重新加载页面（模拟能力只能在引导时读），
+ * 之后前面各段的页面状态都不再可信。
+ */
+console.log('\nNFC 四态（模拟宿主能力 nfc.read）…');
 
+// 先钉住**默认**形态：没有能力 → 一个像素都不画。这正是当前要交付的配置 ——
+// 手机壳的 NFC_READ_VERIFIED 还是 false，真机上也不该出现任何 NFC 入口。
+check(
+  '没有 nfc.read 能力时不画任何 NFC 入口（当前交付配置就是这样）',
+  (await cdp.evaluate(`document.querySelector('.w-nfc') === null`, { awaitPromise: false })) === true,
+);
+
+// 重新加载并显式模拟能力
+await cdp.evaluate(`(location.href = location.pathname + '?simulate=nfc.read' + location.hash, true)`, { awaitPromise: false });
+await waitFor(`document.querySelector('.w-login') !== null || document.querySelector('.w-shell') !== null ? true : null`, 60_000);
+await ensureSignedIn();
+const nfcReady = await waitFor(`document.querySelector('.w-nfc') !== null ? true : null`, 30_000, 300);
+check('能力位在 → NFC 状态条出现（就绪态不是错误）', nfcReady === true);
+const readyText = await text('.w-nfc');
+check('就绪态说"请将标签靠近手机背部"', readyText.includes('请将标签靠近手机背部'), readyText.replace(/\s+/g, ' '));
+
+// 页面重挂之后调用记录要重新装（上一份随旧页面一起没了）
+await cdp.evaluate(
+  `(() => {
+     const m = window.__bridgeMock;
+     const orig = m.call.bind(m);
+     m.__calls = [];
+     m.call = (method, params) => {
+       m.__calls.push(method + ':' + JSON.stringify(params ?? null));
+       return orig(method, params);
+     };
+     return true;
+   })()`,
+  { awaitPromise: false },
+);
+const clearNfcCalls = () => cdp.evaluate(`(window.__bridgeMock.__calls.length = 0, true)`, { awaitPromise: false });
+
+// 未开启：**另一句话 + 一条出路**
+await cdp.evaluate(`(window.__bridgeMock.emit('nfc.state', { state: 'off' }), true)`, { awaitPromise: false });
+const offShown = await waitFor(`document.querySelector('.w-nfc')?.innerText.includes('NFC 未开启') === true ? true : null`, 10_000, 200);
+check('壳报 off → 「NFC 未开启」', offShown === true);
+const offText = await text('.w-nfc');
+check('两态是两句不同的话：未开启时不再说"请将标签靠近手机背部"', !offText.includes('请将标签靠近手机背部'), offText.replace(/\s+/g, ' '));
+
+await clearNfcCalls();
+const clickedOpen = await clickByText('去开启');
+await sleep(500);
+const openCalls = await cdp.evaluate(
+  `(window.__bridgeMock?.__calls ?? []).filter((c) => c.startsWith('nfc.openSettings')).join(' | ')`,
+  { awaitPromise: false },
+);
+check(
+  '「去开启」真的调了本机方法 nfc.openSettings（不是画个按钮就算）',
+  clickedOpen === true && openCalls.includes('nfc.openSettings'),
+  openCalls || '(没有调用)',
+);
+check('打开成功时不出现"没能打开"那句', (await text('.w-nfc')).includes('没能打开系统设置') === false);
+
+// **如实改口**：假桥回报"没打开"时，界面必须改口并给手动出路（"点了没反应"的反面）
+await cdp.evaluate(`(window.__bridgeMock.setNfcSettingsOpens(false), true)`, { awaitPromise: false });
+await clickByText('去开启');
+const failedShown = await waitFor(
+  `document.querySelector('.w-nfc')?.innerText.includes('没能打开系统设置') === true ? true : null`,
+  10_000,
+  200,
+);
+check('回报 opened:false 时如实改口（不假装跳过去了）', failedShown === true);
+await cdp.evaluate(`(window.__bridgeMock.setNfcSettingsOpens(true), true)`, { awaitPromise: false });
+
+// 读到标签：卡片只显示壳真的给了的东西
+await cdp.evaluate(`(window.__bridgeMock.emit('nfc.tag', { id: '04a1b2c3d4', tech: 'NfcA', at: Date.now() }), true)`, { awaitPromise: false });
+const cardShown = await waitFor(`document.querySelector('.w-nfc__card') !== null ? true : null`, 10_000, 200);
+check('读到标签 → 出现标签卡', cardShown === true);
+const cardText = await text('.w-nfc__card');
+check(
+  '卡片上是壳给的那两个字段（id / tech），没有编造业务含义',
+  cardText.includes('04a1b2c3d4') && cardText.includes('NfcA'),
+  cardText.replace(/\s+/g, ' '),
+);
+await clickByText('继续读下一张');
+const cardGone = await waitFor(`document.querySelector('.w-nfc__card') === null ? true : null`, 10_000, 200);
+check('收起后回到状态条（NFC 是"贴一下就扫"，不需要用户重新开始）', cardGone === true);
+
+// 没有 id 的坏事件：不画空卡片（也不把上一张留在屏幕上冒充新的）
+await cdp.evaluate(`(window.__bridgeMock.emit('nfc.tag', { tech: 'NfcA' }), true)`, { awaitPromise: false });
+await sleep(400);
+check(
+  '没有 id 的 nfc.tag 不画空卡片',
+  (await cdp.evaluate(`document.querySelector('.w-nfc__card') === null`, { awaitPromise: false })) === true,
+);
+
+// unsupported：那条路**没有出路** —— 连"未开启"都不该出现
+await cdp.evaluate(`(window.__bridgeMock.emit('nfc.state', { state: 'unsupported' }), true)`, { awaitPromise: false });
+const goneForUnsupported = await waitFor(`document.querySelector('.w-nfc') === null ? true : null`, 10_000, 200);
+check('壳报 unsupported → 整个 NFC 入口消失（不画一个点了没反应的按钮）', goneForUnsupported === true);
+
+// 认不出来的取值：**保持原状**（壳比 Web 新时界面不该清空，也不该假装就绪）
+await cdp.evaluate(`(window.__bridgeMock.emit('nfc.state', { state: 'sleeping' }), true)`, { awaitPromise: false });
+await sleep(400);
+check(
+  '认不出来的状态取值不改动界面（保持"不画"，不清空也不假装就绪）',
+  (await cdp.evaluate(`document.querySelector('.w-nfc') === null`, { awaitPromise: false })) === true,
+);
+
+check('页面无 JS 异常', pageErrors.length === 0, pageErrors.join(' | '));
 const failed = checks.filter((c) => !c.ok);
 for (const reason of skips) {
   console.log(`  - 跳过：${reason}`);
