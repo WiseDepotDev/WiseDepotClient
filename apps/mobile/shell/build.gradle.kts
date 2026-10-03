@@ -153,6 +153,21 @@ kotlin {
     }
 }
 
+/*
+ * **JUnit Platform 必须显式启用**（B3/S2a 实测踩到，见 NfcReaderStateTest 的说明）。
+ *
+ * Android 模块的单元测试默认按 JUnit4 发现用例：没这一段时 JUnit5 的 `@Test`
+ * 会被**静默跳过** —— `:apps:mobile:shell:testDebugUnitTest` 照样 BUILD SUCCESSFUL，
+ * 而 `build/test-results` 是空的。"静默不跑的测试"比"没有测试"更糟：
+ * 它看起来已经覆盖了，于是没人再去看那件事。
+ *
+ * 用 `tasks.withType<Test>` 而不是 `tasks.test`：AGP 生成的任务叫
+ * `testDebugUnitTest` / `testReleaseUnitTest`（没有 `test` 这个任务）。
+ */
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
 dependencies {
     implementation(project(":bridge:protocol"))
     implementation(project(":bridge:backend"))
@@ -166,6 +181,9 @@ dependencies {
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
 
+    // JUnit5：`kotlin("test")` 会按已启用的测试框架映射到 kotlin-test-junit5
+    // （与 :bridge:protocol 同一套写法，那个模块的单测是**真的在跑**的参照）
+    testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

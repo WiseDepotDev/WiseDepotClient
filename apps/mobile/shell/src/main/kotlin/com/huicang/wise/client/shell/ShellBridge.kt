@@ -8,6 +8,7 @@ import com.huicang.wise.bridge.protocol.BridgeCodec
 import com.huicang.wise.bridge.server.BridgeServer
 import com.huicang.wise.bridge.server.BridgeServerConfig
 import com.huicang.wise.bridge.server.DEFAULT_ALLOWED_ORIGINS
+import kotlinx.serialization.json.JsonElement
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -15,7 +16,9 @@ import java.util.Base64
  * 手机平台适配。
  *
  * **只声明真正实现的能力**：虚假能力会让 UI 高高兴兴地画出一个按下去没反应的按钮。
- * 扫码/相机/NFC/打印/离线队列在 W8 接入，届时在这里逐个加，UI 自动跟着亮。
+ * 扫码枪（`scan.gun.keyboard`）已实现；相机（B2/CameraX）与打印、离线队列在 W8 接入，
+ * 届时在 [ANDROID_CAPABILITIES] 逐个加，UI 自动跟着亮。
+ * NFC 读卡（B3）的**实现**已经落地（`NfcReader`），但**声明**还压着 —— 见 [NFC_READ_VERIFIED]。
  */
 class AndroidPlatform(
     override val version: String,
@@ -39,6 +42,26 @@ val ANDROID_CAPABILITIES: Set<String> =
     )
 
 /**
+ * `nfc.read` **现在是否可以对外声明**（B3/S4 的唯一开关，当前刻意关着）。
+ *
+ * ## 为什么实现了还不声明
+ *
+ * brief §7.2：能力声明即承诺 —— 提前声明就是给用户画一个"贴了没反应"的入口
+ * （B1 已经为同类错误推翻过一次设计）。NFC 只能在**真手机**上验（WSA 的 NFC 不可用），
+ * 本机没有真机证据，所以这里保持 `false`，界面上连入口都不会出现（brief §4 第一行）。
+ *
+ * ## 翻转条件（一次真机走查，全绿才翻）
+ *
+ * 1. 装到有 NFC 的手机上，进入应用 → 贴一张卡 → logcat 出现 `[nfc] 读到标签 id=… tech=…`；
+ * 2. 把系统 NFC 关掉再进应用 → 出现 `[nfc] 未进入读卡：DISABLED`；
+ * 3. 切后台后另一款 NFC 应用能接管（说明 reader mode 真的关了）。
+ *
+ * 三条都过 → 把这里改成 `true` 并跑一遍 `pnpm check`（`check:nfc` 会核对声明路径
+ * 仍然要求"有硬件"这个条件）。**只改这一行**：能力位、事件、界面都是同一份判据。
+ */
+const val NFC_READ_VERIFIED: Boolean = false
+
+/**
  * 手机壳的桥宿主：**同一份** [BridgeServer]（与桌面用的完全一样），只是托管方式不同——
  * 这里跑在应用进程内，桌面那边跑在独立 JVM 进程里。
  *
@@ -54,6 +77,22 @@ object ShellBridge {
     val ready: Boolean get() = server != null
 
     val handshakeJson: String? get() = bootstrapJson
+
+    /**
+     * 广播一条本机事件给所有连接的 WebView（`nfc.tag` / `nfc.state`）。
+     *
+     * 桥还没起来时**静默丢弃**：事件是"现在是什么状态"，不是要补发的消息 ——
+     * 排进队列等桥起来再发反而会让界面收到一条过期的状态。
+     *
+     * 线程：调用方负责切回主线程（`NfcReader` 的回调来自 binder 线程，
+     * 它在 `mainHandler` 上回投，见 `NfcReader` 的说明）。这里只做转发。
+     */
+    fun emit(
+        topic: String,
+        data: JsonElement? = null,
+    ) {
+        server?.emit(topic, data)
+    }
 
     /** 已经定下来的引导内容（端口/令牌/地址/版本），能力表可在此基础上变动。 */
     private var bootBase: BootBase? = null
@@ -115,6 +154,7 @@ object ShellBridge {
         version: String,
         filesDir: java.io.File,
         hasCamera: Boolean = false,
+        hasNfc: Boolean = false,
     ) {
         if (server != null) {
             return
@@ -130,7 +170,16 @@ object ShellBridge {
         // 能力必须**如实**：拿不到 Keystore 就不能声明 storage.secure。
         // 声明了做不到的能力比不声明更糟 —— UI 会据此画出永远不工作的入口。
         val capabilities =
-            (ANDROID_CAPABILITIES + (if (hasCamera) setOf(BridgeCapabilities.SCAN_CAMERA) else emptySet()))
+            (
+                ANDROID_CAPABILITIES +
+                    (if (hasCamera) setOf(BridgeCapabilities.SCAN_CAMERA) else emptySet()) +
+                    /*
+                     * NFC（B3/S4）：**两个条件同时成立**才声明 ——
+                     *  · 有硬件：没有就是"贴了没反应"的入口（手机侧不画入口由能力位决定）；
+                     *  · 真机上读到标签这件事已经验过：见 [NFC_READ_VERIFIED]（当前正是它压着不声明）。
+                     */
+                    (if (hasNfc && NFC_READ_VERIFIED) setOf(BridgeCapabilities.NFC_READ) else emptySet())
+            )
                 .filter { it != BridgeCapabilities.SECURE_STORE || tokens.persistent }
                 .toSet()
         if (!tokens.persistent) {
@@ -153,6 +202,9 @@ object ShellBridge {
                         ),
                     platform = AndroidPlatform(version, capabilities),
                     tokens = tokens,
+                    // 本机方法表（B3/S3）：NFC 设置页只能由壳跳。它**与后端无关**，
+                    // 因此不走契约表 —— 见 `BridgeLocalMethods`。
+                    local = NfcLocalMethods(),
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
                     host = host,
                     // 传输保持与桌面一致（Netty）。曾经因为"WSA 上连不上"改用过纯 socket 实现，

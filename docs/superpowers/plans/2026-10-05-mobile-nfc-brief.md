@@ -133,3 +133,53 @@
 4. **读取频率与功耗**：`onResume` 即开会让 NFC 在前台常驻轮询。若实测功耗明显，
    退路是"进入现场域/标签屏时才开"——但那个判据属于 Web 侧（切页事件），
    届时要新增一个"通知壳开始/停止"的通道，**本片不做**（先按最简单的自动模式落地并实测）。
+
+## 8. 记账（2026-10-05，S3 + S4 实做）
+
+**做了什么**（对照 §6 的分片表）
+
+| 片 | 落点 | 状态 |
+| --- | --- | --- |
+| S1 契约（收尾） | 新增 `BridgeLocalMethods`（本机方法表的 id 单一出处）+ TS `LocalMethod`；两个错误码与两个事件 topic 早在 `b40e0aa` 已落 | ✅ |
+| S2 去抖与三态 | 原样复用 `bdadd37` / `05a1a91` 的两个文件；本轮只把"状态上报"改成**每次 `start` 都报**（就绪态也要报，见下） | ✅ |
+| S3 生命周期接线 | `MainActivity.onResume/onPause` + `AndroidManifest` 的 `uses-feature android.hardware.nfc`（required=false，且**不加** `permission.NFC`：读卡不需要它） | 代码 ✅ / 真机 ❌（见下） |
+| S4 能力与界面 | 本机方法表接进桥的分发（`local = NfcLocalMethods()`）+ `NfcStatus.vue` 四态 + `check:nfc`（38 项） | 界面已落；**能力位仍压着不声明** |
+| S2a 遗留的门禁缺陷 | `useJUnitPlatform()` + `NfcReaderStateTest` 恢复 | ✅ 14 个用例**真的在跑** |
+
+**证据**（都在本机跑过，不是"应该能过"）
+
+- `gradlew -p . :bridge:protocol:test :apps:mobile:shell:testDebugUnitTest` → BUILD SUCCESSFUL；
+  结果 XML 里 `NfcReaderStateTest` = `tests=14 failures=0 errors=0 skipped=0`
+  （`:bridge:protocol` 的 `BridgeLocalMethodsTest` = 3）。**"测试真的在跑"这条靠这个 `tests=` 数字**，
+  不靠构建绿 —— S2a 那次正是绿着但 `build/test-results` 是空的。
+- `pnpm check:nfc` → 38 项全过（契约串逐字一致 / 本机方法表 / 先实现后声明 / 生命周期 / 去抖 / Web 四态 / 单测真跑）。
+- `pnpm typecheck`、`pnpm check:css`（新增的 `.w-nfc*` 样式没有未定义令牌）通过。
+
+**两处与 §3/§4 的取信口径不同，写在这里免得被当成漏做**
+
+1. **`nfc.state` 每次 `start()` 都上报**（不只异常态）：界面可能是**刚重建**的
+   （渲染进程崩溃后 WebView 重挂，而 Activity 从未 pause），那一条事件是它唯一能知道
+   "NFC 现在是开着的"的途径 —— §4 的"就绪态"就靠它。
+2. **reader 已经在 `onResume` 跑起来了，而对外声明还没开**：这是刻意的"先实现、后声明"。
+   `NFC_READ_VERIFIED=false` 期间 Web 侧不订阅这两个事件（能力位为假时 `NfcStatus` 连监听都不挂），
+   所以**用户可见行为为零**，只有 logcat 里那几行 `[nfc] …` —— 而 S3 的真机验收正是看它们。
+
+**没做完的（诚实边界）**
+
+1. **真机三步一条都没验**（本机没有真机，WSA 的 NFC 不可用）：
+   ① 贴卡能读到（logcat `[nfc] 读到标签 id=… tech=…`）；
+   ② 切后台后 reader mode 真的关了（另一款 NFC 应用能接管）；
+   ③ 关掉系统 NFC 时界面出现「去开启」且按钮真能跳到设置页。
+   → 因此 `ShellBridge.NFC_READ_VERIFIED` **保持 `false`**：`nfc.read` 不声明，界面上连入口都不出现（§4 第一行）。
+2. `nfc.state` 只在 `onResume` 刷新：用户在应用里把 NFC 拨掉，要等"切后台再回来"界面才知道。
+   本片**不做** `ACTION_ADAPTER_STATE_CHANGED` 监听 —— §3 的落点表里没有它，要做是下一片。
+3. §0 的非目标不变：不读 NDEF 内容、不写卡、不点对点、不做卡模拟、不解释标签的业务含义。
+4. §2 里 `UNSUPPORTED` 的那句"这台设备没有 NFC"**没有落点**：§4 要求这种情况不画任何入口，
+   所以界面上不出现这句话（要说得留给"设备信息/关于"这类地方，不在这里画个死入口）。
+
+**翻转 `NFC_READ_VERIFIED` 的操作（一次真机走查，三条全绿才翻）**
+
+1. 把它改成 `true` —— **只改这一行**：能力位声明、事件、界面共用同一份判据；
+2. `pnpm check:nfc` 里有一条断言是"当前还没验"这个**事实**的钉子，同一次提交里带着 logcat 证据一起更新；
+3. 走查上面 ①②③，把结果追加到本节（哪台机器、什么系统版本、哪张卡）。
+

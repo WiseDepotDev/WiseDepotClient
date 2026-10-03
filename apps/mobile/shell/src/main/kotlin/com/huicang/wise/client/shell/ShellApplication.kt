@@ -31,10 +31,24 @@ class ShellApplication : Application() {
                     "WebView 升级后会自动重新尝试",
             )
         }
+        /*
+         * NFC（B3/S4）：有没有硬件**只能由适配器回答** —— 少数定制 ROM 上
+         * `PackageManager.FEATURE_NFC` 与适配器不一致，而"声明了却做不到"正是不许出现的那种错。
+         * 判据复用 `NfcReader` 里那一份分版本逻辑（两处各写一份就是两个所有者）。
+         */
+        val hasNfc = NfcReader.resolveAdapter(this) != null
+        if (hasNfc && !NFC_READ_VERIFIED) {
+            // 如实说明"为什么有硬件却不声明"：这条日志就是 S4 收口时那条待办的可查证据
+            android.util.Log.w(
+                TAG,
+                "本机有 NFC 硬件，但 NFC_READ_VERIFIED 还是 false（读到标签尚未在真机验证过），" +
+                    "本次不声明 ${com.huicang.wise.bridge.protocol.BridgeCapabilities.NFC_READ}",
+            )
+        }
         // 绑端口是阻塞调用，放后台线程；WebView 在此期间加载静态资源，
         // 引导接口在桥就绪前回 503，Web 侧拿到的是明确的"尚未就绪"而不是超时。
         thread(name = "shell-bridge-start") {
-            runCatching { ShellBridge.startIfNeeded(version, filesDir, hasCamera) }
+            runCatching { ShellBridge.startIfNeeded(version, filesDir, hasCamera, hasNfc) }
                 .onFailure { e -> android.util.Log.e(TAG, "桥启动失败", e) }
         }
     }

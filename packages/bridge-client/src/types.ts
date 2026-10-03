@@ -193,6 +193,19 @@ export const Capability = {
   OFFLINE_QUEUE: 'offline.queue',
 } as const;
 
+/**
+ * 本机方法 id（宿主实现、不经过后端、也**不进生成的契约表**），
+ * 与 Kotlin `BridgeLocalMethods` 一致。
+ *
+ * 与 `Capability` 一样是**跨语言线上契约串**：这里与壳里拼错一个字母的表现是
+ * `BRIDGE_METHOD_UNKNOWN`（看起来像"桥没实现这个方法"），而没有任何编译期报错。
+ * 所以 `check-nfc.mjs` 会逐字比对两边。
+ */
+export const LocalMethod = {
+  /** 跳到系统 NFC 设置页；返回 `{opened: boolean}`（打不开时如实地回 false）。 */
+  NFC_OPEN_SETTINGS: 'nfc.openSettings',
+} as const;
+
 /** 调用失败时抛出的错误类型（不要用裸 Error，UI 要按 code 分支）。 */
 export class BridgeError extends Error {
   readonly code: string;

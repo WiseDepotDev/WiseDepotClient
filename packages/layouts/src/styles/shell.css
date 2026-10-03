@@ -369,6 +369,93 @@
   justify-content: flex-end;
 }
 
+/* ---------- NFC（B3/S4）：状态条（在流内）+ 标签卡（浮层） ---------- */
+
+/*
+ * 状态条与结果卡**不是一类东西**，所以落点也不同：
+ *  · 结果卡（`.w-scancard`）是"刚刚发生了一件事" → 浮层，谁都能盖在下面；
+ *  · NFC 状态条是"这台设备现在能不能读" → **在流内**，不遮挡内容。
+ *    （它会在整个会话里一直挂着：NFC 是自动读的，没有"开始/停止"可点。）
+ */
+.w-nfc {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+
+.w-nfc__strip {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  margin: var(--w-space-inline-gap) var(--w-space-screen-h) 0;
+  padding: var(--w-space-card-padding-compact) var(--w-space-card-padding);
+  background: var(--w-color-surface);
+  border: 1px solid var(--w-color-outline-subtle);
+  border-radius: var(--w-radius-pill);
+}
+
+/* 「未开启」用品牌浅色底：它**不是错误**（是我们需要用户去点一下），
+ * 用危险色会让人以为设备坏了。 */
+.w-nfc__strip--off {
+  background: var(--w-color-primary-soft);
+  border-color: var(--w-color-primary-soft);
+}
+
+.w-nfc__strip .w-nfc__label {
+  color: var(--w-color-on-surface);
+  font-size: var(--w-type-body-small-size);
+  margin-right: auto;
+}
+
+.w-nfc__icon {
+  color: var(--w-color-primary);
+  font-size: var(--w-size-icon-size);
+}
+
+/* 打不开系统设置页时的如实说明（见组件里"点了没反应"那段） */
+.w-nfc__note {
+  color: var(--w-color-danger);
+  font-size: var(--w-type-label-size);
+}
+
+/* 标签卡：与结果卡同一个规格（顶部浮层、品牌深青、`env()` 让出刘海） */
+.w-nfc__card {
+  position: fixed;
+  top: env(safe-area-inset-top, 0);
+  left: var(--w-space-screen-h);
+  right: var(--w-space-screen-h);
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-inline-gap);
+  padding: var(--w-space-card-padding);
+  background: var(--w-brand-bg);
+  color: var(--w-brand-fg);
+  border-radius: var(--w-radius-card);
+}
+
+.w-nfc__card .w-nfc__label {
+  color: var(--w-brand-fg-muted);
+}
+
+.w-nfc__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+.w-nfc__id {
+  font-family: var(--w-font-mono);
+  font-size: var(--w-type-body-size);
+  word-break: break-all;
+}
+
+.w-nfc__tech {
+  color: var(--w-brand-fg-muted);
+  font-size: var(--w-type-label-size);
+}
+
 /* ---------- 手机：域内分段控件（胶囊 + 滑块） ---------- */
 
 /*

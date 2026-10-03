@@ -42,6 +42,22 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var assetLoader: WebViewAssetLoader
 
+    /**
+     * NFC 读卡（B3/S3）。
+     *
+     * **"自动使用"的落点**：`onResume` 开、`onPause` 关 —— 用户不需要点任何东西，
+     * 也不需要 Web 来叫它开始（那就成了双所有者：壳以为在扫、Web 以为停了）。
+     * 事件（`nfc.tag` / `nfc.state`）经 [ShellBridge.emit] 推给 Web。
+     *
+     * 注意这里**没有**按 [NFC_READ_VERIFIED] 关掉：本片（S3）的验收就是"真机上能读到"，
+     * 而验证的唯一途径是让 reader 真的跑起来（logcat 里的 `[nfc] 读到标签 …`）。
+     * 对外**声明**能力是另一件事，由那个开关把关（S4）—— "先实现、后声明"在代码里也是分开的。
+     */
+    private var nfcReader: NfcReader? = null
+
+    /** 应用是否在前台（`onResume` … `onPause`）。页面加载完成时据此决定要不要补报 NFC 状态。 */
+    @Volatile private var nfcForeground = false
+
     /** 只在首次供给引导时打一行日志，避免每帧刷屏。 */
     @Volatile private var bootstrapServed = false
 
@@ -64,6 +80,75 @@ class MainActivity : ComponentActivity() {
 
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true)
+        }
+
+        attachNfcReader()
+    }
+
+    /**
+     * 造 reader 并挂到 [NfcReaderHost] 上（那里是本机方法 `nfc.openSettings` 的落点）。
+     *
+     * 构造只做一件有代价的事：取 `NfcAdapter`（很便宜）。真正的 `enableReaderMode`
+     * 在 `onResume` 里 —— 那时应用才真的是前台。
+     */
+    private fun attachNfcReader() {
+        val reader =
+            NfcReader(
+                activity = this,
+                onTag = { id, tech, at ->
+                    // 这行日志就是 S3 真机验收看的那一行（"进入应用能读到"）
+                    android.util.Log.i(TAG, "[nfc] 读到标签 id=$id tech=$tech")
+                    ShellBridge.emit(NfcReaderState.EVENT_TAG, NfcReaderState.tagEventPayload(id, tech, at))
+                },
+                onState = { state ->
+                    android.util.Log.i(TAG, "[nfc] 状态：$state")
+                    ShellBridge.emit(NfcReaderState.EVENT_STATE, NfcReaderState.stateEventPayload(state))
+                },
+                log = { android.util.Log.i(TAG, it) },
+            )
+        nfcReader = reader
+        NfcReaderHost.attach(reader)
+    }
+
+    /**
+     * 回到前台就开始读（brief §3）。
+     *
+     * 不用 `enableForegroundDispatch` 那种"页面叫一次"的模式，理由见 [NfcReader]：
+     * 那条路要过系统的 NDEF 解析链，表现是"读到了但要等几秒"。
+     */
+    override fun onResume() {
+        super.onResume()
+        nfcForeground = true
+        nfcReader?.start()
+    }
+
+    /**
+     * 离开前台必须关。
+     *
+     * 不关的后果不是"多费点电"，而是**持着 reader mode 与其它 NFC 应用抢** ——
+     * 用户的另一款应用会莫名其妙读不到卡。所以这条与相机停流是同一个规格。
+     */
+    override fun onPause() {
+        nfcForeground = false
+        nfcReader?.stop()
+        super.onPause()
+    }
+
+    /**
+     * 页面（重新）加载完成时的 NFC 补报。
+     *
+     * **为什么需要它**：`nfc.state` 说的是"现在"，而 `ShellBridge.emit` 在桥还没起来时
+     * 会**丢弃**它（事件不是要补发的消息）。首次 `onResume` 常常早于桥就绪
+     * （桥在 `Application.onCreate` 的后台线程里绑端口），那一条就被丢了 ——
+     * 界面会停在默认的"就绪"，而实际系统里 NFC 是关着的：用户贴卡没反应，也没有任何提示。
+     * 页面加载完是**唯一一个"Web 已经准备好收事件"的时刻**，在这里补报一次。
+     *
+     * 顺带覆盖渲染进程崩溃后重建 WebView 的情形（新页面同样会走到这里）。
+     */
+    private fun warmUpNfc() {
+        if (nfcForeground) {
+            // start() 幂等：已经在读就只重新报一次状态，不会重复 enableReaderMode
+            nfcReader?.start()
         }
     }
 
@@ -92,7 +177,7 @@ class MainActivity : ComponentActivity() {
              * 换来的是页面处于**安全上下文**——`getUserMedia`（相机扫码）只在安全上下文里可用。
              */
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            webViewClient = ShellWebViewClient(assetLoader) { view, crashed -> onRendererGone(view, crashed) }
+            webViewClient = ShellWebViewClient(assetLoader, { view, crashed -> onRendererGone(view, crashed) }) { warmUpNfc() }
             /*
              * 相机扫码要过**两道**授权：网页的 `getUserMedia`（经 onPermissionRequest）
              * 与系统的运行时权限（CAMERA）。这里把两者串起来 ——
@@ -137,6 +222,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // 先摘掉 reader 引用再销毁：`NfcReaderHost` 是单例，长期持有一个已经没了的
+        // Activity 就是内存泄漏，也会让"去开启"从错误的界面里跳设置页。
+        NfcReaderHost.attach(null)
+        nfcReader = null
         webView.destroy()
         super.onDestroy()
     }
@@ -324,6 +413,8 @@ class MainActivity : ComponentActivity() {
         private val loader: WebViewAssetLoader,
         /** 渲染进程终止时的恢复动作；返回值即 `onRenderProcessGone` 的返回值。 */
         private val onGone: (WebView, Boolean) -> Unit,
+        /** 页面加载完成（含崩溃后重建的那次）：NFC 状态要在这里补报一次，见 `warmUpNfc`。 */
+        private val onLoaded: () -> Unit,
     ) : WebViewClientCompat() {
         override fun shouldInterceptRequest(
             view: WebView,
@@ -361,6 +452,8 @@ class MainActivity : ComponentActivity() {
         ) {
             super.onPageFinished(view, url)
             android.util.Log.i(TAG, "页面加载完成：$url")
+            // 页面现在才真的准备好收事件 —— 桥就绪之前丢掉的那条 `nfc.state` 在这里补上
+            onLoaded()
         }
 
         /**

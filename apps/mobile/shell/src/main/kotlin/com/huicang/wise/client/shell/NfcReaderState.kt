@@ -1,5 +1,9 @@
 package com.huicang.wise.client.shell
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+
 /**
  * NFC 三态判定与事件/错误码映射（B3 / S2）。
  *
@@ -62,6 +66,35 @@ object NfcReaderState {
             NfcAvailability.UNSUPPORTED -> "unsupported"
             NfcAvailability.DISABLED -> "off"
             NfcAvailability.READY -> "on"
+        }
+
+    /**
+     * `evt nfc.state` 的载荷（B3/S3）：`{"state":"on"}`。
+     *
+     * 载荷在这里构造而不是在 `MainActivity` 里：`MainActivity` 是 android 类，
+     * JVM 单测碰不到它，而**载荷形状恰恰是 Web 侧唯一的输入**（键名写错的表现是
+     * 界面永远停在"未知"）。放在这一层就能被穷举。
+     */
+    fun stateEventPayload(state: NfcAvailability): JsonObject =
+        buildJsonObject {
+            put("state", JsonPrimitive(statePayloadFor(state)))
+        }
+
+    /**
+     * `evt nfc.tag` 的载荷（B3/S3）：`{"id":"04a1…","tech":"NfcA","at":1731000000}`。
+     *
+     * `at` 用**毫秒时间戳**（与 `ScanEvent.at` 同口径）：界面只关心"这是刚发生的一次"，
+     * 不参与排序，也就不需要更精细的时钟。
+     */
+    fun tagEventPayload(
+        id: String,
+        tech: String,
+        atMs: Long,
+    ): JsonObject =
+        buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("tech", JsonPrimitive(tech))
+            put("at", JsonPrimitive(atMs))
         }
 }
 

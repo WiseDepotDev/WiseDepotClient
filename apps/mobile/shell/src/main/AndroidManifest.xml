@@ -14,6 +14,19 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!--
+      NFC 读卡（B3）。**不声明 `android.permission.NFC`**：读卡不需要它
+      （那是给"卡模拟/写卡/点对点"用的），我们只做读，加一条用不到的危险级权限
+      只是白给用户一个警告。
+      `required="false"` 与相机同理：没有 NFC 的设备（大多数桌面替代品、部分 PDA）
+      照样要能装能跑 —— 只是界面上不出现任何 NFC 入口。
+      能力声明与这里呼应：宿主只在**有硬件且真机验过**时才声明 `nfc.read`
+      （见 ShellBridge 的 NFC_READ_VERIFIED）。
+    -->
+    <uses-feature
+        android:name="android.hardware.nfc"
+        android:required="false" />
+
     <application
         android:name=".ShellApplication"
         android:allowBackup="false"

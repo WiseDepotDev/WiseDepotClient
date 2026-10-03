@@ -7,6 +7,7 @@ import { useBridgeStore, useCurrentAccount, useScanStore } from '@wise/stores';
 import { useViewport } from '@wise/ui';
 import BridgeStatusChip from './BridgeStatusChip.vue';
 import CameraScanPanel from './CameraScanPanel.vue';
+import NfcStatus from './NfcStatus.vue';
 import PageSearch from './PageSearch.vue';
 import ScanResultCard from './ScanResultCard.vue';
 import { useScanGun } from './useScanGun.js';
@@ -537,6 +538,20 @@ onBeforeUnmount(() => {
           {{ c.short }}
         </button>
       </div>
+
+      <!--
+        NFC 状态条 + 标签卡（B3/S4）：**只挂一次**，放在内容之上、顶栏之下。
+
+        为什么在这里而不是像结果卡那样挂到 `.w-shell` 末尾：状态条是**在流内**的
+        （它表示"这台设备现在能不能读"，会整个会话一直挂着，不该盖住内容），
+        而 `.w-shell` 是横向 flex（左列侧栏 + 右列），挂在那里会变成夹在侧栏旁边的一列。
+        标签卡自己仍是 `position: fixed` 浮层。
+
+        内部按能力位 `nfc.read` 决定画不画：手机壳**刻意还没声明**它
+        （读到标签未在真机验证过，见 ShellBridge.NFC_READ_VERIFIED），所以现在真机上
+        它一个像素都不出现 —— 这正是"能力声明即承诺"要的效果。
+      -->
+      <NfcStatus />
 
       <!-- 唯一的内容实例、唯一的滚动容器。
            `:key="route.fullPath"`：**同一屏换参数时必须重挂载** ——

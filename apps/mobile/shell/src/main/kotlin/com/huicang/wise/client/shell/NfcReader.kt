@@ -30,8 +30,8 @@ class NfcReader(
     private val activity: Activity,
     /** 读到一张**通过去抖**的卡：`(hexId, tech, atMs)`。 */
     private val onTag: (id: String, tech: String, atMs: Long) -> Unit,
-    /** 状态变化：载荷取值见 [NfcReaderState.statePayloadFor]。 */
-    private val onState: (payload: String) -> Unit,
+    /** 状态变化：每次 [start] 都会报一次（含就绪态）。载荷构造见 [NfcReaderState.stateEventPayload]。 */
+    private val onState: (state: NfcAvailability) -> Unit,
     private val log: (String) -> Unit = {},
 ) {
     private val adapter: NfcAdapter? = resolveAdapter(activity)
@@ -56,9 +56,16 @@ class NfcReader(
      */
     fun start(): NfcAvailability {
         val state = availability
+        /*
+         * 状态**每次 start 都报一遍**，而不只报异常态。
+         *
+         * 为什么：界面可能是刚重建的（渲染进程崩溃后 WebView 重挂）而 Activity 从未 pause ——
+         * 那一条 `nfc.state` 是它唯一能知道"NFC 现在是开着的"的途径（brief §4 的就绪态）。
+         * 幂等：同一状态重复上报对界面就是同一幅画，没有副作用。
+         */
+        mainHandler.post { onState(state) }
         if (state != NfcAvailability.READY) {
             log("[nfc] 未进入读卡：$state")
-            mainHandler.post { onState(NfcReaderState.statePayloadFor(state)) }
             return state
         }
         if (reading) {
@@ -161,29 +168,33 @@ class NfcReader(
             .firstOrNull { it.isNotEmpty() }
             ?: "Unknown"
 
-    private companion object {
+    companion object {
         /**
          * 读 A/B/F/V 四类（覆盖绝大多数门禁卡与标签）。
          *
          * 加 `FLAG_SKIP_NDEF_CHECK`：我们只用 `tag.id` 与技术名，不读 NDEF 内容 ——
          * 让系统先做一次 NDEF 解析只会让回调变慢（brief §3 第 1 条）。
          */
-        val READER_FLAGS: Int =
+        private val READER_FLAGS: Int =
             NfcAdapter.FLAG_READER_NFC_A or
                 NfcAdapter.FLAG_READER_NFC_B or
                 NfcAdapter.FLAG_READER_NFC_F or
                 NfcAdapter.FLAG_READER_NFC_V or
                 NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK
 
-        const val HEX = "0123456789abcdef"
+        private const val HEX = "0123456789abcdef"
 
         /**
          * 取 `NfcAdapter`。
          *
          * API 30 起 `NfcAdapter.getDefaultAdapter` 已废弃（改用 `NfcManager`）——
          * 分版本走，避免在废弃 API 上留下编译告警（本仓对告警是认真的）。
+         *
+         * 不是 `private`：`ShellApplication` 要用**同一个判据**决定要不要声明 `nfc.read`
+         * （"有没有硬件"只能由适配器回答，`packageManager.hasSystemFeature` 在少数
+         * 定制 ROM 上与适配器不一致）。两处各写一份分版本逻辑 = 两个所有者。
          */
-        fun resolveAdapter(context: Context): NfcAdapter? =
+        internal fun resolveAdapter(context: Context): NfcAdapter? =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 context.getSystemService(NfcManager::class.java)?.defaultAdapter
             } else {

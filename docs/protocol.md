@@ -145,6 +145,17 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
   - `bridge.metrics`：**桥自己的运行观测**（按方法的次数/失败/最近耗时/p50 近似/max/avg），
     只读、不下发任何令牌或配置。它回答的是"慢在桥上还是慢在后端"——
     界面右上角那个耗时是端到端总耗时，分不出这两者。
+- **本机方法（不走后端、不进契约表，由宿主实现）**：目前只有一条 —— `nfc.openSettings`
+  （跳系统 NFC 设置页，返回 `{opened:boolean}`）。
+  - id 的**单一出处**是 `BridgeLocalMethods`；宿主用 `LocalMethodPort.methodIds` 声明
+    自己实现了哪些，`BridgeDispatcher` 按"内建 ∪ 本机 ∪ 契约"并集放行。
+  - **声明即承诺在这里同样成立**：登记了却没实现的方法会回 `BRIDGE_INTERNAL`
+    （比"方法不存在"更难查 —— 它看起来像调用成功后的内部错误），所以宿主只登记真的实现的那几条。
+  - 为什么 NFC 只有这一个方法、**没有** `nfc.start` / `nfc.stop`：与相机流同一条教训 ——
+    "自动使用"由壳在 `onResume` 开、`onPause` 关，做成方法就是**双所有者**
+    （壳以为在扫、Web 以为停了）。Web 只消费下面那两个事件。
+- **NFC 事件（B3）**：`nfc.tag`（`{id, tech, at}`，读到标签）与 `nfc.state`
+  （`{state: 'on'|'off'|'unsupported'}`，没有标签时界面也要能说清状态）。
 
 ## 5. 错误码
 
@@ -164,6 +175,18 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 **为什么 `BRIDGE_WIRE_MODE` 不复用 `BRIDGE_PARAMS_INVALID`**：这两件事的**处理人不同**。
 参数错是调用方写错了业务参数；线格式错是**客户端与壳不是同一版协议** ——
 用户和开发者需要看到的是"重新装一次/换回匹配的版本"，而不是"参数不合法"。
+
+**设备类错误按"出路"分开，不合成一个**：
+
+| 码 | 含义 | 出路 |
+| --- | --- | --- |
+| `BRIDGE_CAMERA_UNAVAILABLE` | 没有可用摄像头 / 被占用后仍拿不到流 | 换设备或放弃 |
+| `BRIDGE_CAMERA_DENIED` | 相机权限被拒 | 去系统设置里允许 |
+| `BRIDGE_CAMERA_BUSY` | 摄像头被其它程序独占 | 关掉别的程序再重试 |
+| `BRIDGE_NFC_UNSUPPORTED` | 本机没有 NFC 硬件 | **没有出路**（换设备）；壳不声明 `nfc.read`、界面不画入口 |
+| `BRIDGE_NFC_DISABLED` | 有硬件但系统里关着 | **有出路**：调本机方法 `nfc.openSettings` 去开 |
+
+合成一个码的代价是界面只能说一句"设备不可用"，用户不知道下一步该干什么。
 
 后端错误**原样透传**后端编码（如 `RES-4010`）。
 
@@ -217,3 +240,4 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 | v3 | W6/W7 | 方法表新增 `paramStyle` 字段（`body`/`query`）：11 个服务端用 `@RequestParam` 的 POST/PUT 端点改走 query。**帧格式与版本号不变**，老 Web 产物仍能跑，只是这些方法调不通 |
 | v3 | W8 | 方法表新增 `keepPathParamsInBody`（默认 false）；启用 `err.details` 承载服务端业务拒绝原因（白名单前缀 + 截断）。两者都是**新增可选字段**，老产物不受影响 |
 | v4 | 2026-10-04 | **不兼容**：线格式改为"二进制消息 + 12 字节定长帧头"，`v`/`type`/`id` 收进帧头、正文删掉 `ok`；新增数据面 `bin`（≤8MiB）与 `limits` 下发；新增 `BRIDGE_WIRE_MODE`；成帧装配收口为唯一实现 `WireReader`（两条传输只负责读写 WebSocket 消息）。**167 条方法语义与 §4/§5/§6 的口径逐条不变** |
+| v4 | 2026-10-05 | **兼容新增**（帧格式与版本号不变）：本机方法 `nfc.openSettings`（`BridgeLocalMethods`，宿主实现）；NFC 两个错误码 `BRIDGE_NFC_UNSUPPORTED` / `BRIDGE_NFC_DISABLED` 与两个事件 topic `nfc.tag` / `nfc.state`。本机方法不进生成的契约表（生成物重跑后 167 条不变） |
