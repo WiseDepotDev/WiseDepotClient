@@ -15,11 +15,11 @@
     "alert-rules": "alertRule",
     "alerts": "alert",
     "auth": "auth",
-    "captcha": "captcha",
     "dashboard": "dashboard",
     "device": "device",
     "files": "file",
     "health": "health",
+    "human": "human",
     "i18n": "i18n",
     "inspection": "inspection",
     "inventories": "inventory",
@@ -56,7 +56,7 @@
     "permissions": "me",
     "access-keys": "me",
     "auth": "system",
-    "captcha": "system",
+    "human": "system",
     "files": "system",
     "oss": "system",
     "reports": "system",
@@ -71,8 +71,8 @@
     "POST /api/auth/logout": "auth.logout",
     "POST /api/auth/nfc-login": "auth.nfcLogin",
     "POST /api/auth/nfc-pin-login": "auth.nfcPinLogin",
-    "POST /api/captcha/generate": "captcha.generate",
-    "POST /api/captcha/verify": "captcha.verify",
+    "POST /api/human/challenge": "human.challenge",
+    "POST /api/human/verify": "human.verify",
 
     "GET /api/dashboard/summary": "dashboard.summary",
 
@@ -106,7 +106,6 @@
     "POST /api/tag/{tagId}/bind": "tag.bind",
     "POST /api/tag/{tagId}/unbind": "tag.unbind",
     "POST /api/tag/batch-bind": "tag.batchBind",
-    "POST /api/tag/batch-bind-with-captcha": "tag.batchBindWithCaptcha",
     "POST /api/tag/batch-unbind": "tag.batchUnbind",
     "POST /api/tag/batch-query": "tag.batchQuery",
     "GET /api/tag/code/{tagCode}": "tag.byCode",
@@ -179,8 +178,7 @@
     "POST /api/users": "user.create",
     "GET /api/users/{userId}": "user.detail",
     "PUT /api/users/{userId}": "user.update",
-    "DELETE /api/users/{userId}": "user.delete",
-    "POST /api/users/{userId}/delete-with-captcha": "user.deleteWithCaptcha",
+    "POST /api/users/{userId}/delete": "user.deleteWithVerify",
     "POST /api/users/{userId}/password": "user.resetPassword",
     "GET /api/users/{userId}/roles": "user.roles",
     "POST /api/users/{userId}/roles": "user.assignRoles",
@@ -261,6 +259,26 @@
     "POST /api/auth/refresh-token",
     "GET /api/health/minio"
   ],
+
+  "_legacyIntentional_comment": [
+    "与旧仓 PacketTypeMap（归档 APP）的**有意差异**白名单。",
+    "交叉校验的原意是「重构不许偷偷丢接口」；但有些差异是故意的，必须能通过，否则门禁会逼着人把洞留着。",
+    "每条都必须写理由；而且**不再差异的条目必须删掉**（生成器会报 stale）—— 否则白名单越攒越长，等于把门禁关掉。"
+  ],
+  "legacyIntentional": {
+    "removed": {
+      "POST /api/captcha/generate": "图形验证码整体删除（用户决策）：人机验证改为「点一下按钮、零输入」",
+      "POST /api/captcha/verify": "同上",
+      "POST /api/tag/batch-bind-with-captcha": "守卫只加在这条上，而无票的 /batch-bind 才是敞开的；两条合成一条并把校验下沉到 Service 层",
+      "DELETE /api/users/{userId}": "安全洞：只靠 @RequiresPermission 就能删用户，验证码只是前端那条路上的装饰",
+      "POST /api/users/{userId}/delete-with-captcha": "改名 user.deleteWithVerify（POST /api/users/{userId}/delete），并成为删除用户的唯一入口"
+    },
+    "added": {
+      "POST /api/human/challenge": "人机验证第一步：申请一次性挑战（含难度档）",
+      "POST /api/human/verify": "人机验证第二步：提交设备签名与计算量证明，换取一次性票据",
+      "POST /api/users/{userId}/delete": "删除用户（唯一入口，要求人机验证票据）"
+    }
+  },
 
   "queryParams": {
     "_comment": [

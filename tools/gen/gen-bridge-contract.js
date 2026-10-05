@@ -589,8 +589,32 @@ function verifyLegacy(contract, legacyFile) {
         mine.set(`${r.method} ${r.path}`, new Set(r.packetTypes));
     }
 
-    const missing = [...legacy.keys()].filter((k) => !mine.has(k));
-    const extra = [...mine.keys()].filter((k) => !legacy.has(k));
+    /*
+     * **有意差异白名单**（`overlay.legacyIntentional`）。
+     *
+     * 交叉校验的原意是"重构不许偷偷丢接口"。但有些差异是**故意的**（删掉安全洞、合并孪生端点、
+     * 新增能力），那种差异必须能通过 —— 否则门禁会逼着人把洞留着。
+     *
+     * 所以白名单要求**每条都写理由**；并且下面会检查"白名单里的条目是不是还真的有差异"：
+     * 一旦某条不再差异（比如旧仓也删了），它就必须从白名单里去掉 ——
+     * 否则白名单会越攒越长，最后谁也不敢删，等于把门禁关掉。
+     */
+    const intentional = contract.overlay?.legacyIntentional ?? {};
+    const allowedRemoved = new Set(Object.keys(intentional.removed || {}));
+    const allowedAdded = new Set(Object.keys(intentional.added || {}));
+
+    const missingAll = [...legacy.keys()].filter((k) => !mine.has(k));
+    const extraAll = [...mine.keys()].filter((k) => !legacy.has(k));
+    const missing = missingAll.filter((k) => !allowedRemoved.has(k));
+    const extra = extraAll.filter((k) => !allowedAdded.has(k));
+    const stale = [
+        ...[...allowedRemoved].filter((k) => !missingAll.includes(k)),
+        ...[...allowedAdded].filter((k) => !extraAll.includes(k)),
+    ];
+    const undocumented = [
+        ...Object.entries(intentional.removed || {}).filter(([, why]) => !why || String(why).trim() === '').map(([k]) => k),
+        ...Object.entries(intentional.added || {}).filter(([, why]) => !why || String(why).trim() === '').map(([k]) => k),
+    ];
     const typeDiff = [];
     for (const [k, v] of legacy) {
         const m = mine.get(k);
@@ -606,16 +630,25 @@ function verifyLegacy(contract, legacyFile) {
 
     console.log('--- 与旧仓 PacketTypeMap 交叉校验 ---');
     console.log(`  旧仓端点 ${legacy.size} 条 / 新桥端点 ${mine.size} 条`);
+    if (intentional.removed || intentional.added) {
+        console.log(`  有意差异：删除 ${allowedRemoved.size} 条 / 新增 ${allowedAdded.size} 条（理由见 overlay.legacyIntentional）`);
+    }
     if (missing.length) {
-        console.error(`  ✗ 新桥缺失 ${missing.length} 条：\n    ${missing.join('\n    ')}`);
+        console.error(`  ✗ 新桥缺失 ${missing.length} 条（不在白名单里）：\n    ${missing.join('\n    ')}`);
     }
     if (extra.length) {
-        console.error(`  ✗ 新桥多出 ${extra.length} 条（旧 APP 没有的接口，需人工确认是否有意新增）：\n    ${extra.join('\n    ')}`);
+        console.error(`  ✗ 新桥多出 ${extra.length} 条（不在白名单里，需人工确认是否有意新增）：\n    ${extra.join('\n    ')}`);
+    }
+    if (stale.length) {
+        console.error(`  ✗ 白名单里有 ${stale.length} 条**已经不再差异**（该删掉了，否则白名单会越攒越长）：\n    ${stale.join('\n    ')}`);
+    }
+    if (undocumented.length) {
+        console.error(`  ✗ 白名单里有 ${undocumented.length} 条**没写理由**：\n    ${undocumented.join('\n    ')}`);
     }
     if (typeDiff.length) {
         console.error(`  ✗ packet_type 不一致 ${typeDiff.length} 条：\n    ${typeDiff.join('\n    ')}`);
     }
-    if (missing.length || typeDiff.length) {
+    if (missing.length || stale.length || undocumented.length || typeDiff.length) {
         console.error('  → 契约交叉校验失败。');
         return false;
     }

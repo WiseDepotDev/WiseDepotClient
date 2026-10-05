@@ -40,7 +40,7 @@ export interface BridgeMethod {
   readonly keepPathParamsInBody: boolean;
 }
 
-/** 暴露给 Web 的方法共 167 条。 */
+/** 暴露给 Web 的方法共 165 条。 */
 export const BRIDGE_METHODS = [
   { id: 'accessKey.auditLogs', domain: 'me', httpMethod: 'GET', path: '/api/access-keys/{keyId}/audit-logs', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'accessKey.byUser', domain: 'me', httpMethod: 'GET', path: '/api/access-keys/user/{userId}', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
@@ -64,8 +64,6 @@ export const BRIDGE_METHODS = [
   { id: 'auth.logout', domain: 'system', httpMethod: 'POST', path: '/api/auth/logout', packetType: 'AUTH_LOGOUT', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'auth.nfcLogin', domain: 'system', httpMethod: 'POST', path: '/api/auth/nfc-login', packetType: 'AUTH_NFC_LOGIN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'auth.nfcPinLogin', domain: 'system', httpMethod: 'POST', path: '/api/auth/nfc-pin-login', packetType: 'AUTH_NFC_PIN_LOGIN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
-  { id: 'captcha.generate', domain: 'system', httpMethod: 'POST', path: '/api/captcha/generate', packetType: 'UNKNOWN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
-  { id: 'captcha.verify', domain: 'system', httpMethod: 'POST', path: '/api/captcha/verify', packetType: 'UNKNOWN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'dashboard.summary', domain: 'overview', httpMethod: 'GET', path: '/api/dashboard/summary', packetType: 'DASHBOARD_SUMMARY', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'device.byCode', domain: 'field', httpMethod: 'GET', path: '/api/device/code/{deviceCode}', packetType: 'DEVICE_DETAIL', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'device.config', domain: 'field', httpMethod: 'GET', path: '/api/device/config', packetType: 'DEVICE_CONFIG', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
@@ -83,6 +81,8 @@ export const BRIDGE_METHODS = [
   { id: 'file.list', domain: 'system', httpMethod: 'GET', path: '/api/files', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'file.presignedUrl', domain: 'system', httpMethod: 'GET', path: '/api/files/{fileId}/presigned-url', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'file.upload', domain: 'system', httpMethod: 'POST', path: '/api/files/upload', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
+  { id: 'human.challenge', domain: 'system', httpMethod: 'POST', path: '/api/human/challenge', packetType: 'UNKNOWN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
+  { id: 'human.verify', domain: 'system', httpMethod: 'POST', path: '/api/human/verify', packetType: 'UNKNOWN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'i18n.languages', domain: 'system', httpMethod: 'GET', path: '/api/i18n/languages', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'i18n.translate', domain: 'system', httpMethod: 'GET', path: '/api/i18n/translate', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'i18n.translations', domain: 'system', httpMethod: 'GET', path: '/api/i18n/translations', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
@@ -178,7 +178,6 @@ export const BRIDGE_METHODS = [
   { id: 'stockOrder.withdraw', domain: 'inventory', httpMethod: 'POST', path: '/api/stock-orders/{orderId}/withdraw', packetType: 'UNKNOWN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'sync.data', domain: 'system', httpMethod: 'POST', path: '/api/sync/data', packetType: 'UNKNOWN', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'tag.batchBind', domain: 'inventory', httpMethod: 'POST', path: '/api/tag/batch-bind', packetType: 'TAG_BATCH_BIND', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
-  { id: 'tag.batchBindWithCaptcha', domain: 'inventory', httpMethod: 'POST', path: '/api/tag/batch-bind-with-captcha', packetType: 'TAG_BATCH_BIND', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'tag.batchQuery', domain: 'inventory', httpMethod: 'POST', path: '/api/tag/batch-query', packetType: 'TAG_LIST', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'tag.batchUnbind', domain: 'inventory', httpMethod: 'POST', path: '/api/tag/batch-unbind', packetType: 'TAG_BATCH_UNBIND', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'tag.bind', domain: 'inventory', httpMethod: 'POST', path: '/api/tag/{tagId}/bind', packetType: 'TAG_BIND', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
@@ -196,8 +195,7 @@ export const BRIDGE_METHODS = [
   { id: 'user.clearRoles', domain: 'me', httpMethod: 'DELETE', path: '/api/users/{userId}/roles', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'user.create', domain: 'me', httpMethod: 'POST', path: '/api/users', packetType: 'USER_CREATE', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'user.current', domain: 'me', httpMethod: 'GET', path: '/api/users/current', packetType: 'USER_CURRENT', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
-  { id: 'user.delete', domain: 'me', httpMethod: 'DELETE', path: '/api/users/{userId}', packetType: 'USER_DELETE', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
-  { id: 'user.deleteWithCaptcha', domain: 'me', httpMethod: 'POST', path: '/api/users/{userId}/delete-with-captcha', packetType: 'USER_DELETE', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
+  { id: 'user.deleteWithVerify', domain: 'me', httpMethod: 'POST', path: '/api/users/{userId}/delete', packetType: 'USER_DELETE', curated: true, paramStyle: 'body', keepPathParamsInBody: false },
   { id: 'user.detail', domain: 'me', httpMethod: 'GET', path: '/api/users/{userId}', packetType: 'USER_DETAIL', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'user.list', domain: 'me', httpMethod: 'GET', path: '/api/users', packetType: 'USER_LIST', curated: true, paramStyle: 'query', keepPathParamsInBody: false },
   { id: 'user.removeRole', domain: 'me', httpMethod: 'DELETE', path: '/api/users/{userId}/roles/{roleId}', packetType: 'UNKNOWN', curated: true, paramStyle: 'query', keepPathParamsInBody: false },

@@ -312,7 +312,6 @@ function render() {
     push(`| ${code('inspection.resultPdf')} | 返回 PDF 字节流，不是 JSON | 桥取回后落盘并换发一次性 URL，走带外 HTTP 下载，不进 WS 帧 |`);
     push(`| ${code('file.download')} | 同上（文件流） | 同上 |`);
     push(`| ${code('file.upload')} / ${code('oss.fileCreate')} / ${code('device.logUpload')} | 请求体是 multipart，且可能很大 | 由壳侧组装 multipart；Web 只传本地文件句柄或分片句柄 |`);
-    push(`| ${code('captcha.generate')} | 响应含验证码图片 | 由桥落成 data URL / blob URL，Web 不直接背 base64 字符串 |`);
     push('');
     push('## 5. 刻意不暴露的端点（白名单的减法）');
     push('');

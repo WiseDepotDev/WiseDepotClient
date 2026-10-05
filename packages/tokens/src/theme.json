@@ -82,7 +82,6 @@
     "cardMinWidth": 200,
     "kvLabelWidth": 96,
     "skeletonRowHeight": 48,
-    "captchaWidth": 96,
     "dialogMaxWidth": 480
   },
   "type": {
