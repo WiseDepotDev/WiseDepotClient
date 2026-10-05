@@ -36,6 +36,18 @@ Thumbs.db
 
 # ---- 临时文件 ----
 .tmp-*
+.tmp_*/
 *.tmp
 *.log
 runlog/
+
+# ---- 联调取证临时目录（SSH / WSA 截图等，不入库）----
+.tmp_ssh/
+.tmp_wsa/
+
+# ---- Kotlin / KAPT 编译输出（源码旁 bin/ 产物，不入库）----
+bridge/*/bin/
+
+# ---- 编辑器残留 ----
+*.orig
+*.rej
