@@ -3,6 +3,7 @@ package com.huicang.wise.bridge.server
 import com.huicang.wise.bridge.backend.BackendCall
 import com.huicang.wise.bridge.backend.BackendErrorCodes
 import com.huicang.wise.bridge.backend.BackendResult
+import com.huicang.wise.bridge.protocol.BridgeCrypto
 import com.huicang.wise.bridge.protocol.BridgeErrorCodes
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -40,7 +41,7 @@ class BridgeStabilityTest {
         val config =
             BridgeServerConfig(
                 port = 0,
-                token = TEST_TOKEN,
+                psk = TEST_TOKEN,
                 backend = backend,
                 platform = FakePlatform(),
                 tokens = tokens,
@@ -50,6 +51,8 @@ class BridgeStabilityTest {
                 plainPingIntervalMs = pingIntervalMs,
                 maxPerSecond = maxPerSecond,
                 burst = burst,
+                // 后台轮询会往假后端塞额外的 `user.current`，把"后端调了几次"的断言搞脏（见 canary 的同类说明）
+                notifyPollMs = 0,
             )
         return BridgeServer(config)
     }
@@ -71,9 +74,11 @@ class BridgeStabilityTest {
                 raw.soTimeout = 5_000
                 val out = raw.getOutputStream()
                 val key = Base64.getEncoder().encodeToString(ByteArray(16) { 7 })
+                // v5：升级 URL 上只带客户端临时公钥（`k`）—— 身份不再由 URL 承载
+                val clientKey = BridgeCrypto.hex(BridgeCrypto.generateEphemeral().publicKey)
                 out.write(
                     (
-                        "GET /bridge?token=$TEST_TOKEN HTTP/1.1\r\n" +
+                        "GET /bridge?k=$clientKey HTTP/1.1\r\n" +
                             "Host: 127.0.0.1\r\n" +
                             "Upgrade: websocket\r\n" +
                             "Connection: Upgrade\r\n" +
@@ -107,6 +112,39 @@ class BridgeStabilityTest {
     }
 
     /**
+     * **保活的机制证明**：按时说话就不会被读空闲关掉。
+     *
+     * 另一半（客户端真的会发）在 `transport.ts` 的 `BRIDGE_KEEPALIVE_INTERVAL_MS` 里，
+     * 由 `check-auto-refresh.mjs` 用静态门禁钉住（间隔必须显著小于读空闲 + 只在不可见时发 +
+     * 桌面壳关掉后台节流）。这里证的是**桥这一侧确实认这件事**：
+     * 同一个 800ms 读空闲，一条 250ms 说一句话的连接必须活过 2 秒（= 2.5 倍上限）。
+     */
+    @Test
+    fun `客户端按时说话就不会被读空闲关掉（保活有效）`() {
+        val srv = server(readerIdleMs = 800, pingIntervalMs = 300)
+        val port = srv.start()
+        try {
+            TestWsClient("ws://127.0.0.1:$port/bridge", TEST_TOKEN).use { client ->
+                val deadline = System.currentTimeMillis() + 2_000
+                var answered = 0
+                var seq = 0
+                while (System.currentTimeMillis() < deadline) {
+                    seq += 1
+                    client.send(reqFrame("ka-$seq", "bridge.ping"))
+                    if (client.awaitFrame(timeoutMs = 700) != null) {
+                        answered += 1
+                    }
+                    Thread.sleep(250)
+                }
+                assertTrue(answered >= 5, "保活期间每一次调用都要有回声，实得 $answered 次")
+                assertTrue(!client.awaitClosed(300), "一直在说话就不该被读空闲关掉")
+            }
+        } finally {
+            srv.stop()
+        }
+    }
+
+    /**
      * 续期"没能完成"（网络/超时）**不许**被当成登录过期。
      *
      * 这是本轮修掉的一个真 bug：原先 `refresh()` 只要失败就 `markExpired()`
@@ -129,7 +167,7 @@ class BridgeStabilityTest {
         val srv = server(transport = BridgeTransportKind.PLAIN_SOCKET, backend = backend, tokens = tokens)
         val port = srv.start()
         try {
-            TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
+            TestWsClient("ws://127.0.0.1:$port/bridge", TEST_TOKEN).use { client ->
                 // 受契约保护的方法：随便挑一条 AUTH 失败会触发续期路径的
                 client.send(reqFrame("r1", "dashboard.summary"))
                 val reply = client.awaitFrame()
@@ -161,7 +199,7 @@ class BridgeStabilityTest {
         val srv = server(transport = BridgeTransportKind.PLAIN_SOCKET, backend = backend, tokens = tokens)
         val port = srv.start()
         try {
-            TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
+            TestWsClient("ws://127.0.0.1:$port/bridge", TEST_TOKEN).use { client ->
                 client.send(reqFrame("r2", "dashboard.summary"))
                 /*
                  * 两条消息都要到，**但顺序不做假设**：
@@ -210,7 +248,7 @@ class BridgeStabilityTest {
         val srv = server(backend = backend, maxPerSecond = 1, burst = 1)
         val port = srv.start()
         try {
-            TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
+            TestWsClient("ws://127.0.0.1:$port/bridge", TEST_TOKEN).use { client ->
                 client.send(reqFrame("k1", "dashboard.summary"))
                 assertTrue(client.awaitFrame() is com.huicang.wise.bridge.protocol.ResFrame)
                 for (i in 2..4) {
@@ -235,7 +273,7 @@ class BridgeStabilityTest {
         val srv = server(backend = backend)
         val port = srv.start()
         try {
-            TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
+            TestWsClient("ws://127.0.0.1:$port/bridge", TEST_TOKEN).use { client ->
                 client.send(reqFrame("a1", "dashboard.summary"))
                 client.awaitFrame()
                 client.send(reqFrame("a2", "bridge.metrics"))
@@ -271,7 +309,7 @@ class BridgeStabilityTest {
         val srv = server(backend = backend, tokens = tokens)
         val port = srv.start()
         try {
-            TestWsClient("ws://127.0.0.1:$port/bridge?token=$TEST_TOKEN").use { client ->
+            TestWsClient("ws://127.0.0.1:$port/bridge", TEST_TOKEN).use { client ->
                 client.send(reqFrame("s1", "dashboard.summary"))
                 val reply = client.awaitFrame()
                 val payload = (reply as? com.huicang.wise.bridge.protocol.ResFrame)?.data?.toString() ?: ""
@@ -285,7 +323,4 @@ class BridgeStabilityTest {
         }
     }
 
-    private companion object {
-        const val TEST_TOKEN = "test-token-0123456789"
-    }
 }

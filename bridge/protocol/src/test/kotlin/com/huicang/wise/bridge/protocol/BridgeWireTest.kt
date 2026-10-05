@@ -9,20 +9,21 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * v4 线格式的可执行证据。
+ * v4/v5 线格式的可执行证据（帧头部分）。
  *
  * v3 的 `BridgeFrameCodecTest` 钉的是"`v` / `type` 这两个键名必须出现在 JSON 里"；
  * v4 把版本、判别字段与 id 全部搬进 12 字节帧头，所以这里钉的是**字节布局**与
  * **拒绝路径**——线格式只有一处定义（[BridgeWire]），这里就是它的规格。
+ * v5 起多了 `ENC` 位与 `hello` 帧，加密封装本身在 [BridgeSealedFrameTest] 里钉。
  */
 class BridgeWireTest {
     @Test
     fun `帧头逐字节固定：magic 版本 kind flags hdrExt 长度都是约定值`() {
         val bytes = BridgeWire.encode(ReqFrame(id = "c-1", method = "device.list"))
 
-        // magic 'W','B' / ver=4 / kind=REQ(1) / flags=FINAL(1) / hdrExt=0 / idLen=3(小端)
+        // magic 'W','B' / ver=5 / kind=REQ(1) / flags=FINAL(1) / hdrExt=0 / idLen=3(小端)
         assertContentEquals(
-            byteArrayOf(0x57, 0x42, 4, 0x01, 0x01, 0x00, 0x03, 0x00),
+            byteArrayOf(0x57, 0x42, 5, 0x01, 0x01, 0x00, 0x03, 0x00),
             bytes.copyOfRange(0, 8),
             "帧头前 8 字节是整个协议的锚点，不允许漂",
         )
@@ -41,7 +42,7 @@ class BridgeWireTest {
     }
 
     @Test
-    fun `五类帧往返后不串味，且 bin 的 final 标志保真`() {
+    fun `各类帧往返后不串味，且 bin 的 final 标志保真`() {
         val frames: List<BridgeFrame> =
             listOf(
                 ReqFrame(id = "1", method = "device.list"),
@@ -49,6 +50,7 @@ class BridgeWireTest {
                 ErrFrame(id = "1", error = BridgeError(code = BridgeErrorCodes.METHOD_UNKNOWN)),
                 EvtFrame(topic = "scan.code", data = buildJsonObject { put("code", "TAG-0001") }),
                 BinFrame(id = "1", body = byteArrayOf(1, 2, 3), final = false),
+                HelloFrame(publicKeyHex = "04" + "ab".repeat(64)),
             )
 
         val decoded = frames.map { assertIs<WireDecode.Ok>(BridgeWire.decode(BridgeWire.encode(it))).frame }
@@ -61,6 +63,7 @@ class BridgeWireTest {
         assertContentEquals(byteArrayOf(1, 2, 3), bin.body)
         assertEquals("1", bin.id, "数据面必须能只靠帧头与请求对上")
         assertTrue(!bin.final, "FINAL 标志必须真的写到线上")
+        assertEquals("04" + "ab".repeat(64), assertIs<HelloFrame>(decoded[5]).publicKeyHex, "hello 只搬公钥，别的什么都不带")
     }
 
     @Test
@@ -97,8 +100,13 @@ class BridgeWireTest {
 
         // 未知 flags 位：必须报错，不许当没看见（否则将来加位就是静默不兼容）
         val badFlags = good.copyOf()
-        badFlags[4] = 0x02
+        badFlags[4] = 0x04
         assertEquals(WireFault.BAD_FLAGS, assertIs<WireDecode.Rejected>(BridgeWire.decode(badFlags)).fault)
+
+        // ENC 位出现在**明文/内层**帧上也是 BAD_FLAGS：这一层只解明文，密文要先过 openMessage
+        val encOnPlain = good.copyOf()
+        encOnPlain[4] = (BridgeWire.FLAG_FINAL or BridgeWire.FLAG_ENC).toByte()
+        assertEquals(WireFault.BAD_FLAGS, assertIs<WireDecode.Rejected>(BridgeWire.decode(encOnPlain)).fault)
 
         // 扩展头非 0：本版本不支持，必须报错而不是跳过
         val badExt = good.copyOf()

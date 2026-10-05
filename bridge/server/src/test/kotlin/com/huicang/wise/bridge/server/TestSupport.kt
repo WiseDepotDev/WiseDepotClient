@@ -5,9 +5,11 @@ import com.huicang.wise.bridge.backend.BackendPort
 import com.huicang.wise.bridge.backend.BackendResult
 import com.huicang.wise.bridge.backend.TokenStore
 import com.huicang.wise.bridge.capability.PlatformPort
+import com.huicang.wise.bridge.protocol.BridgeCrypto
 import com.huicang.wise.bridge.protocol.BridgeFrame
 import com.huicang.wise.bridge.protocol.BridgeWire
 import com.huicang.wise.bridge.protocol.ErrFrame
+import com.huicang.wise.bridge.protocol.HelloFrame
 import com.huicang.wise.bridge.protocol.ReqFrame
 import com.huicang.wise.bridge.protocol.ResFrame
 import com.huicang.wise.bridge.protocol.WireDecode
@@ -98,15 +100,36 @@ class FakePlatform(
  *
  * 关键特性：**收到 ping 会自动回 pong**（JDK 实现按规范代答），
  * 所以它检验得了"服务端主动 ping 探活"这条设计；裸 TCP 假装客户端就验不了。
+ *
+ * ## v5：它自己完成加密封装（所以所有既有用例一行都不用改）
+ *
+ * 连接过程与真实客户端一致：URL 上只带 `?k=`（这里由构造函数补上自己的临时公钥）→
+ * 等 **hello**（明文，只承载服务端公钥）→ 派生会话密钥 → 之后收发都过 seal/open。
+ * 构造函数返回时**会话一定已就绪**（等不到 hello 就抛），否则 `send()` 无从加密。
+ *
+ * 密钥材料：`psk` 由调用方显式传入（v5 起它**不在 URL 上** —— 这也正是 S4 要验的东西：
+ * 拿错 psk 的连接能升级成功，但第一条帧解不开，会被服务端按"这条连接不可信"关掉）。
  */
 class TestWsClient(
     uri: String,
+    /** 预共享密钥（与桥的 `BridgeServerConfig.psk` 一致；默认就是测试用的那个）。 */
+    psk: String = TEST_TOKEN,
     /** 每收到一帧（已解码）时回调，便于"边收边记"的断言。 */
     private val onFrameHook: ((BridgeFrame) -> Unit)? = null,
 ) : AutoCloseable {
     private val frames = LinkedBlockingQueue<BridgeFrame>()
     private val closedLatch = CountDownLatch(1)
     private val pending = ByteArrayOutputStream()
+
+    /** 本端临时密钥对（每次连接一套，与真实客户端同口径）。 */
+    private val ephemeral = BridgeCrypto.generateEphemeral()
+
+    private val pskBytes: ByteArray = psk.toByteArray(Charsets.UTF_8)
+
+    /** hello 到达后建立的会话；在此之前收不到任何可解的密文帧。 */
+    private val helloLatch = CountDownLatch(1)
+
+    @Volatile private var session: BridgeCrypto.Session? = null
 
     /** 对端关闭时的状态码（-1 表示没拿到）。 */
     @Volatile var closeCode: Int = -1
@@ -128,7 +151,7 @@ class TestWsClient(
                     if (last) {
                         val bytes = synchronized(pending) { pending.toByteArray().also { pending.reset() } }
                         // 解不出来的入站消息**不入队**：那是"服务端发了非法帧"，由断言自己炸而不是这里静默补一个对象
-                        (BridgeWire.decode(bytes) as? WireDecode.Ok)?.let {
+                        (unwrap(bytes)?.let { BridgeWire.decode(it) } as? WireDecode.Ok)?.let {
                             frames.add(it.frame)
                             onFrameHook?.invoke(it.frame)
                         }
@@ -154,21 +177,50 @@ class TestWsClient(
                     closedLatch.countDown()
                 }
             }
+        val withKey = if (uri.contains("k=")) uri else if (uri.contains('?')) "$uri&k=${BridgeCrypto.hex(ephemeral.publicKey)}" else "$uri?k=${BridgeCrypto.hex(ephemeral.publicKey)}"
         socket =
             HttpClient
                 .newHttpClient()
                 .newWebSocketBuilder()
-                .buildAsync(URI.create(uri), listener)
+                .buildAsync(URI.create(withKey), listener)
                 .orTimeout(10, TimeUnit.SECONDS)
                 .join()
+        // 会话没就绪就不算连上：等不到 hello 直接抛（否则后面每一次 send 都会静默变成明文）
+        check(helloLatch.await(5, TimeUnit.SECONDS)) { "服务端没有在握手后发 hello" }
     }
 
-    /** 发一帧（按 v4 线格式编码）。 */
+    /**
+     * 线上字节 → 内层明文。
+     *
+     * hello 是**唯一**的明文帧：它到达时建立会话、返回 null（它不是逻辑帧，不进队列）。
+     * 其余帧一律要求会话已就绪；还没就绪就原样返回（交给解码器炸，而不是在这里猜）。
+     */
+    private fun unwrap(bytes: ByteArray): ByteArray? {
+        if (BridgeWire.isHelloFrame(bytes)) {
+            val hello = (BridgeWire.decode(bytes) as? WireDecode.Ok)?.frame as? HelloFrame
+            session = hello?.let { handshake(it) }
+            helloLatch.countDown()
+            return null
+        }
+        val current = session ?: return bytes
+        // 走与生产同一条路径（AAD = 外层头 ‖ id 由 BridgeWire 负责，测试不自己拼）
+        return BridgeWire.openMessage(bytes, current)
+    }
+
+    private fun handshake(hello: HelloFrame): BridgeCrypto.Session {
+        val serverPublicKey = BridgeCrypto.fromHex(hello.publicKeyHex)
+        val shared = BridgeCrypto.sharedSecret(ephemeral, serverPublicKey)
+        val keys = BridgeCrypto.sessionKeys(pskBytes, ephemeral.publicKey, serverPublicKey, shared)
+        return BridgeCrypto.Session(keys, BridgeCrypto.Role.CLIENT)
+    }
+
+    /** 发一帧（v5：按当前会话加密）。 */
     fun send(frame: BridgeFrame) {
-        sendRaw(BridgeWire.encode(frame))
+        val current = session ?: error("会话还没建立（没收到 hello），不能发帧")
+        sendRaw(BridgeWire.sealMessage(BridgeWire.encode(frame), current))
     }
 
-    /** 发一段原始字节 —— 用于"结构不合法的帧"这类用例。 */
+    /** 发一段原始字节 —— 用于"结构不合法的帧"这类用例（**故意不加密**）。 */
     fun sendRaw(bytes: ByteArray) {
         socket.sendBinary(ByteBuffer.wrap(bytes), true).orTimeout(10, TimeUnit.SECONDS).join()
     }
@@ -207,6 +259,14 @@ fun reqFrame(
     method: String,
     params: JsonElement? = null,
 ): BridgeFrame = ReqFrame(id = id, method = method, params = params)
+
+/**
+ * 从 `…?k=…` 里取客户端公钥？不需要 —— 这个客户端自己就是发起方。
+ *
+ * 这里只留一个"测试用 psk"的常量（与 `BridgeCanaryTest`/`BridgeStabilityTest` 共用），
+ * v5 起它**不在 URL 上**，由调用方显式传给 [TestWsClient]。
+ */
+const val TEST_TOKEN: String = "test-token-0123456789"
 
 /** 响应/错误帧里的 id（每一处断言都要它，省得各写一遍 `when`）。 */
 fun frameId(frame: BridgeFrame?): String? =

@@ -11,7 +11,7 @@ class BridgeBootstrapTest {
         val bootstrap =
             BridgeBootstrap(
                 port = 51234,
-                token = "t",
+                psk = "t",
                 platform = BridgeCapabilities.PLATFORM_MOBILE,
                 ver = "1.0.0",
                 capabilities = listOf(BridgeCapabilities.SCAN_CAMERA, BridgeCapabilities.NFC_READ),
@@ -39,7 +39,7 @@ class BridgeBootstrapTest {
     @Test
     fun `v4 上限随引导下发，客户端不必硬编码常量`() {
         val bootstrap =
-            BridgeBootstrap(port = 1, token = "t", platform = BridgeCapabilities.PLATFORM_DESKTOP, ver = "1.0.0")
+            BridgeBootstrap(port = 1, psk = "t", platform = BridgeCapabilities.PLATFORM_DESKTOP, ver = "1.0.0")
 
         assertEquals(BridgeProtocol.MAX_FRAME_BYTES, bootstrap.limits.textMaxBytes)
         assertEquals(BridgeProtocol.MAX_BIN_BYTES, bootstrap.limits.binMaxBytes)
@@ -47,7 +47,7 @@ class BridgeBootstrapTest {
     }
 
     @Test
-    fun `协议版本是 4 且与线格式同源`() {
-        assertEquals(4, BridgeProtocol.VERSION, "v4 是全二进制线格式，版本号必须跟着走")
+    fun `协议版本是 5 且与线格式同源`() {
+        assertEquals(5, BridgeProtocol.VERSION, "v5 是「帧内容加密」这一版，版本号必须跟着走")
     }
 }
