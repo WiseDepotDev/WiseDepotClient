@@ -89,6 +89,69 @@ class MainActivity : ComponentActivity() {
         }
 
         attachNfcReader()
+
+        /*
+         * 系统通知（消息）：建渠道 + 请求权限（API 33+），并把 intent 里可能带的深链落下去。
+         *
+         * 渠道**必须在这里建**（而不是第一次弹通知时）：Android 上"渠道不存在"会让通知
+         * 静默消失；而首次弹通知往往发生在应用在后台的时候 —— 那时再建就晚了。
+         */
+        MessageNotifier.ensureChannels(this)
+        requestNotificationPermissionIfNeeded()
+        consumeRouteExtra(intent)
+    }
+
+    /** 通知权限（Android 13+）。被拒由 [ShellBridge] 撤回 `notify.system` 能力声明。 */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return
+        }
+        if (MessageNotifier.permissionGranted(this)) {
+            return
+        }
+        if (::webView.isInitialized) {
+            // 用 Activity Result API 记录结果，供 ShellBridge 决定要不要撤回能力
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+            android.util.Log.i(TAG, "[notify] POST_NOTIFICATIONS granted=$granted")
+            if (!granted) {
+                // 声明即承诺：弹不出来就把能力摘掉，免得界面上留一个永远不工作的开关
+                ShellBridge.revokeCapability(
+                    com.huicang.wise.bridge.protocol.BridgeCapabilities.NOTIFY_SYSTEM,
+                    "系统未授予通知权限",
+                )
+            }
+        }
+
+    /**
+     * 处理 intent 里的深链（`MainActivity.EXTRA_ROUTE`）：点通知进来时停在**那条消息**上。
+     *
+     * 用 `location.hash` 而不是重新 loadUrl：后者会整页重载、丢掉内存里的登录态。
+     */
+    private fun consumeRouteExtra(intent: Intent?) {
+        val route = intent?.getStringExtra(MessageNotifier.EXTRA_ROUTE)?.takeIf { it.isNotBlank() } ?: return
+        intent.removeExtra(MessageNotifier.EXTRA_ROUTE)
+        if (!::webView.isInitialized) {
+            return
+        }
+        webView.post {
+            webView.evaluateJavascript("location.hash = '#$route'", null)
+        }
+    }
+
+    /**
+     * 已经开着（`launchMode=singleTask`）时再点通知走这里。
+     *
+     * 不重写它的话，第二次点通知不会有任何反应 —— 这是"点了没用"的经典来源。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeRouteExtra(intent)
     }
 
     /**
@@ -129,6 +192,8 @@ class MainActivity : ComponentActivity() {
         nfcForeground = true
         registerNfcAdapterListener()
         nfcReader?.start()
+        // 前台标志：**前台不弹系统通知**（界面自己会在 10 秒内刷新出这条消息）
+        ShellBridge.foreground = true
     }
 
     /**
@@ -139,6 +204,8 @@ class MainActivity : ComponentActivity() {
      */
     override fun onPause() {
         nfcForeground = false
+        // 离开前台才开始弹系统通知（前台由界面自己刷新）
+        ShellBridge.foreground = false
         unregisterNfcAdapterListener()
         nfcReader?.stop()
         super.onPause()
