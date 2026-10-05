@@ -36,10 +36,13 @@ await new Promise((r) => setTimeout(r, 300));
 console.log('child alive?', child.exitCode === null);
 
 const key = crypto.randomBytes(16).toString('base64');
+// v5：升级 URL 上**没有任何凭据**，但必须带客户端临时公钥（k），否则服务端按
+// "缺少客户端公钥"回 400。这里只生成一对临时密钥，不做 ECDH —— 本探针只看升级这一段。
+const clientKey = crypto.createECDH('prime256v1').generateKeys().toString('hex');
 const req = http.request({
   host: '127.0.0.1',
   port: handshake.port,
-  path: `/bridge?token=${encodeURIComponent(handshake.token)}`,
+  path: `/bridge?k=${clientKey}`,
   method: 'GET',
   headers: {
     Connection: 'Upgrade',

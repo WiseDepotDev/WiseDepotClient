@@ -3,7 +3,7 @@
  *
  * 为什么值得有这条：V1 的验收标准是"两端能起来并真登录"，而真实宿主
  * （Electron / Android 壳）在本机跑一次很贵。开发态 mock 桥能在**几秒内**
- * 把同一条链路（`_bridge.json` 缺席 → mock → `captcha.generate` → `auth.login` →
+ * 把同一条链路（`_bridge.json` 缺席 → mock → 点「点击完成验证」→ `auth.login` →
  * `bridge.session` 判定 → 路由守卫 → 主框架）验完，且不依赖任何真机。
  *
  * 它**不能**替代真宿主验证：mock 不覆盖 `__bridge.json`、WS 握手、令牌截留。
@@ -48,7 +48,7 @@ const ensureSignedIn = async () => {
        if (!root) return 0;
        const els = [...root.querySelectorAll('input')];
        const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(els[0]), 'value').set;
-       ['admin', 'admin123', '8+5'].forEach((v, i) => {
+       ['admin', 'admin123'].forEach((v, i) => {
          if (!els[i]) return;
          setter.call(els[i], v);
          els[i].dispatchEvent(new Event('input', { bubbles: true }));
@@ -57,8 +57,26 @@ const ensureSignedIn = async () => {
      })()`,
     { awaitPromise: false },
   );
-  if (inputs >= 3) {
+  if (inputs >= 2) {
     await sleep(300);
+    /*
+     * 先点「点击完成验证」，再点登录 —— 与真人同一顺序。
+     *
+     * `submit()` 自己也会验一次（页面上不点也能登），但这里显式点一遍更贴近真实操作，
+     * 也顺带证明"重新登录"这条路上人机验证是通的（否则用户会被自己锁在门外）。
+     */
+    await cdp.evaluate(
+      `(() => {
+         document.querySelector('.w-login [data-testid="human-verify"]')?.click();
+         return true;
+       })()`,
+      { awaitPromise: false },
+    );
+    await waitFor(
+      `(document.querySelector('.w-login [data-testid="human-verify"]')?.innerText ?? '').includes('已通过') ? true : null`,
+      10_000,
+      150,
+    );
     await cdp.evaluate(
       `(() => {
          const btn = [...document.querySelectorAll('.w-login button')].find((b) => b.innerText.trim().startsWith('登录'));
@@ -172,7 +190,7 @@ const loginReady = await waitFor(
      const root = document.querySelector('.w-login');
      if (!root) return null;
      const inputs = root.querySelectorAll('input');
-     return { inputs: inputs.length, hasCaptcha: !!root.querySelector('.w-login__captcha-img'), text: root.innerText.slice(0, 200) };
+     return { inputs: inputs.length, hasCaptcha: !!root.querySelector('.w-login__captcha-img'), hasVerify: !!root.querySelector('[data-testid="human-verify"]'), text: root.innerText.slice(0, 200) };
    })()`,
 );
 
@@ -190,8 +208,15 @@ if (!loginReady) {
   console.log(`  html: ${String(dump?.html).replace(/\s+/g, ' ')}`);
 } else {
   check('登录屏渲染', true);
-  check('账号/密码/验证码输入框存在（≥3）', loginReady.inputs >= 3, `inputs=${loginReady.inputs}`);
-  check('验证码图片位存在', loginReady.hasCaptcha === true);
+  check('账号 / 密码两个输入框存在', loginReady.inputs === 2, `inputs=${loginReady.inputs}`);
+  check('「点击完成验证」按钮存在（替代图形验证码）', loginReady.hasVerify === true);
+  /*
+   * **图形验证码必须彻底不存在**。
+   *
+   * 它曾经因为"图被裁掉右侧一块"上过门禁（当时量的是图片比例）；现在整套机制已删除，
+   * 所以这条判据从"图完整可见"变成"图根本不该有" —— 留着旧断言会让门禁逼着人把废组件画回来。
+   */
+  check('登录屏没有图形验证码图片位（整套机制已删除）', loginReady.hasCaptcha === false);
   check('文案为业务语言且无桥方法 id', !/\.(list|detail|create)\b/.test(loginReady.text));
 
   const bannerText = await cdp.evaluate(`(document.querySelector('.w-app__banner')?.innerText ?? '')`, { awaitPromise: false });
@@ -210,12 +235,34 @@ if (!loginReady) {
        };
        setValue(inputs[0], 'admin');
        setValue(inputs[1], 'admin123');
-       setValue(inputs[2], '8+5');
        return true;
      })()`,
     { awaitPromise: false },
   );
   await sleep(300);
+
+  /*
+   * 人机验证：点一下按钮（假桥的 `bridge.humanVerify` 回 ok）。
+   *
+   * 登录按钮**不再依赖"验证码填没填"** —— 页面根本不持有凭据；这里先点验证，
+   * 再点登录，走的是与真人完全一样的顺序。
+   */
+  const verifyClicked = await cdp.evaluate(
+    `(() => {
+       const btn = document.querySelector('.w-login [data-testid="human-verify"]');
+       if (!btn) return false;
+       btn.click();
+       return true;
+     })()`,
+    { awaitPromise: false },
+  );
+  check('登录屏能点「点击完成验证」', verifyClicked === true);
+  const verified = await waitFor(
+    `(document.querySelector('.w-login [data-testid="human-verify"]')?.innerText ?? '').includes('已通过') ? true : null`,
+    10_000,
+    150,
+  );
+  check('假桥下人机验证通过（按钮改口为「已通过验证」）', verified === true);
 
   const clicked = await cdp.evaluate(
     `(() => {
@@ -226,7 +273,7 @@ if (!loginReady) {
      })()`,
     { awaitPromise: false },
   );
-  check('登录按钮可点击（校验通过后不再禁用）', clicked === true);
+  check('登录按钮可点击（用户名与密码填好后不再禁用）', clicked === true);
 
   const home = await waitFor(`document.querySelector('.w-home') ? document.querySelector('.w-home').innerText.slice(0, 600) : null`, 20_000);
   check('登录后进入主框架（应用中心）', home !== null);
@@ -1874,7 +1921,7 @@ await clickByText('删除');
 await sleep(700);
 check('删除仓库成功（入参名 id 正确）', (await rowsNow()) === 1, `rows=${await rowsNow()}`);
 
-// ---- 标签管理：批量绑定要验证码 ----
+// ---- 标签管理：批量绑定要先过人机验证 ----
 await cdp.evaluate(`(location.hash = '#/inventory/tags')`, { awaitPromise: false });
 await waitFor(`document.querySelector('.w-page-header__title')?.innerText === '标签管理' ? true : null`, 20_000, 200);
 const tagRows = await cdp.evaluate(`document.querySelectorAll('.el-table__body tbody tr.el-table__row').length`, {
@@ -1902,16 +1949,21 @@ check('勾选后批量按钮显示选中数', /批量绑定（2）/.test(batchLa
 
 await clickByText('批量绑定（2）');
 await sleep(600);
-const captchaVisible = await cdp.evaluate(`!!document.querySelector('.el-dialog .w-captcha__input')`, {
-  awaitPromise: false,
-});
-check('批量绑定弹窗带验证码', captchaVisible === true);
+const verifyButton = await cdp.evaluate(
+  `(() => { const b = document.querySelector('.el-dialog [data-testid="human-verify"]'); return { present: !!b, label: b?.innerText ?? '' }; })()`,
+  { awaitPromise: false },
+);
+check('批量绑定弹窗有「点击完成验证」按钮（不再是图形验证码）', verifyButton.present === true, verifyButton.label);
+check(
+  '弹窗里没有图形验证码字段（整套机制已删除）',
+  (await cdp.evaluate(`!!document.querySelector('.el-dialog .w-captcha')`, { awaitPromise: false })) === false,
+);
 await clickByText('确认绑定');
 await sleep(300);
 const bindError = await text('.w-inv-error');
 check('批量绑定必须先选商品', /请先选择要绑定的商品/.test(bindError), bindError.slice(0, 30));
 
-// 选商品 + 填验证码 → 绑定成功
+// 选商品 → 再点确认绑定：**验证由这一次点击就地完成**（页面不必先点验证按钮）
 await cdp.evaluate(
   `(() => {
      const selection = document.querySelector('.el-dialog .el-select');
@@ -1931,17 +1983,7 @@ const picked = await cdp.evaluate(
   { awaitPromise: false },
 );
 await sleep(300);
-await cdp.evaluate(
-  `(() => {
-     const input = document.querySelector('.el-dialog .w-captcha__input input');
-     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
-     setter.call(input, '1234');
-     input.dispatchEvent(new Event('input', { bubbles: true }));
-     return true;
-   })()`,
-  { awaitPromise: false },
-);
-await sleep(200);
+check('选中了要绑定的商品', picked === true);
 await clickByText('确认绑定');
 await sleep(900);
 const boundChips = await cdp.evaluate(
@@ -3325,42 +3367,31 @@ check(
   (await text('.w-me-user-list__card')).slice(-30),
 );
 
-// 删除用户：没有验证码不许删（这条是真实的闸门，不是装饰）
+// 删除用户：必须先过人机验证（这条是真实的闸门，不是装饰）
 await clickByLabel('^删除用户$');
 await sleep(600);
-const deleteBlocked = await cdp.evaluate(
+const deleteDialog = await cdp.evaluate(
   `(() => {
      const dialog = [...document.querySelectorAll('.el-dialog')].reverse().find((d) => d.offsetParent !== null);
-     return { hasCaptcha: !!dialog?.querySelector('.w-captcha'), text: dialog?.innerText ?? '' };
+     const button = dialog?.querySelector('[data-testid="human-verify"]');
+     return { hasVerify: !!button, hasCaptcha: !!dialog?.querySelector('.w-captcha'), text: dialog?.innerText ?? '' };
    })()`,
   { awaitPromise: false },
 );
-check('删除用户要验证码（弹窗里有验证码字段）', deleteBlocked.hasCaptcha === true, JSON.stringify(deleteBlocked).slice(0, 80));
-const deletedWithoutCode = await clickByLabel('^删除$');
-await sleep(800);
-const deleteGate = await cdp.evaluate(
-  `(() => {
-     const dialog = [...document.querySelectorAll('.el-dialog')].reverse().find((d) => d.offsetParent !== null);
-     return {
-       stillOpen: !!dialog,
-       err: dialog?.querySelector('.w-me-user-list__error')?.innerText.trim() ?? '',
-       rows: document.querySelectorAll('.w-me-user-list__row').length,
-     };
-   })()`,
-  { awaitPromise: false },
-);
-check(
-  '没填验证码时不删除，并就地说明要填验证码',
-  deleteGate.err.includes('验证码') && deleteGate.rows === 7,
-  `clicked=${deletedWithoutCode} err=${deleteGate.err} rows=${deleteGate.rows}`,
-);
+check('删除用户弹窗有「点击完成验证」按钮', deleteDialog.hasVerify === true, JSON.stringify(deleteDialog).slice(0, 80));
+check('删除用户弹窗里没有图形验证码字段', deleteDialog.hasCaptcha === false);
 
-await setInputByPlaceholder('验证码', '13', '.el-dialog');
-await sleep(300);
+/*
+ * 点「删除」时**就地完成验证**（假桥的 `bridge.humanVerify` 回 ok）→ 删除成功。
+ *
+ * 真后端那一侧的"没票据就删不掉"由 `HumanPurposeByMethod` 注入 + 服务端 `enforce` 保证，
+ * 对应用例在服务端的 `UserApplicationServiceTest`（票据不通过时不得触达任何仓储）——
+ * 假桥这里验不到票据，所以**别把这条当成人机验证已被覆盖的证据**。
+ */
 await clickByLabel('^删除$');
 await sleep(1400);
 check(
-  '填了验证码就删掉了，列表回到 6 位',
+  '点删除时自动完成验证并删掉，列表回到 6 位',
   (await cdp.evaluate(`document.querySelectorAll('.w-me-user-list__row').length`, { awaitPromise: false })) === 6,
 );
 

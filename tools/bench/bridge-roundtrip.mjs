@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
-import { sendReq, decodeFrame, WIRE_PROTOCOL_VERSION } from '../lib/bridge-wire.mjs';
+import { connectBridge, sendReq, WIRE_PROTOCOL_VERSION } from '../lib/bridge-wire.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const LIB_DIR = path.join(CLIENT_ROOT, 'bridge', 'host-desktop', 'build', 'install', 'wise-bridge', 'lib');
@@ -127,26 +127,14 @@ class Host {
 
 // ---------------------------------------------------------------- WS 客户端
 
-function openSocket(port, token) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/bridge?token=${encodeURIComponent(token)}`);
-    ws.binaryType = 'arraybuffer';
-    const timer = setTimeout(() => reject(new Error('ws 连接超时')), 5000);
-    ws.onopen = () => {
-      clearTimeout(timer);
-      resolve(ws);
-    };
-    // 必须显式处理 onclose：服务端在握手阶段关闭时只有 onclose（没有 onerror），
-    // 不处理就会退化成"5 秒后超时"，把真实失败原因吞掉。
-    ws.onclose = (ev) => {
-      clearTimeout(timer);
-      reject(new Error(`ws 被服务端关闭 code=${ev.code} reason=${ev.reason || '(空)'}`));
-    };
-    ws.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error('ws 连接错误'));
-    };
-  });
+/**
+ * 连上桥并完成 v5 加密握手（生成临时密钥 → `?k=` → 等 hello → 派生会话密钥）。
+ *
+ * 加密封装本身在 `tools/lib/bridge-wire.mjs` 的 `connectBridge` 里；URL 上**没有凭据**，
+ * psk 由宿主握手输出给出（v5）。
+ */
+async function openSocket(port, psk) {
+  return await connectBridge(`ws://127.0.0.1:${port}/bridge`, { psk });
 }
 
 /** 一次请求/响应；返回 {frame} 或 {timeout:true}。 */
@@ -154,7 +142,8 @@ function call(ws, id, method, params, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
     const onMessage = (ev) => {
-      const frame = decodeFrame(new Uint8Array(ev.data));
+      // `connectBridge` 交出来的已经是**解密的逻辑帧**
+      const frame = ev.data;
       if (frame.id !== id) {
         return;
       }
@@ -193,18 +182,32 @@ async function functionalSuite() {
   record('宿主经 stdout 完成握手并给出临时端口', Number.isInteger(hs.port) && hs.port > 0, `port=${hs.port}`);
   gate('桌面桥握手（spawn → handshake）', hs.handshakeMs, GATE.handshakeMs, 'ms');
 
-  // 错误 token 必须被拒
-  let rejected = false;
-  try {
-    const bad = await openSocket(hs.port, 'wrong-token');
-    bad.close();
-  } catch {
-    rejected = true;
-  }
-  record('错误 token 被拒绝', rejected);
+  /*
+   * v5：**没有 psk 就一句话也说不成**。
+   *
+   * 注意它在 v4 里的表现是"握手 401"（URL 上有 token 可比），而 v5 的升级会成功 ——
+   * 身份由加密层证明，所以要验的是**结果**：拿错 psk 的连接一条 ping 都答不上来。
+   */
+  const wrongPsk = await openSocket(hs.port, 'wrong-psk-0123456789');
+  const wrongPing = await call(wrongPsk, 'w1', 'bridge.ping', undefined, 1500);
+  record('错误 psk 拿不到任何回复（服务端按加密失败断开）', wrongPing.timeout === true);
+  wrongPsk.close();
 
-  const ws = await openSocket(hs.port, hs.token);
-  record('正确 token 建立连接', ws.readyState === WebSocket.OPEN);
+  const ws = await openSocket(hs.port, hs.psk);
+  record('正确 psk 建立连接（升级 + hello + 密钥就绪）', ws.readyState === WebSocket.OPEN);
+
+  /*
+   * **v5 回归：连上之后什么都不说，也必须活着。**
+   *
+   * 桥侧的预认证池有 1.5 秒截止（防"连上不说话"占位）。而客户端的自愈重连是**主动建连**的
+   * （没有等待中的请求），若不在握手后主动说一句话，这些连接会被刚建好就关掉、客户端再去重连
+   * —— 现场表现就是界面反复"正在重连本地服务"（这条门禁就是为它立的）。
+   */
+  const idle = await openSocket(hs.port, hs.psk);
+  await new Promise((r) => setTimeout(r, 2500));
+  const afterIdle = await call(idle, 'idle-1', 'bridge.ping');
+  record('空闲 2.5 秒后仍可直接调用（预认证截止不该杀掉正常连接）', afterIdle.frame?.type === 'res');
+  idle.close();
 
   const ping = await call(ws, '1', 'bridge.ping');
   record(
@@ -265,12 +268,33 @@ async function perfSuite() {
   const dead = await closedPort();
   const host = new Host(['--backend', `http://127.0.0.1:${dead}`, '--ver', '1.0.0-bench', '--max-rps', '100000']);
   const hs = await host.start();
-  const ws = await openSocket(hs.port, hs.token);
+  const ws = await openSocket(hs.port, hs.psk);
 
   // 预热：JIT 之前的数据不该进统计
   for (let i = 0; i < 50; i += 1) {
     await call(ws, `w-${i}`, 'bridge.ping');
   }
+
+  /*
+   * **v5 回归：并发回复的线序**（放在这里是因为限流已放宽到 100k/s —— 于是"少一条回复"
+   * 只可能是丢了连接，不会被 BRIDGE_RATE_LIMITED 混进来）。
+   *
+   * 现场故障原文：`序号回退/重放：已收到 27，又收到 26`。服务端的回复来自协程池里的任意线程，
+   * 若"取号"与"写出"分成两步，中间一次线程切换就会让后取的号先上线；接收端按"单调递增"
+   * 判重放，把**整条连接**丢掉 —— 页面同时拉几个接口（看板/列表）就会触发，
+   * 界面上表现为反复"正在重连本地服务"。
+   *
+   * 已验证：把 `sealAndSend` 换回"先 seal 再 write"的写法，这条门禁当场红（256 条只回 223 条）。
+   */
+  let burstOk = 0;
+  let burstTotal = 0;
+  for (let round = 0; round < 4; round += 1) {
+    const parallel = await Promise.all(Array.from({ length: 64 }, (_, i) => call(ws, `par-${round}-${i}`, 'bridge.ping')));
+    burstTotal += parallel.length;
+    burstOk += parallel.filter((r) => r.frame?.type === 'res').length;
+  }
+  record('并发 4×64 条请求全部答 res（取号与写出在同一临界区）', burstOk === burstTotal, `res=${burstOk}/${burstTotal}`);
+  record('并发洪峰之后连接仍然可用（没有因序号回退被丢弃）', (await call(ws, 'after-burst', 'bridge.ping')).frame?.type === 'res');
 
   const samples = [];
   for (let i = 0; i < COUNT; i += 1) {
@@ -305,23 +329,23 @@ async function perfSuite() {
  * 也就是"不改后端"这句话在真实服务上是成立的，而不只是我自己的 mock 上成立。
  *
  * 用到的两个端点都是无需登录也能区分行为的：
- *   - `captcha.generate`：公开端点，成功路径（顺带验证一个几 KB 的 base64 大帧）
+ *   - `human.challenge`：公开端点（人机验证的第一步），成功路径
  *   - `dashboard.summary`：需要鉴权，未登录必然 401 → 验证 401 → error_session_expired 的映射
  */
 async function realBackendSuite(backendUrl) {
   log(`--- 3. 真后端端到端（${backendUrl}）---`);
   const host = new Host(['--backend', backendUrl, '--ver', '1.0.0-bench']);
   const hs = await host.start();
-  const ws = await openSocket(hs.port, hs.token);
+  const ws = await openSocket(hs.port, hs.psk);
 
-  const captcha = await call(ws, 'r1', 'captcha.generate', { type: 'math' }, 15000);
-  const data = captcha.frame?.data ?? {};
+  const challenge = await call(ws, 'r1', 'human.challenge', { purpose: 'LOGIN', platform: 'desktop', clientVersion: '1.0.0-bench' }, 15000);
+  const data = challenge.frame?.data ?? {};
   record(
-    '真后端：captcha.generate 经桥返回 payload.data',
-    captcha.frame?.type === 'res' && typeof data.captchaId === 'string' && String(data.captchaImage ?? '').startsWith('data:image'),
-    captcha.frame?.type === 'res'
-      ? `captchaId=${String(data.captchaId).slice(0, 8)}… image=${String(data.captchaImage).length} 字节`
-      : JSON.stringify(captcha.frame),
+    '真后端：human.challenge 经桥返回 payload.data',
+    challenge.frame?.type === 'res' && typeof data.challengeId === 'string' && Number.isInteger(data.difficultyBits),
+    challenge.frame?.type === 'res'
+      ? `challengeId=${String(data.challengeId).slice(0, 8)}… action=${data.action} bits=${data.difficultyBits}`
+      : JSON.stringify(challenge.frame),
   );
 
   const dashboard = await call(ws, 'r2', 'dashboard.summary', undefined, 15000);
@@ -342,7 +366,7 @@ async function realBackendSuite(backendUrl) {
   // 因此桥按"业务错误"透传该码，文案由 Web 侧按码映射（延续"谁展示谁拥有"）。
   const authed = new Host(['--backend', backendUrl, '--ver', '1.0.0-bench', '--access-token', 'invalid-token-for-bench']);
   const hs2 = await authed.start();
-  const ws2 = await openSocket(hs2.port, hs2.token);
+  const ws2 = await openSocket(hs2.port, hs2.psk);
   const expired = await call(ws2, 'r3', 'dashboard.summary', undefined, 15000);
   record(
     '真后端：带无效令牌 → 业务码 AUTH-0002 原样透传（桥不发明文案）',

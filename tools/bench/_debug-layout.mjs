@@ -18,16 +18,14 @@ JSON.stringify({
   shell: (document.querySelector('.w-root') || {}).className || '(未渲染)',
   hasTabBar: !!document.querySelector('.w-tabbar'),
   hasSidebar: !!document.querySelector('.w-sidebar'),
-  captchaRow: (() => {
-    const row = document.querySelector('.w-captcha');
+  verifyRow: (() => {
+    // 图形验证码整条链路已删除；这里量的是它的替代品（点一下按钮、零输入）
+    const row = document.querySelector('[data-testid="human-verify"]');
     if (!row) return null;
     const r = row.getBoundingClientRect();
-    const b = row.querySelector('.w-btn');
-    const i = row.querySelector('.w-input');
     return {
       row: [Math.round(r.width), Math.round(r.height)],
-      btn: b ? [Math.round(b.getBoundingClientRect().width), Math.round(b.getBoundingClientRect().height)] : null,
-      input: i ? Math.round(i.getBoundingClientRect().width) : null,
+      state: row.getAttribute('data-state') || row.className,
     };
   })(),
   tabbarPlaceholderIcons: document.querySelectorAll('.w-tabbar__item span[aria-hidden]').length,

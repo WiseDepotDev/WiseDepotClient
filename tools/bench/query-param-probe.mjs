@@ -23,12 +23,13 @@
 
 'use strict';
 
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
-import { sendReq, decodeFrame } from '../lib/bridge-wire.mjs';
+import { connectBridge, sendReq } from '../lib/bridge-wire.mjs';
+import { attachEvidenceResponder, obtainHumanToken } from '../lib/bench-human-verify.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const WORKSPACE_ROOT = path.resolve(CLIENT_ROOT, '..');
@@ -89,9 +90,21 @@ function startRecorder() {
 async function startBridge(backendUrl) {
     const child = spawn(
         'java',
-        ['-cp', path.join(LIB_DIR, '*'), MAIN_CLASS, '--backend', backendUrl, '--ver', '1.0.0-queryprobe'],
+        [
+            '-cp',
+            path.join(LIB_DIR, '*'),
+            MAIN_CLASS,
+            '--backend',
+            backendUrl,
+            '--ver',
+            '1.0.0-queryprobe',
+            // 人机验证：桥要能问到"壳"的本地环境证据（这里由 bench 扮演壳）
+            '--capabilities',
+            'storage.secure,human.verify',
+        ],
         { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
     );
+    attachEvidenceResponder(child);
     let stderr = '';
     child.stderr.on('data', (d) => (stderr += d.toString()));
     const handshake = await new Promise((resolve, reject) => {
@@ -107,12 +120,9 @@ async function startBridge(backendUrl) {
         });
         child.once('exit', (c) => reject(new Error(`宿主提前退出 code=${c}\n${stderr}`)));
     });
-    const ws = await new Promise((resolve, reject) => {
-    const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
-        s.binaryType = 'arraybuffer';
-        s.onopen = () => resolve(s);
-        s.onerror = () => reject(new Error('ws 连接失败'));
-    });
+    // v5：connectBridge 内部完成"生成临时密钥 → 等 hello → 派生会话密钥"，
+    // 它自己就代表"连上"，不必再套一层 onopen 的 Promise
+    const ws = await connectBridge(`ws://127.0.0.1:${handshake.port}/bridge`, { psk: handshake.psk });
     return { child, ws };
 }
 
@@ -120,7 +130,7 @@ function callBridge(ws, id, method, params, timeoutMs = 15000) {
     return new Promise((resolve) => {
         const timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
         const onMessage = (ev) => {
-            const frame = decodeFrame(new Uint8Array(ev.data));
+            const frame = ev.data /* v5：connectBridge 交出来的已经是解密的逻辑帧 */;
             if (frame.id !== id) return;
             clearTimeout(timer);
             ws.removeEventListener('message', onMessage);
@@ -155,14 +165,6 @@ function readEnv() {
     return map;
 }
 
-function redisGet(key, password) {
-    return execFileSync(
-        'docker',
-        ['exec', 'wd-local-redis', 'redis-cli', '-a', password, '--no-auth-warning', 'GET', key],
-        { encoding: 'utf8' },
-    ).trim();
-}
-
 /**
  * 真后端判别：挑一个"参数没绑上会 400、绑上了会是别的码"的端点。
  *
@@ -172,7 +174,8 @@ function redisGet(key, password) {
  *   · 修好之前：Spring 报 "Required request parameter 'quantity' is not present" → HTTP-400
  *   · 修好之后：参数绑上了，业务走到 404
  *
- * 登录要过验证码，答案从后端自己的 Redis 读（测试基础设施，见 real-smoke.mjs 的说明）。
+ * 登录要先过**人机验证**（图形验证码已随整套机制删除）：票据由桥自己拿、自己注入，
+ * 这里只负责扮演"壳"回答桥的证据请求（见 `tools/lib/bench-human-verify.mjs`）。
  */
 async function realDifferential() {
     const backend = 'http://127.0.0.1:18080';
@@ -181,14 +184,13 @@ async function realDifferential() {
 
     const { child, ws } = await startBridge(backend);
     try {
-        const cap = await callBridge(ws, 'c1', 'captcha.generate', { type: 'math' });
-        const captchaId = cap.frame?.data?.captchaId;
-        const code = redisGet(`captcha:${captchaId}`, env.WD_REDIS_PASSWORD);
+        const human = await obtainHumanToken(ws, callBridge, { purpose: 'LOGIN', username: 'operator' });
+        if (!record('人机验证通过（票据留在桥里）', human.ok, human.reason)) {
+            return;
+        }
         const login = await callBridge(ws, 'c2', 'auth.login', {
             username: 'operator',
             password: env.WD_OPERATOR_PASSWORD,
-            captchaId,
-            captchaCode: code,
         });
         record('真登录成功', login.frame?.type === 'res', `username=${login.frame?.data?.username}`);
 

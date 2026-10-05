@@ -13,7 +13,7 @@ const cases = [
   { name: 'GET 无 body 无 auth', url: `${base}/api/dashboard/summary`, method: 'GET' },
   { name: 'GET + 信封 body 无 auth', url: `${base}/api/dashboard/summary`, method: 'GET', body: envelope('DASHBOARD_SUMMARY') },
   { name: 'GET + 信封 body + 伪 bearer', url: `${base}/api/dashboard/summary`, method: 'GET', body: envelope('DASHBOARD_SUMMARY'), auth: 'Bearer fake-token' },
-  { name: 'POST captcha（已知可用，对照组）', url: `${base}/api/captcha/generate`, method: 'POST', body: envelope('UNKNOWN', { type: 'math' }) },
+  { name: 'POST human.challenge（公开端点，对照组）', url: `${base}/api/human/challenge`, method: 'POST', body: envelope('UNKNOWN', { purpose: 'LOGIN', platform: 'desktop', clientVersion: '1.0.0-debug' }) },
 ];
 
 for (const c of cases) {

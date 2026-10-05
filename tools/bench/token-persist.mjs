@@ -28,12 +28,13 @@
 
 'use strict';
 
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { sendReq, decodeFrame } from '../lib/bridge-wire.mjs';
+import { connectBridge, sendReq } from '../lib/bridge-wire.mjs';
+import { attachEvidenceResponder, obtainHumanToken } from '../lib/bench-human-verify.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const WORKSPACE_ROOT = path.resolve(CLIENT_ROOT, '..');
@@ -60,21 +61,25 @@ function readEnv() {
     return map;
 }
 
-function redisGet(key, password) {
-    return execFileSync(
-        'docker',
-        ['exec', 'wd-local-redis', 'redis-cli', '-a', password, '--no-auth-warning', 'GET', key],
-        { encoding: 'utf8' },
-    ).trim();
-}
-
 /** 起一个宿主进程并连上它的桥。 */
 async function startHost({ tokenFile }) {
-    const args = ['-cp', path.join(LIB_DIR, '*'), MAIN_CLASS, '--backend', BACKEND, '--ver', '1.0.0-persist'];
+    const args = [
+        '-cp',
+        path.join(LIB_DIR, '*'),
+        MAIN_CLASS,
+        '--backend',
+        BACKEND,
+        '--ver',
+        '1.0.0-persist',
+        // 人机验证：桥要能问到"壳"的本地环境证据（这里由 bench 扮演壳）
+        '--capabilities',
+        'storage.secure,human.verify',
+    ];
     if (tokenFile) {
         args.push('--token-file', tokenFile);
     }
     const child = spawn('java', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    attachEvidenceResponder(child);
     let stderr = '';
     child.stderr.on('data', (d) => (stderr += d.toString()));
     const handshake = await new Promise((resolve, reject) => {
@@ -90,12 +95,8 @@ async function startHost({ tokenFile }) {
         });
         child.once('exit', (c) => reject(new Error(`宿主提前退出 code=${c}\n${stderr}`)));
     });
-    const ws = await new Promise((resolve, reject) => {
-    const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
-        s.binaryType = 'arraybuffer';
-        s.onopen = () => resolve(s);
-        s.onerror = () => reject(new Error('ws 连接失败'));
-    });
+    // v5：connectBridge 内部完成"生成临时密钥 → 等 hello → 派生会话密钥"
+    const ws = await connectBridge(`ws://127.0.0.1:${handshake.port}/bridge`, { psk: handshake.psk });
     return { child, ws, handshake, stderr: () => stderr };
 }
 
@@ -103,7 +104,7 @@ function call(ws, id, method, params, timeoutMs = 20000) {
     return new Promise((resolve) => {
         const timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
         const onMessage = (ev) => {
-            const frame = decodeFrame(new Uint8Array(ev.data));
+            const frame = ev.data /* v5：connectBridge 交出来的已经是解密的逻辑帧 */;
             if (frame.id !== id) return;
             clearTimeout(timer);
             ws.removeEventListener('message', onMessage);
@@ -116,14 +117,20 @@ function call(ws, id, method, params, timeoutMs = 20000) {
 
 const isOk = (f) => f?.type === 'res';
 
+/**
+ * 登录 = 先过**人机验证**，再调 `auth.login`。
+ *
+ * 票据不进这里：`bridge.humanVerify` 成功后票据留在桥里，由桥在 `auth.login` 那次调用上注入。
+ * 所以这里既能验"桥真的替页面做了验证"，也顺带验"票据不出桥"。
+ */
 async function login(ws, env) {
-    const cap = await call(ws, 'l0', 'captcha.generate', { type: 'math' });
-    const code = redisGet(`captcha:${cap.frame?.data?.captchaId}`, env.WD_REDIS_PASSWORD);
+    const human = await obtainHumanToken(ws, call, { purpose: 'LOGIN', username: 'operator' });
+    if (!human.ok) {
+        return { frame: { type: 'err', code: 'HUMAN_VERIFY_FAILED', message: human.reason } };
+    }
     return call(ws, 'l1', 'auth.login', {
         username: 'operator',
         password: env.WD_OPERATOR_PASSWORD,
-        captchaId: cap.frame?.data?.captchaId,
-        captchaCode: code,
     });
 }
 
@@ -132,8 +139,8 @@ async function main() {
         throw new Error(`找不到宿主产物：${LIB_DIR}\n请先跑 gradlew :bridge:host-desktop:installDist`);
     }
     const env = readEnv();
-    if (!env.WD_REDIS_PASSWORD || !env.WD_OPERATOR_PASSWORD) {
-        throw new Error('deploy/.env.local 缺少 WD_REDIS_PASSWORD 或 WD_OPERATOR_PASSWORD');
+    if (!env.WD_OPERATOR_PASSWORD) {
+        throw new Error('deploy/.env.local 缺少 WD_OPERATOR_PASSWORD');
     }
 
     const tokenFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'wise-persist-')), 'session.enc');

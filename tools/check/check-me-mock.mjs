@@ -216,18 +216,20 @@ try {
     check('新用户在最前面（按创建时间倒序）', idsOf(after.value.items)[0] === created.value.userId, idsOf(after.value.items).join(','));
   }
 
-  // ---- 8. 删除用户（带验证码）/ 重置密码 ----
+  // ---- 8. 删除用户（人机验证票据由桥注入）/ 重置密码 ----
   {
     const mock = new MeMock();
-    const noCaptcha = call(mock, 'user.deleteWithCaptcha', { userId: 5, captchaId: 'c1', captchaCode: '' });
-    check('没填验证码 → VAL-0001', noCaptcha.ok === false && noCaptcha.code === 'VAL-0001', JSON.stringify(noCaptcha).slice(0, 120));
-    check('被拒时用户还在', call(mock, 'user.detail', { userId: 5 }).ok === true);
-
-    const deleted = call(mock, 'user.deleteWithCaptcha', { userId: 5, captchaId: 'c1', captchaCode: '13' });
-    check('填了验证码就删掉', deleted.ok === true);
+    /*
+     * **假桥验不了人机验证**：票据由桥注入，页面（以及这里的假桥调用）根本不传它。
+     * 所以这一节只验"删除这件事本身对不对"，**不要**在这里假装验了票据 ——
+     * "没验证就删不掉"由服务端 `UserApplicationService.deleteUserWithVerify` 的第一行保证，
+     * 对应用例在 `UserApplicationServiceTest`（票据不通过时不得触达任何仓储）。
+     */
+    const deleted = call(mock, 'user.deleteWithVerify', { userId: 5 });
+    check('删除用户（票据由桥注入，假桥只验业务效果）', deleted.ok === true, JSON.stringify(deleted).slice(0, 120));
     check('删完之后查不到这个用户', call(mock, 'user.detail', { userId: 5 }).ok === false);
     check('列表总数变成 5', call(mock, 'user.list', { page: 1, size: 10 }).value.total === 5);
-    check('删不存在的用户 → RES-0004', call(mock, 'user.deleteWithCaptcha', { userId: 5, captchaCode: '13' }).ok === false);
+    check('删不存在的用户 → RES-0004', call(mock, 'user.deleteWithVerify', { userId: 5 }).ok === false);
 
     const shortPw = call(mock, 'user.resetPassword', { userId: 1, oldPassword: 'x', newPassword: '123' });
     check('重置密码：新密码太短 → VAL-0001', shortPw.ok === false && shortPw.details.includes('6-20'), shortPw.details);

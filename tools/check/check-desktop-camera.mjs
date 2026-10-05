@@ -83,7 +83,14 @@ check(
 check('只放行 media 的注释写清了理由（不是靠读者猜）', /只放行 `media`/.test(mainTs));
 
 console.log('--- 2. 能力声明：桌面声明、手机不声明、字符串不能拼错 ---');
-const declared = /'--capabilities',\s*'([^']+)'/.exec(bridgeProcessTs)?.[1] ?? '';
+/*
+ * 允许 flag 与取值之间夹注释：那是合法 TS，而且**声明串常常需要一段"为什么现在才加"的解释**
+ * （`scan.camera`、`notify.system` 都是这么加进来的）。门禁为它变红就是假红，
+ * 而假红的下场是下一个人把解释删掉 —— 正好丢掉我们最想留的那句话。
+ * 所以先去掉注释再要求"紧邻"。
+ */
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+const declared = /'--capabilities',\s*'([^']+)'/.exec(stripComments(bridgeProcessTs))?.[1] ?? '';
 if (declared === '') {
   console.log('  ✗ 找不到 --capabilities 那一行 —— 门禁自己要能定位，不能静默通过');
   fail += 1;

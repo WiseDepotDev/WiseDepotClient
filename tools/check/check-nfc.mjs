@@ -344,16 +344,13 @@ check(
   /NFC_READ_VERIFIED/.test(devScript) && /机型/.test(devScript),
 );
 /*
- * **UTF-8 BOM 是硬要求**：`pnpm smoke:nfc-device` 走 `powershell -File`（Windows PowerShell 5.1），
- * 它按**当前 ANSI 代码页**读取没有 BOM 的 .ps1 —— 中文被当成 GBK 之后字节会串位，
- * 连字符串的收尾引号都可能被吞掉，报出来的是"某一行少个引号"这种与真因毫不相干的错。
- * 这条断言就是这么发现的（先写文件、后补 BOM，一次 edit 又把 BOM 弄掉了）。
+ * UTF-8 BOM 这件事**不再由这里管**：它一开始只是这个脚本的断言，2026-10-07 同一个坑
+ * 第三次踩响（`desktop.ps1`）时，这条断言是绿的 —— 它只盯着一个文件。
+ * 现在归 `tools/check/check-ps1-bom.mjs`（扫全仓所有 `.ps1`），单一所有者。
  */
-const devScriptBytes = readFileSync(path.join(ROOT, 'scripts/nfc-device-check.ps1'));
 check(
-  '走查脚本带 UTF-8 BOM（否则 powershell 5.1 按 ANSI 读，中文串位后连解析都过不去）',
-  devScriptBytes[0] === 0xef && devScriptBytes[1] === 0xbb && devScriptBytes[2] === 0xbf,
-  `前三个字节 ${[...devScriptBytes.slice(0, 3)].map((b) => b.toString(16)).join(' ')}`,
+  '`.ps1` 的 BOM 由 check-ps1-bom 统一把关（这条只确认那个门禁还在 check 链里）',
+  /"check:ps1-bom"/.test(pkgJson) && checkChain.includes('check:ps1-bom'),
 );
 
 console.log('--- 10. 开发态模拟：只有显式 `?simulate=` 才多出能力，且冒烟真的跑过四态 ---');

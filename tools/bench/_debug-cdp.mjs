@@ -28,17 +28,34 @@ const DIAG = `
       out.port = boot.port;
       out.host = boot.host;
       out.protocol = boot.protocol;
-      out.wsResult = await new Promise((resolve) => {
+      out.wsResult = await new Promise(async (resolve) => {
         const t = setTimeout(() => resolve('timeout'), 6000);
         try {
           // 用引导下发的 host，**不要硬编码 127.0.0.1** ——
           // WSA 上必须连 loopback0 的点对点地址，硬编码会让探测本身失败（这不是应用的问题）。
           const host = boot.host || '127.0.0.1';
-          const s = new WebSocket('ws://' + host + ':' + boot.port + '/bridge?token=' + encodeURIComponent(boot.token));
-          s.onopen = () => {
-            s.send(JSON.stringify({ v: 3, type: 'req', id: 'cdp-1', method: 'bridge.ping' }));
+          /*
+           * v5：URL 上**没有任何凭据**，但必须带客户端临时公钥（参数 k），否则服务端按
+           * "缺少客户端公钥"回 400 —— 那会让这条诊断在一切正常时也报失败。
+           *
+           * 这里只生成一对临时密钥（**不做 ECDH、不做 KDF**）：本探针要看的是
+           * "loopback + CSP + 升级 + 服务端的 hello"这一段，完整的加密调用由
+           * tools/bench/bridge-roundtrip.mjs 与桌面自检负责。
+           *
+           * 注意：本段是注入到页面里的字符串，不能出现反引号（会截断外层模板串）。
+           */
+          const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+          const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+          const k = [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
+          const s = new WebSocket('ws://' + host + ':' + boot.port + '/bridge?k=' + k);
+          s.binaryType = 'arraybuffer';
+          s.onopen = () => { out.wsOpen = true; };
+          s.onmessage = (e) => {
+            clearTimeout(t);
+            const size = e.data?.byteLength ?? String(e.data).length;
+            resolve('第一条帧 ' + size + 'B（v5：应当是明文 hello）');
+            s.close();
           };
-          s.onmessage = (e) => { clearTimeout(t); resolve('message:' + String(e.data).slice(0, 140)); s.close(); };
           s.onerror = () => { clearTimeout(t); resolve('onerror（无 detail，典型于混合内容/CSP 拦截）'); };
           s.onclose = (e) => { clearTimeout(t); resolve('close code=' + e.code + ' reason=' + e.reason); };
         } catch (err) { clearTimeout(t); resolve('throw:' + err.message); }

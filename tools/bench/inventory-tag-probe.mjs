@@ -26,14 +26,13 @@
  * **不打印任何密钥。**
  */
 
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { httpHumanToken } from '../lib/bench-human-verify.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const ENV_FILE = path.resolve(CLIENT_ROOT, '..', 'deploy', '.env.local');
-const REDIS_CONTAINER = process.env.WISE_REDIS_CONTAINER || 'wd-local-redis';
 
 const argv = process.argv.slice(2);
 const hasFlag = (f) => argv.includes(f);
@@ -69,15 +68,6 @@ function readEnv() {
   return map;
 }
 
-/** 验证码答案是明文存 Redis 的（`captcha:<uuid>`），这是仓库其它 bench 一直在用的取法。 */
-function redisGet(key, password) {
-  return execFileSync(
-    'docker',
-    ['exec', REDIS_CONTAINER, 'redis-cli', '-a', password, '--no-auth-warning', 'GET', key],
-    { encoding: 'utf8' },
-  ).trim();
-}
-
 const envelope = (data) => ({ header: { requestId: 'probe', timestamp: Date.now() }, payload: { data } });
 
 async function http(method, urlPath, { token, body, rawBody } = {}) {
@@ -105,13 +95,21 @@ async function http(method, urlPath, { token, body, rawBody } = {}) {
 /** 一句话把一次调用说清楚，用于 observe/record 的 detail。 */
 const brief = (r) => `HTTP ${r.status} code=${r.code ?? '-'} ${r.message ?? r.text.slice(0, 80)}`;
 
-async function signIn(env) {
-  const cap = await http('POST', '/api/captcha/generate', { body: {} });
-  const captchaId = cap.data?.captchaId;
-  if (!captchaId) throw new Error(`生成验证码失败：${cap.text}`);
-  const code = redisGet(`captcha:${captchaId}`, env.WD_REDIS_PASSWORD);
+/**
+ * 登录：先过**人机验证**（图形验证码已随整套机制删除），再拿票据换令牌。
+ *
+ * 这条路**故意不经桥**（这个探针要看的正是原始 HTTP 行为），所以人机验证由
+ * `bench-human-verify.mjs` 在 Node 里实现：本机 P-256 密钥签名 + 计算量证明，
+ * 与服务端 / 桥走的是同一套拼法（签名原文、指纹、PoW 前缀零 bit 数）。
+ */
+async function signIn() {
+  const human = await httpHumanToken(BASE, { purpose: 'LOGIN', username: 'admin' });
   const login = await http('POST', '/api/auth/login', {
-    body: { username: 'admin', password: process.env.WISE_ADMIN_PASSWORD || 'Wise-Admin-2026!', captchaId, captchaCode: code },
+    body: {
+      username: 'admin',
+      password: process.env.WISE_ADMIN_PASSWORD || 'Wise-Admin-2026!',
+      humanToken: human.humanToken,
+    },
   });
   const token = login.data?.accessToken;
   if (!token) throw new Error(`登录失败：${brief(login)}`);
@@ -333,12 +331,12 @@ async function writeProbes(token, { firstProduct, firstWarehouse, rowsOf }) {
 
 const env = readEnv();
 console.log(`=== 库存 / 标签 / 权限 真后端探针（${BASE}${WRITE ? '，含写探测' : '，只读'}）===`);
-if (!env.WD_REDIS_PASSWORD) {
-  console.error(`✗ 读不到 Redis 口令（${ENV_FILE} 里的 WD_REDIS_PASSWORD），登录要过验证码，无法继续。`);
+if (!env.WISE_ADMIN_PASSWORD && !process.env.WISE_ADMIN_PASSWORD) {
+  console.error('✗ 管理员口令没配（deploy/.env.local 的 WISE_ADMIN_PASSWORD 或同名环境变量），无法登录。');
   process.exit(2);
 }
 
-const token = await signIn(env);
+const token = await signIn();
 record('真登录成功', true, `token 长度 ${String(token).length}`);
 
 const { firstProduct, firstWarehouse, rowsOf } = await readOnly(token);

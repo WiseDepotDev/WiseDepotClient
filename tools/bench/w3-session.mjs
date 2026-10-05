@@ -19,7 +19,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { sendReq, decodeFrame } from '../lib/bridge-wire.mjs';
+import { connectBridge, sendReq } from '../lib/bridge-wire.mjs';
+import { attachEvidenceResponder } from '../lib/bench-human-verify.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const LIB_DIR = path.join(CLIENT_ROOT, 'bridge', 'host-desktop', 'build', 'install', 'wise-bridge', 'lib');
@@ -69,8 +70,13 @@ function startFakeBackend() {
       seen.push({ url: req.url, auth, body: body.slice(0, 200) });
       res.setHeader('content-type', 'application/json; charset=utf-8');
 
-      if (req.url.startsWith('/api/captcha/generate')) {
-        res.end(envelope({ captchaId: 'captcha-1', captchaImage: 'data:image/png;base64,iVBORw0KGgo=', expireTime: '2026-01-01T00:00:00' }));
+      if (req.url.startsWith('/api/human/challenge')) {
+        res.end(envelope({ challengeId: 'challenge-1', action: 'verify', difficultyBits: 12, expiresIn: 120 }));
+        return;
+      }
+
+      if (req.url.startsWith('/api/human/verify')) {
+        res.end(envelope({ humanToken: 'human-token-1', expiresIn: 120, riskLevel: 'low' }));
         return;
       }
 
@@ -130,9 +136,21 @@ function startFakeBackend() {
 async function startBridge(backendPort) {
   const child = spawn(
     'java',
-    ['-cp', path.join(LIB_DIR, '*'), MAIN_CLASS, '--backend', `http://127.0.0.1:${backendPort}`, '--ver', '1.0.0-w3'],
+    [
+      '-cp',
+      path.join(LIB_DIR, '*'),
+      MAIN_CLASS,
+      '--backend',
+      `http://127.0.0.1:${backendPort}`,
+      '--ver',
+      '1.0.0-w3',
+      // 人机验证：桥要能问到"壳"的本地环境证据（这里由 bench 扮演壳）
+      '--capabilities',
+      'storage.secure,human.verify',
+    ],
     { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
   );
+  attachEvidenceResponder(child);
   let stderr = '';
   child.stderr.on('data', (d) => (stderr += d.toString()));
   const handshake = await new Promise((resolve, reject) => {
@@ -149,13 +167,9 @@ async function startBridge(backendPort) {
     child.once('exit', (c) => reject(new Error(`宿主提前退出 code=${c}\n${stderr}`)));
   });
 
-  const ws = await new Promise((resolve, reject) => {
-    const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
-    s.binaryType = 'arraybuffer';
-    s.onopen = () => resolve(s);
-    s.onerror = () => reject(new Error('ws 连接失败'));
-    s.onclose = (e) => reject(new Error(`ws 关闭 code=${e.code}`));
-  });
+  // v5：connectBridge 内部完成"生成临时密钥 → 等 hello → 派生会话密钥"，
+  // 它自己就代表"连上"，不必再套一层 onopen/onclose 的 Promise
+  const ws = await connectBridge(`ws://127.0.0.1:${handshake.port}/bridge`, { psk: handshake.psk });
   return { child, handshake, ws };
 }
 
@@ -163,7 +177,7 @@ function call(ws, id, method, params) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ timeout: true }), 8000);
     const onMessage = (ev) => {
-      const frame = decodeFrame(new Uint8Array(ev.data));
+      const frame = ev.data /* v5：connectBridge 交出来的已经是解密的逻辑帧 */;
       if (frame.id !== id) {
         return;
       }
@@ -195,21 +209,23 @@ async function main() {
     const before = await call(ws, 's0', 'bridge.session');
     record('未登录时 bridge.session.authenticated = false', before.frame?.data?.authenticated === false, JSON.stringify(before.frame?.data));
 
-    console.log('--- 0. UI 序列：验证码 → 登录 → 会话 → 看板（登录屏将要走的每一步）---');
-    const cap = await call(ws, 'u1', 'captcha.generate', { type: 'math' });
+    console.log('--- 0. UI 序列：人机验证 → 登录 → 会话 → 看板（登录屏将要走的每一步）---');
+    const hv = await call(ws, 'u1', 'bridge.humanVerify', { purpose: 'LOGIN', username: 'operator' });
     record(
-      'captcha.generate 返回可直渲染的 data URL',
-      cap.frame?.type === 'res' && String(cap.frame.data?.captchaImage).startsWith('data:image') && typeof cap.frame.data?.captchaId === 'string',
-      `captchaId=${cap.frame?.data?.captchaId}`,
+      'bridge.humanVerify 走完（点一下按钮、零输入，票据留在桥里）',
+      hv.frame?.type === 'res' && hv.frame.data?.ok === true,
+      JSON.stringify(hv.frame?.data),
     );
-    record('验证码响应不含令牌', !containsSecret(cap.frame));
+    record(
+      '人机验证响应里**没有票据**（票据不出桥）',
+      !containsSecret(hv.frame) && hv.frame?.data?.humanToken === undefined,
+      JSON.stringify(hv.frame?.data),
+    );
 
     console.log('--- 2. 登录与**令牌截留** ---');
     const login = await call(ws, 's1', 'auth.login', {
       username: 'operator',
       password: 'x',
-      captchaId: 'cid',
-      captchaCode: '0000',
     });
     record('auth.login 经桥调用成功', login.frame?.type === 'res', login.frame?.type ?? JSON.stringify(login.frame));
     record(

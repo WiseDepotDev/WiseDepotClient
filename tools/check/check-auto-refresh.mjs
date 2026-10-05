@@ -140,6 +140,34 @@ check(
   /socket\.onmessage = null/.test(transport),
 );
 
+// ---- 3.1 后台保活：切后台不许把连接丢给桥的读空闲（v5 起）----
+//
+// 桥 60 秒读空闲 + "自动刷新探测只在可见时跑" 叠起来 = **切后台超过 60 秒必断**。
+// 保活是这条链路的补丁，而且它必须满足三条跨文件约定，任何一条被改掉都不会有编译错误：
+//   1. 走**桥内建** bridge.ping（不经后端，"后台不刷后端"的决定不破）；
+//   2. 只在页面**不可见**时发（前台已有 10 秒一次的应用探测，别搞出两个保活所有者）；
+//   3. 间隔必须**显著小于**桥的读空闲，且桌面壳关掉后台节流 —— 否则保活发不出去。
+const keepAliveMatch = transport.match(/BRIDGE_KEEPALIVE_INTERVAL_MS = ([\d_]+)/);
+const keepAliveMs = keepAliveMatch ? Number(keepAliveMatch[1].replaceAll('_', '')) : 0;
+check('transport 定义了后台保活间隔', keepAliveMs > 0, keepAliveMs ? `${keepAliveMs}ms` : '没找到常量');
+check('保活用的是桥内建 bridge.ping（不经后端）', /private async sendKeepAlive[\s\S]{0,400}method: 'bridge\.ping'/.test(transport));
+check('保活只在页面不可见时发（前台由应用探测保活）', /isPageHidden\(\)/.test(transport) && /visibilityState === 'hidden'/.test(transport));
+check('保活帧也走同一条出站链（序号顺序不能乱）', /sendKeepAlive[\s\S]{0,400}this\.sealOut\(/.test(transport));
+check('连接没了要停掉保活（reset / close / onclose 三处）', (transport.match(/stopKeepAlive\(\)/g) ?? []).length >= 4);
+
+const serverConfig = read('bridge/server/src/main/kotlin/com/huicang/wise/bridge/server/BridgeServer.kt');
+const idleMatch = serverConfig.match(/val readerIdleMs: Long = ([\d_]+)/);
+const idleMs = idleMatch ? Number(idleMatch[1].replaceAll('_', '')) : 0;
+check(
+  '保活间隔显著小于桥的读空闲（否则保活赶不上超时）',
+  keepAliveMs > 0 && idleMs > 0 && keepAliveMs * 2 <= idleMs,
+  `保活 ${keepAliveMs}ms / 读空闲 ${idleMs}ms`,
+);
+check(
+  '桌面壳关掉了后台节流（否则隐藏页面的定时器被节流到约每分钟一次，保活发不出去）',
+  /backgroundThrottling: false/.test(read('apps/desktop/src/main.ts')),
+);
+
 const main = read('apps/web/src/main.ts');
 check('应用入口真的起了自动刷新', /startAutoRefresh\(/.test(main));
 check('应用入口把验活接到 onResume 上', /onResume:\s*\(\)\s*=>\s*bridgeStore\.resumeAfterBackground\(\)/.test(main));

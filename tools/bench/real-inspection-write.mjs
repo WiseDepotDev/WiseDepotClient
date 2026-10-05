@@ -18,11 +18,12 @@
 
 'use strict';
 
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { sendReq, decodeFrame } from '../lib/bridge-wire.mjs';
+import { connectBridge, sendReq } from '../lib/bridge-wire.mjs';
+import { attachEvidenceResponder, obtainHumanToken } from '../lib/bench-human-verify.mjs';
 
 const CLIENT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const WORKSPACE_ROOT = path.resolve(CLIENT_ROOT, '..');
@@ -54,20 +55,24 @@ function readEnv() {
     return map;
 }
 
-function redisGet(key, password) {
-    return execFileSync(
-        'docker',
-        ['exec', 'wd-local-redis', 'redis-cli', '-a', password, '--no-auth-warning', 'GET', key],
-        { encoding: 'utf8' },
-    ).trim();
-}
-
 async function startBridge() {
     const child = spawn(
         'java',
-        ['-cp', path.join(LIB_DIR, '*'), MAIN_CLASS, '--backend', BACKEND, '--ver', '1.0.0-inspwrite'],
+        [
+            '-cp',
+            path.join(LIB_DIR, '*'),
+            MAIN_CLASS,
+            '--backend',
+            BACKEND,
+            '--ver',
+            '1.0.0-inspwrite',
+            // 人机验证：桥要能问到"壳"的本地环境证据（这里由 bench 扮演壳）
+            '--capabilities',
+            'storage.secure,human.verify',
+        ],
         { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
     );
+    attachEvidenceResponder(child);
     let stderr = '';
     child.stderr.on('data', (d) => (stderr += d.toString()));
     const handshake = await new Promise((resolve, reject) => {
@@ -83,12 +88,8 @@ async function startBridge() {
         });
         child.once('exit', (c) => reject(new Error(`宿主提前退出 code=${c}\n${stderr}`)));
     });
-    const ws = await new Promise((resolve, reject) => {
-    const s = new WebSocket(`ws://127.0.0.1:${handshake.port}/bridge?token=${encodeURIComponent(handshake.token)}`);
-        s.binaryType = 'arraybuffer';
-        s.onopen = () => resolve(s);
-        s.onerror = () => reject(new Error('ws 连接失败'));
-    });
+    // v5：connectBridge 内部完成"生成临时密钥 → 等 hello → 派生会话密钥"
+    const ws = await connectBridge(`ws://127.0.0.1:${handshake.port}/bridge`, { psk: handshake.psk });
     return { child, ws };
 }
 
@@ -96,7 +97,7 @@ function call(ws, id, method, params, timeoutMs = 20000) {
     return new Promise((resolve) => {
         const timer = setTimeout(() => resolve({ timeout: true }), timeoutMs);
         const onMessage = (ev) => {
-            const frame = decodeFrame(new Uint8Array(ev.data));
+            const frame = ev.data /* v5：connectBridge 交出来的已经是解密的逻辑帧 */;
             if (frame.id !== id) return;
             clearTimeout(timer);
             ws.removeEventListener('message', onMessage);
@@ -125,21 +126,21 @@ async function main() {
     }
     const env = readEnv();
     const password = env[`WD_${USER_KIND}_PASSWORD`];
-    if (!env.WD_REDIS_PASSWORD || !password) {
-        throw new Error(`deploy/.env.local 缺少 WD_REDIS_PASSWORD 或 WD_${USER_KIND}_PASSWORD`);
+    if (!password) {
+        throw new Error(`deploy/.env.local 缺少 WD_${USER_KIND}_PASSWORD`);
     }
 
     console.log(`=== 巡检写链路真后端验证（${BACKEND}，账号 ${USER_KIND.toLowerCase()}）===`);
     const { child, ws } = await startBridge();
 
     try {
-        const cap = await call(ws, 'i0', 'captcha.generate', { type: 'math' });
-        const code = redisGet(`captcha:${cap.frame?.data?.captchaId}`, env.WD_REDIS_PASSWORD);
+        const human = await obtainHumanToken(ws, call, { purpose: 'LOGIN', username: USER_KIND.toLowerCase() });
+        if (!record('人机验证通过（票据留在桥里）', human.ok, human.reason)) {
+            return;
+        }
         const login = await call(ws, 'i1', 'auth.login', {
             username: USER_KIND.toLowerCase(),
             password,
-            captchaId: cap.frame?.data?.captchaId,
-            captchaCode: code,
         });
         if (!record('登录', isOk(login.frame), isOk(login.frame) ? 'ok' : errCodeOf(login.frame))) {
             return;

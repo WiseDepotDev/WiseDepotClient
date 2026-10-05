@@ -56,17 +56,22 @@ ws.onopen = async () => {
   await send('Network.enable');
   await send('Log.enable');
 
-  // 从页面里发起一次与 bridge-client 完全相同的连接
+  // 从页面里发起一次与 bridge-client 相同的连接（v5：URL 上只有临时公钥，没有凭据）
   const start = await send('Runtime.evaluate', {
     expression: `(async () => {
       const r = await fetch('/__bridge.json', { cache: 'no-store' });
       const b = await r.json();
-      const url = 'ws://' + (b.host || '127.0.0.1') + ':' + b.port + '/bridge?token=' + encodeURIComponent(b.token);
+      // v5：必须带客户端临时公钥（k），否则服务端按"缺少客户端公钥"回 400
+      const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+      const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+      const k = [...raw].map((x) => x.toString(16).padStart(2, '0')).join('');
+      const url = 'ws://' + (b.host || '127.0.0.1') + ':' + b.port + '/bridge?k=' + k;
       window.__wsUrl = url;
       window.__wsState = 'pending';
       try {
         const s = new WebSocket(url);
         window.__ws = s;
+        s.binaryType = 'arraybuffer';
         s.onopen = () => { window.__wsState = 'open'; };
         s.onerror = () => { window.__wsState = 'error'; };
         s.onclose = (e) => { window.__wsState = 'close:' + e.code + ':' + (e.reason || ''); };
