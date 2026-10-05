@@ -447,3 +447,278 @@ Chromium 的 Shape Detection 只在 macOS / Android / ChromeOS 提供条码识�
 
 > 规则：**跳过 ≠ 通过**。让自检在没验过的机器上永远是绿的，比没有这条断言更糟。
 
+## 八、系统通知不弹怎么查（2026-10-07 新增）
+
+通知这条链有 **5 段**，任何一段断了的表现都是同一句话——"没弹"。所以**按段查，不要跳段**：
+
+```text
+① 后端有新消息  →  ② 桥发现了（UnreadNotifier）  →  ③ 事件到了壳
+                                                        ↓
+                        ⑤ 系统放行  ←  ④ 壳弹了（Notification / NotificationManager）
+```
+
+### 第 0 步：先问"它该弹吗"
+
+三条**设计上的不弹**不是 bug，别去修：
+
+| 情形 | 为什么不弹 |
+| --- | --- |
+| 应用在前台（窗口可见且聚焦 / `onResume`） | 界面自己会刷新，再弹就是打扰 |
+| 刚登录后的**第一次**轮询 | 只记基线（否则开应用就弹一堆历史消息） |
+| `notifyPollMs = 0` | 通知被关了（测试与 bench 默认关，**不是**运行时默认值） |
+
+### 第 1 步：后端真的有新消息吗
+
+去消息列表看一眼有没有**未读**。注意基线播种的语义：**在桥启动之前就已经存在的未读，永远不会弹**。
+所以"只有一条老未读"时，等多久都不会弹——要验就新造一条。
+
+### 第 2 步：桥发现了吗（看 stderr）
+
+桥的运行日志走 **stderr**（事件行才走 stdout，两条流各司其职），所以 `console` 里那些
+`[bridge]` 行与 `UnreadNotifier` 的日志都在。
+
+| 现象 | 判据 | 意思 |
+| --- | --- | --- |
+| 一条 `unreadCount` 请求都没有 | 看有没有周期性的请求日志 | 轮询没跑：可能没登录（`authenticated == false` 时**故意不发**）、或 `notifyPollMs = 0` |
+| 有请求，但 `unreadCount` 不涨 | 对比后端返回的数字 | 后端没造新消息，或**用错用户**（轮询按 `user.current` 的 `receiverId` 查） |
+| 数字涨了，但没有事件行 | 桥日志里应有"新消息"那一行 | 去重集合（最近 200 个 id）认为这条老；或基线刚播完 |
+
+### 第 3 步：事件到壳了吗
+
+**Windows**：
+1. 桥的 stdout **第一行**必须是 `{"v":1,"type":"handshake",…}`；之后的事件行形如
+   `{"v":1,"type":"event","topic":"notify.message","data":{…}}`。
+   —— 事件行里**必须带 `type`**：stdout 上现在有两种行，靠字段猜迟早猜错。
+2. 主进程要看得到这些行：`BridgeProcess` 是按**行**解析的。如果 stdout 被块缓冲吞掉，
+   什么事件都到不了（所以宿主写完必须 `flush()`）。
+
+**Android**：桥与壳**同进程**，事件走 `server.onEvent(...)` 回调，**不经过 stdout**。
+所以查法完全不同：不是看 stdout，而是看 `ShellBridge` 有没有订阅上，以及 `MessageNotifier.show` 有没有被调用。
+
+### 第 4 步：壳弹了吗
+
+| 平台 | 检查点 |
+| --- | --- |
+| Windows | 未打包态**必须显式** `app.setAppUserModelId(...)`，否则 Toast 根本不显示（实测坑）。打包态用 `build.appId`，两处要一致 |
+| Windows | 主进程 `new Notification()` **不需要权限**，而渲染进程那条路仍被权限处理器挡着——这是故意的（"只有一个通知所有者"）。别因为"网页里弹不出来"就去放行渲染进程 |
+| Android | API 33+ 的 `POST_NOTIFICATIONS` 是**运行时**权限。被拒时**必须说出来**（我们撤销 `notify.system` 能力并让界面说明），不允许静默失败 |
+| Android | 两个渠道 `wise-message-alert`（可响）/ `wise-message`（静默）是否都建了？渠道**一旦建过就改不动音量和重要级**，频率不合预期时去系统设置里看那个渠道，别怀疑代码 |
+
+### 第 5 步：系统放行了吗（最常被漏掉的一段）
+
+- **Windows**：设置 → 系统 → 通知 → 找到本应用。焦点助手 / "勿扰"开着时 Toast 会进通知中心而不弹横幅。
+- **Android**：应用通知总开关、单个渠道开关、省电策略与"后台限制"三项。
+  电池优化把应用冻住时，**桥的轮询也会一起停** —— 这时的现象是"过一会儿才弹"或"不弹"。
+- 顺带确认声音：`priority >= 1` 才响。后端目前只有 `ALERT`（`RfidDataApplicationService`）和
+  `INSPECTION`（`InspectionApplicationService`）两处自动消息设了 `priority = 1`；其余类型**静默**是设计行为。
+
+### 这一片的门禁
+
+`pnpm check:notify`（`tools/check/check-notify.mjs`，31 例）钉的是那些**不会让构建失败**的断链：
+事件行少了 `type`、深链前缀在三个地方拼得不一样、能力位声明了但没实现、Android 忘了撤销
+`notify.system`、桌面忘了 `setAppUserModelId`、`emit()` 里观察者被"没有 WebSocket 连接"挡住、
+宿主 stdout 没用 UTF-8（后两条是真的踩过的坑，见方案 §13.2）。
+
+它**验不到**"这条链真的通电"，那一步在 `pnpm bench:desktop` 第 6 节：起一个假后端，把轮询压到
+250ms，真跑一遍"未读涨 → 桥发现 → stdout 事件行 → 壳收到"，并验基线播种、去重、有声/静默。
+最后一段"系统真的弹了一个气泡"两边都验不到，只能人工确认。
+
+**想亲眼看一次气泡**：`pnpm notify:smoke`（`scripts/desktop.ps1 -NotifySmoke`）。
+它会真的在你屏幕上弹两个气泡（一个有声、一个静默），跑完打印 14 条断言并退出。
+三条实操要点（都是实跑踩出来的）：
+
+1. 想从容一点先设 `$env:WISE_NOTIFY_SMOKE_HOLD_MS='60000'`（默认只保持 12 秒）；
+2. **必须在自检还活着的时候点气泡** —— 它一退出假后端就没了，那时点气泡会拿真后端去解析那条
+   模拟消息，你只会看到"这条消息已经不在了"；
+3. **点第 1 个气泡会把窗口拉回前台**，于是第 2 条会被"前台可见不弹"正确抑制 ——
+   自检为此在发第二条前重新让出前台，并把这次观察打出来当证据。
+
+**点击那条链怎么取证**：自检结束前会打印假后端收到的调用次数 ——
+`点击取证：message.detail=6 message.markRead=2 已读集合=[SMOKE-MSG-1, SMOKE-MSG-2] 窗口被拉起=true`。
+`detail ≥ 1` 即证明"有人点了气泡、详情屏真的向桥要过那条消息"。
+
+**踩过的坑（2026-10-07）**：点气泡后详情屏显示 `操作未完成（NOT-FOUND）`，
+看着像深链坏了 —— 其实是**假后端不完整**：详情屏挂载时会调 `message.detail` 与
+`message.markRead`，而当时那个内联假后端只实现了轮询要的三个接口，其余一律 404。
+现在假后端是共享模块 `apps/desktop/src/notifyStub.ts`（两个自检 import 同一份），
+未实现的路径回显眼的 `STUB-NOT-IMPLEMENTED`，缺什么会当场炸出来。
+
+## 九、加了密之后连不上怎么查（v5，2026-10-06）
+
+v5 把每一帧都加密了。失败的表现因此变了：**不再是"握手被拒"这种一眼能看出的错**，
+而是"连上又掉""调一次就断""过一会儿才好"。按**症状**查，不要按代码顺序读。
+
+### 症状 1：界面一直"重连"，桥的 stderr 里反复出现 `加解密失败`
+
+```
+[bridge] 加解密失败，已丢弃这条连接：序号回退/重放：已收到 27，又收到 26
+```
+
+- **序号回退**：说明同一个方向上的帧被**乱序写出**了。这不是接收端的错，是发送端
+  "取号"与"写 socket"分在了两个不互斥的步骤里（v5 期间真实踩过）。
+  发送方的正确做法是**在同一临界区内取号并写出**（Kotlin `SealedChannel.sealAndSend`）。
+- **tag 校验失败**（`密文校验失败（tag 不符或已损坏）`）：两端的密钥不一样。三种可能：
+  ① `__bridge.json` 里的 `psk` 过期（**桥重启过**，引导文件是旧的）→ 重新读一次引导；
+  ② 有人在中间（这条链路是 loopback，正常不会）；
+  ③ 三份 crypto 实现里有漂移 → 跑 `pnpm check:crypto-vectors`（81 项）。
+
+### 症状 2：连上后 1.5 秒被杀，且**一条帧都没发出**
+
+预认证截止（`preAuthDeadlineMs = 1500`）：建连后 1.5 秒内没有合法的首个密文帧就断开。
+v5 去掉 URL 上的 token 之后**必须有这条**，否则任何本地进程都能开一堆"只连不认证"的连接。
+- 正常客户端在握手后**立刻**发一条 `bridge.ping`（见 `transport.ts` 的注释）——
+  少了它就会表现为"每隔几秒重连一次"，而 DevTools 里能看到一堆 `bridge?k=…`。
+- 池子只有 4 个位置：**同时**有超过 4 条"已升级、未认证"的连接时，第 5 条直接被杀。
+  所以"打开多个窗口/多个 WebView"时更容易看到它。
+
+### 症状 3：只有**开发态**连不上，或者只有某个 bench 红
+
+先怀疑**工具没跟上线格式**（v5 期间真实踩过三次）：
+- `tools/lib/bridge-wire.mjs` 与 `packages/bridge-client/src/seal.ts` 是**同一条协议的两份实现**，
+  改了一边必须改另一边，`pnpm check:crypto-vectors` 就是对账表；
+- `bridge/host-desktop/build/install/...` 是**产物**：改了 Kotlin 没重跑 `installDist`，
+  bench 就会拿旧 jar 跑，报出来的是 `BAD_VERSION 期望 5 实得 4` 这种指向性很差的错。
+  **跑任何 bench 之前先重建它。**
+
+### 症状 4：假桥（mock）跑得好好的，真机不行
+
+**这是预期的**：`mock.ts` **不覆盖加密**（刻意的，见方案 §10）。
+它走的是明文路径，所以在开发态看不到任何加密相关回归。加密的覆盖在三处：
+`check:crypto-vectors`（算法）、`pnpm bench` / `bench:desktop`（真 Kotlin 服务端）、
+`check:crypto-e2e`（**真 `WebSocketTransport`** 对最小 WS 服务端）。
+
+### 症状 5：`BRIDGE_CRYPTO_FAILED` 出现在界面上
+
+这是**可重试**的错误，出路是"重连会换一套临时密钥"。仍然失败说明引导文件过期了 ——
+重新读一次 `__bridge.json`（桌面重启壳 / 手机重进应用）。
+界面上那句话由 `errorTextOf` 的 `bridge.cryptoFailed` 分支给出（文案不在桥里）。
+
+> ⚠️ **这条分支曾经是死代码**：`failPending()` 原先无条件把在途调用拒成
+> `bridge.disconnected`，于是"加解密失败"到了界面全变成"桥已断开"，
+> 上面那句话永远显示不出来。是 `check:crypto-e2e` 的"错 psk"场景逼出来的
+> （见方案 §13.2）。
+
+### 一条命令跑完全部加密相关门禁
+
+```bash
+pnpm check:crypto-vectors   # 三份实现在同一向量上产出同一密文（81 项）
+pnpm check:crypto-e2e       # 真 WebSocketTransport × 最小 WS 服务端（24 项）
+pnpm bench                  # 真 Netty 服务端 + 工具客户端（含序回退/并发/空闲存活）
+pnpm check:bridge           # Kotlin 单测（KDF / seal / open / 防重放 / 限额）
+```
+
+## 九、人机验证过不去怎么查（2026-10-07 新增）
+
+图形验证码已被**整条删除**（用户决策）：三个入口（登录 / 批量绑定 / 删除用户）现在都是
+"点一下按钮、零输入"。链路是**页面 → 桥 → 壳 → 服务端**四段，所以"过不去"有五种完全不同的
+原因，先分清是哪一段，别急着改服务端。
+
+### 第一步：看界面上那句话
+
+| 界面表现 | 断在哪一段 | 查什么 |
+| --- | --- | --- |
+| 按钮**置灰 / 写着"当前环境不支持"** | 壳没声明能力 | 引导文件 `__bridge.json` 的 `capabilities` 里有 `human.verify` 吗？宿主是不是带了 `--capabilities …,human.verify`？（`bridgeProcess.ts` / `ShellBridge.kt` 各有一处） |
+| 文案是**「本地服务无法开始人机验证（HTTP-400）」** | 后端不认这两个接口 | **最常见的一次事故**：后端还是旧的构建（2026-10-05 实测）。旧版 `RequestSignatureFilter` 的白名单里没有 `/api/human/**`，于是回 400 `缺少必要的签名参数`。`curl -s -X POST http://127.0.0.1:8080/api/human/challenge -d '{}'` 若回 400 就是它 ⇒ 重新部署：见下面「第三步」 |
+| 文案是**「本地服务无法开始人机验证（BRIDGE_BACKEND_UNREACHABLE）」** | 后端根本没起来 | `docker ps` 看 `wd-local-server` 是否 healthy；`curl http://127.0.0.1:8080/actuator/health` |
+| 文案是**「人机验证未通过（AUTH-HUMAN-1006）」** | 签名 | 签名原文是 `challengeId\|purpose\|powNonce\|deviceKeyId`（只在 `DeviceKeyStore.signedText`、`human-verify.mjs`、`deploy/human_verify.py` 三处拼）。设备密钥是**内存态**时宿主重启会换一把新钥匙 —— 那不该失败（服务端"首用即信"），所以这个码基本等于原文拼法漂移 |
+| 点了之后一直"验证中"→ 失败 | 桥 → 壳那一段 | 宿主有没有接证据来源（`humanVerifyPort`）。**桌面**：宿主进程的 stdout 上应当出现 `{"type":"evidence-request",…}`，壳要在 stdin 回 `{id,data}`；不回也**不该失败**（桥按空证据继续），所以这里失败通常是宿主**根本没接端口**（`bridge.humanVerifyUnavailable`） |
+| 立刻失败，错误码 `AUTH-HUMAN-1001` | 桥 → 服务端注入 | 票据缺失。三种常见因：只有登录要票却把票用在了批绑（**用途不符不注入**是故意的）；上一次验证过了 120s（票据有效期）；服务端刚重启（Redis 里的票据没了） |
+| `AUTH-HUMAN-1004` | 挑战 | 挑战 120s 过期，或**挑战已被消费**（无论成败都消费，防同一个挑战反复试签名）。同一秒里并发点两次也能撞出它 |
+| `AUTH-HUMAN-1007` | 计算量证明 | 慢机器 + 高档位（18/22 bit）。**这不是死路**：服务端会给同一个 IP 记一次降档（`human:powmiss:<ip>`，300s，读到就删），桥会自动重试一次。若**反复**出现，查这台机器是不是每次都在换 IP（代理/NAT），或桥的 `powBudgetMs` 被改小了 |
+| 界面说"冷却 3 秒后重试"，且反复 | 服务端风险规则 | 只有 **R2 账号锁定**与 **R3 单 IP 封禁**会真的冷却 —— 那是设计上的硬挡。看服务端日志里 `[human] 签发挑战 … action=cooldown … 原因=R2/R3` |
+
+> ⚠️ **2026-10-05 的事故与教训**：这三个码最初**全部**被折叠成 `BRIDGE_BACKEND_UNREACHABLE` + "验证未通过，请再试一次"，
+> 于是"后端不是最新版"这个唯一正确的处置动作被藏掉了，用户只会一直点重试。
+> 现在：**服务端的错误码原样上抛**（`AUTH-HUMAN-xxxx` / `HTTP-400`），只有真到不了后端才是 `BRIDGE_BACKEND_UNREACHABLE`。
+> 桥侧用例 `服务端拒绝时把它的错误码原样上抛`、`后端不是最新版（申请挑战就 400）⇒ 带上 HTTP-400` 钉住这一点，
+> 门禁 `check:human-verify` 的 G 组也在钉（`--selftest` 里第 7 种坏法就是"又折叠回去"）。
+
+
+### 第二步：服务端日志与 Redis 键（判定全在这边）
+
+服务端每个判定都留一行，关键词 `[human]`：
+
+```text
+[human] 签发挑战 id=… purpose=LOGIN action=verify bits=12 risk=low 原因=R9 兜底放行
+[human] R8 降档：IP 10.0.0.5 上次未完成计算量证明，本次按低档签发
+[human] 验证通过 purpose=LOGIN bits=12 device=…
+```
+
+Redis 里就四个前缀，都带 TTL（**不是**黑名单，是短期状态）：
+
+| 键 | TTL | 说明 |
+| --- | --- | --- |
+| `human:challenge:<id>` | 120s | 一次性挑战，**校验时先删再验**（无论成败） |
+| `human:token:<token>` | 120s | 票据，`enforce()` 读到即删（一次性） |
+| `human:device:<keyId>` | 30 天 | 首次见到的公钥；此后同一 keyId 必须同一把公钥 |
+| `human:powmiss:<ip>` | 300s | R8 降档标记，**读到就删**（只换一次低难度） |
+
+> ⚠️ **界面看不到票据是正常的**：`bridge.humanVerify` 只回 `{ok:true,purpose}`，票据留在桥里
+> （与业务令牌同一待遇）。看到 `humanToken` 出现在页面上下文里，那是**漏洞**，不是现象。
+
+### 第三步：门禁（它就是为了"当年怎么坏的"而写的）
+
+```bash
+pnpm check:human-verify             # 跨仓静态门禁：入口守卫 / 无孪生路径 / 图形码已删 /
+                                    # 壳声明即实现 / 证据字段白名单 / 票据不出桥
+pnpm check:human-verify:selftest    # 证明这条门禁真的会红（6 种坏法逐一造出来）
+```
+
+服务端侧：
+
+```bash
+mvn -B -pl wise-deopt-application -am "-Dtest=HumanVerifyApplicationServiceTest" test
+```
+
+### 第三步：后端到底是不是最新版（一次真事故的完整复现路径）
+
+「本地服务无法开始人机验证（HTTP-400）」**几乎总是**"后端跑的还是旧构建"。2026-10-05 的复现与修复：
+
+```bash
+# ① 证据：旧后端不认 /api/human/**，被自己的签名过滤器挡在前面
+curl -s -i -X POST http://127.0.0.1:8080/api/human/challenge -H "Content-Type: application/json" -d '{}' | head -3
+#   HTTP/1.1 400 ... {"code":400,"message":"缺少必要的签名参数"}
+
+# ② 证据：容器里那个 jar 比代码旧
+docker exec wd-local-server ls -l --time-style=long-iso /app/wise-depot-server.jar
+
+# ③ 重新打包并换掉容器（镜像用的是**预构建 jar**，所以必须先 package）
+cd WiseDeoptServer && mvn -B -pl wise-deopt-api -am package -DskipTests
+cd ../deploy && docker compose --env-file .env.local -f docker-compose.local.yml build wise-server \
+  && docker compose --env-file .env.local -f docker-compose.local.yml up -d wise-server
+
+# ④ 端到端自证（拿票 → 登录成功；不带票 → AUTH-HUMAN-1001）
+python human_verify.py --base http://127.0.0.1:8080 --user admin
+```
+
+改完 Kotlin 还要记得重建宿主产物，否则应用那边用的还是旧桥：
+
+```bash
+cd WiseDepotClient && ./gradlew -p . :bridge:host-desktop:installDist -Pwise.skipAndroid
+```
+
+`python human_verify.py` 走的是**与服务端/桥同一套拼法**（指纹 = 公钥 SHA-256 前 32 hex、签名原文
+`challengeId|purpose|powNonce|deviceKeyId`、PoW = 前导零 bit），所以它拿到票据就等于整条密码学链路是通的；
+它的 `--self-check`（7/7）保证这个"同一套拼法"不是自说自话。
+
+### 三条别做的事
+
+1. **不要把 `wise.human-verify.enforce` 关掉"先让登录通"**。它是 S4 之前的过渡开关，
+   收口之后 `enforce=false` = 三个入口的守卫**整体失效**（图形码已经删了，没有第二条路兜着）。
+2. **不要给某个壳单独加一条"跳过验证"的路**。图形码时代就是这么坏的：守卫只挂在
+   `/batch-bind-with-captcha`，无票的 `/batch-bind` 敞开 —— 同一个效果有两条路时，
+   守卫永远只保护其中一条。
+3. **不要用"再刷一张图/再点一次"来兜底**。升级只能提成本（22 bit + 一次降档重试），
+   不能变成"因为你在开发环境所以永远登不进来"（R5 曾经就是这样，见下面那条）。
+
+### 本次收尾时修掉的两个"看着能过、其实过不去"
+
+- **R5/R6 曾经是冷却**：`shellPackaged=false`（未打包的 Electron、便携版）是**不会变的事实**，
+  对它反复冷却 = 永久拒绝。改成"照发挑战、升到 22 bit"。
+- **`powNonce: null` 曾经没有出路**：桥算不完会如实上报 `null`，而服务端只回一个错误 ——
+  代码注释写着"服务端会降档"，服务端当时并没有这段逻辑。补上 R8（记降档标记 → 下一次低档），
+  桥那边补上"收到 1007 就重新申请挑战再试一次"。
+  两条都有用例钉住：`dirtyEvidenceNeverLocksOut` / `powMissDowngradesNextChallenge`（服务端）、
+  `服务端说计算量证明不达标 ⇒ 重新申请挑战（拿降档难度）再提交一次`（桥）。
+
+

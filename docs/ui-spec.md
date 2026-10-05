@@ -154,6 +154,14 @@
 - 输入框高 48；圆角 `radius-small`；边框 1px `outline`；聚焦时边框改 `primary`（不加阴影）；
 - 字段上下间距 `group-gap`(16)；标签在上、`labelMedium`，错误行在输入框下方、`bodySmall` + `state-status-red-text`；
 - 必填星号用 `state-status-red-text`，不用图形。
+- **图形验证码的图片盒必须与后端那张图同比例**：真后端是 120×40（3:1），所以盒子取
+  `--w-size-captcha-width`(144) × `--w-density-control-height`(48)，且 `object-fit` 只允许
+  `contain` / `scale-down`。写 `cover` 会按"填满盒子"缩放再居中裁掉两侧 —— 2026-10 的
+  "验证码右侧被截掉一块"就是 `96×48 + cover` 这个组合（第 4 个字符正好落在被裁的区域里）。
+  两处渲染（登录屏 `LoginView.vue`、通用 `CaptchaField.vue`）必须同改，门禁在 `check:web-smoke`
+  （量"盒比例 vs 图比例"两个事实，不看截图好不好看）。
+- 假桥（`bridge-client/src/mock.ts`）的夹具形状要与真后端一致：验证码占位图给的是 120×40。
+  给成别的比例，等于替"比例不合就裁图"这类 bug 打掩护（当年就是这么漏掉的）。
 
 ### 3.3 列表
 
@@ -258,6 +266,7 @@
 | 1.2 断点 | `packages/tokens` 的 `windowSizeOf` + `AppFrame` | 外壳渲染用例 |
 | 2 骨架 | `packages/patterns` 的 `AppBar`/`Sidebar`/`Page`/`MasterDetail`/`ActionBar` | 外壳渲染用例 |
 | 3.5 四态 | `packages/patterns` 的 `LoadingState`/`EmptyState`/`ErrorState`/`ListStateHost` | 渲染用例 |
+| 3.2 验证码图比例 | `LoginView.vue` / `CaptchaField.vue` + `--w-size-captcha-width` | `check:web-smoke`（量盒比例 vs 图比例） |
 | 4 排版 | `--w-type-*` | `check-css-vars` |
 | 5 色彩 | `--w-color-*` / `--w-state-*` / `--w-fill-*` | `check-css-vars` + `check-ui-language`（TSX 内联） |
 | 6 文案 | 业务语言、不出现方法 id / 里程碑编号 / 协议名 | `check-ui-language`（比对 167 个桥方法 id + 8 条黑话规则） |

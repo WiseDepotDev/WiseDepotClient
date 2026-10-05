@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 旧 APP 屏文件（*Screen.kt） | 29 | 归档区全量扫描 |
 | 旧 APP 路由 id（AppRoute.kt） | 19 | 归档区 `AppRoute.kt` |
-| 桥方法（暴露给 Web） | 167 | `packages/contract/src/generated/bridgeContract.ts` |
+| 桥方法（暴露给 Web） | 165 | `packages/contract/src/generated/bridgeContract.ts` |
 
 说明：旧路由 id 是 19 条扁平目的地，新架构按四域重设计（见 `docs/architecture.md` §信息架构），**不复用旧 NavFlags 语义**；因此下表是"功能归属"对照，不是"路由一一映射"。
 
@@ -77,11 +77,11 @@
 | 域 | 方法数 |
 | --- | --- |
 | field | 29 |
-| inventory | 48 |
-| me | 54 |
+| inventory | 47 |
+| me | 53 |
 | overview | 12 |
 | system | 24 |
-| **合计** | **167** |
+| **合计** | **165** |
 
 ### 3.1 field
 
@@ -151,7 +151,6 @@
 | `stockOrder.update` | POST | `/api/stock-orders/{orderId}/update` | UNKNOWN |
 | `stockOrder.withdraw` | POST | `/api/stock-orders/{orderId}/withdraw` | UNKNOWN |
 | `tag.batchBind` | POST | `/api/tag/batch-bind` | TAG_BATCH_BIND |
-| `tag.batchBindWithCaptcha` | POST | `/api/tag/batch-bind-with-captcha` | TAG_BATCH_BIND |
 | `tag.batchQuery` | POST | `/api/tag/batch-query` | TAG_LIST |
 | `tag.batchUnbind` | POST | `/api/tag/batch-unbind` | TAG_BATCH_UNBIND |
 | `tag.bind` | POST | `/api/tag/{tagId}/bind` | TAG_BIND |
@@ -220,8 +219,7 @@
 | `user.clearRoles` | DELETE | `/api/users/{userId}/roles` | UNKNOWN |
 | `user.create` | POST | `/api/users` | USER_CREATE |
 | `user.current` | GET | `/api/users/current` | USER_CURRENT |
-| `user.delete` | DELETE | `/api/users/{userId}` | USER_DELETE |
-| `user.deleteWithCaptcha` | POST | `/api/users/{userId}/delete-with-captcha` | USER_DELETE |
+| `user.deleteWithVerify` | POST | `/api/users/{userId}/delete` | USER_DELETE |
 | `user.detail` | GET | `/api/users/{userId}` | USER_DETAIL |
 | `user.list` | GET | `/api/users` | USER_LIST |
 | `user.removeRole` | DELETE | `/api/users/{userId}/roles/{roleId}` | UNKNOWN |
@@ -254,14 +252,14 @@
 | `auth.logout` | POST | `/api/auth/logout` | AUTH_LOGOUT |
 | `auth.nfcLogin` | POST | `/api/auth/nfc-login` | AUTH_NFC_LOGIN |
 | `auth.nfcPinLogin` | POST | `/api/auth/nfc-pin-login` | AUTH_NFC_PIN_LOGIN |
-| `captcha.generate` | POST | `/api/captcha/generate` | UNKNOWN |
-| `captcha.verify` | POST | `/api/captcha/verify` | UNKNOWN |
 | `file.delete` | DELETE | `/api/files/{fileId}` | UNKNOWN |
 | `file.detail` | GET | `/api/files/{fileId}` | UNKNOWN |
 | `file.download` | GET | `/api/files/{fileId}/download` | UNKNOWN |
 | `file.list` | GET | `/api/files` | UNKNOWN |
 | `file.presignedUrl` | GET | `/api/files/{fileId}/presigned-url` | UNKNOWN |
 | `file.upload` | POST | `/api/files/upload` | UNKNOWN |
+| `human.challenge` | POST | `/api/human/challenge` | UNKNOWN |
+| `human.verify` | POST | `/api/human/verify` | UNKNOWN |
 | `i18n.languages` | GET | `/api/i18n/languages` | UNKNOWN |
 | `i18n.translate` | GET | `/api/i18n/translate` | UNKNOWN |
 | `i18n.translations` | GET | `/api/i18n/translations` | UNKNOWN |
@@ -282,7 +280,6 @@
 | `inspection.resultPdf` | 返回 PDF 字节流，不是 JSON | 桥取回后落盘并换发一次性 URL，走带外 HTTP 下载，不进 WS 帧 |
 | `file.download` | 同上（文件流） | 同上 |
 | `file.upload` / `oss.fileCreate` / `device.logUpload` | 请求体是 multipart，且可能很大 | 由壳侧组装 multipart；Web 只传本地文件句柄或分片句柄 |
-| `captcha.generate` | 响应含验证码图片 | 由桥落成 data URL / blob URL，Web 不直接背 base64 字符串 |
 
 ## 5. 刻意不暴露的端点（白名单的减法）
 

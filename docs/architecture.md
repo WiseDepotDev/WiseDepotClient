@@ -15,7 +15,7 @@ React 19 Web UI  ── WS(Netty) ──►  Kotlin 桥（唯一实现）  ─�
   手机宿主：Android :shell 进程内托管同一份桥
 ```
 
-## 1. 三条不变式
+## 1. 四条不变式
 
 违反其中任何一条都算架构回归，评审时必须拦下。
 
@@ -30,6 +30,13 @@ React 19 Web UI  ── WS(Netty) ──►  Kotlin 桥（唯一实现）  ─�
 **不变式 3 —— 传输在端口后面。**
 `TransportPort` / `BackendPort` / `CapabilityPort` 把 Netty、OkHttp、平台能力隔开（STD-ARCH-05）。
 若 Netty 在 Android 上实测不达标，**只换手机侧传输实现**，桌面侧与协议层零改动。
+
+**不变式 4 —— 这条 WS 上除了 `hello` 没有明文。**
+v5 起每一帧都用 **AES-256-GCM** 密封，密钥来自**每条连接各自的临时 ECDH**（P-256，
+用完即弃 ⇒ 前向保密）；`psk` 不再出现在握手 URL 上，只作为 KDF 的输入参与派生
+（详见 [protocol.md](./protocol.md) §1.2）。所以"同机另一个进程读到了那条 URL"不再等于
+"拿到了接入凭据"—— 它只拿到一个公钥。代价是多一次协商与 28 字节/帧，换来的是
+**流量本身也不可读**（业务令牌本来就不出桥，但库存、巡检结果、条码内容原来都在明文里）。
 
 ## 2. 模块与依赖方向
 
@@ -104,17 +111,95 @@ Android 侧的已知摩擦（**必须实测，不许假设**）：
 | --- | --- | --- |
 | 桥位置 | Electron 主进程的**子进程**（jlink JVM） | **同进程**（`:shell` 内） |
 | 启动 | 建窗与 spawn 桥**并行**，UI 显示"连接中"骨架 | WebView 加载与 Netty init 并行（`Dispatchers.IO`） |
-| 握手 | 桥**从 stdout** 输出首行 JSON（token 不走 argv，argv 对本机其他用户可见） | 壳内直接持有 |
+| 握手 | 桥**从 stdout** 输出首行 JSON（`psk` 不走 argv，argv 对本机其他用户可见） | 壳内直接持有 |
 | 终止 | `before-quit` → stdin 发 shutdown → 2s 超时 → kill 进程树 | 随进程结束 |
 | 异常 | 子进程崩溃 → 指数退避重启（≤3 次）+ 通知 UI 重连 | 桥异常 → 重建 EventLoopGroup |
 
 桌面握手载荷：
 
+stdout 上是**行分隔 JSON**，一条流里两种行，靠 `type` 区分（不靠"猜字段"）：
+
 ```jsonc
-{"v":1,"port":51234,"token":"<32字节base64url>","pid":1234,"ver":"1.0.0"}
+{"v":1,"type":"handshake","host":"127.0.0.1","port":51234,"psk":"<32字节base64url>","pid":1234,"ver":"1.0.0"}
+{"v":1,"type":"event","topic":"notify.message","data":{ … }}   // 见 §5.1
 ```
 
 JVM 启动优化：jlink 精简运行时 + AppCDS（`-XX:SharedArchiveFile`）+ `-XX:+UseSerialGC -XX:TieredStopAtLevel=1` + `-Xms16m -Xmx256m`。
+
+### 5.1 桥 → 壳的事件通道（系统通知）
+
+系统的"新消息通知"**不经 Web**：桥发现新消息后直接把事件推给**壳进程**，由壳弹
+Windows Toast / Android 通知栏。理由有两个，都不是省事：
+
+- **页面弹不了系统通知**。后台标签页里的 `Notification` 在两端都不可靠（手机 WebView 后台
+  会冻结 JS，桌面隐藏窗口的定时器被节流到 ~1 次/分钟），而"应用在后台时收到消息"恰恰是通知
+  唯一有价值的场景。
+- **"什么算新消息"只能有一个 owner**。两个壳各自算一遍，就会出现"桌面弹了、手机也弹了、
+  而用户刚读过的那条又弹一次"。所以判定只在桥里做一次（`UnreadNotifier`），壳只负责展示。
+
+```text
+message.unreadCount（后端）
+        ▲ 轮询 10s + 有业务流量时 kick()
+        │
+   ┌────┴──────────────────────────┐
+   │ 桥 UnreadNotifier             │  ① 基线播种 → 比对 → 去重
+   │  BridgeServer.emit(topic,…)   │  ② 发 topic=notify.message 的事件
+   └────┬────────────────────┬─────┘
+        │ 进程内 onEvent      │ stdout 事件行
+   ┌────▼──────────┐    ┌────▼──────────────────┐
+   │ Android 壳     │    │ Electron 主进程        │
+   │ NotificationMgr│    │ new Notification()     │
+   └───────────────┘    └───────────────────────┘
+     点击 → 唤起应用 + 跳到 #/me/messages/:id（两个壳各自持有 MESSAGE_ROUTE_PREFIX 常量）
+```
+
+| 项 | 决定 |
+| --- | --- |
+| 通知源 | **只有消息表**。后端 8 类 `MessageType` 全部经同一个 `MessageController.createMessage` 落库，所以客户端只盯 `message.unreadCount` + `message.list` 两个接口，不按类型各开一条路 |
+| 轮询间隔 | `BridgeServerConfig.notifyPollMs`，默认 **10_000**；`0` = 关闭（测试/bench 用，否则后台流量会污染断言） |
+| 实时性补充 | `UnreadNotifier.kick()`：桥每次转发完一个业务请求、或收到 `message.markRead` / `markAllRead` / `clear` 后立即重算一次（节流 ≥2s）。所以"有人正在用"时反应 ≤2s，空闲时才是 10s 一次 |
+| 未登录 | `session.authenticated == false` ⇒ **一个请求都不发**（否则 401 刷屏） |
+| 基线 | 第一次轮询只记基线不通知（否则开应用就弹一堆历史消息） |
+| 去重 | 进程内有界集合（最近 200 个 id），**不落盘**（落盘要加密，收益低） |
+| 档位 | `priority >= 1` ⇒ 有声（横幅 + 声音/震动）；否则静默。未知 `type` 仍会弹（静默）并记一行日志 —— **宁可多弹一条静默通知，也不要静默吞掉一条消息** |
+| 前台 | 窗口可见且聚焦（手机：`onResume`）⇒ 不弹，界面自己会刷新 |
+| 点击 | `#/me/messages/:id`。桌面用 `location.hash` 改深链（不重载页面，保住内存里的会话），手机走 `PendingIntent` + `onNewIntent` 推 hash |
+| 能力位 | 两个壳都声明 `notify.system`（"声明即承诺"：界面据此才知道这台机器会弹通知） |
+
+**为什么不做成"告警"的第二条路**：后端如果新增一条独立的告警推送通道，就会出现两个通知源，
+用户会收到两条内容相同的通知。要告警就**往消息表写一条 `ALERT` 消息**，自动走这条路。
+
+**已知边界（如实记录）**：Android WebView 在后台可能冻结 JS，桥的轮询随之停摆（进程没死，
+只是没在跑）。所以手机端通知是**尽力而为**：系统在杀应用之前先弹出来的能弹，长期后台不保证。
+真正需要"必达"的推送，得走 FCM/厂商推送通道，那是另一条立项。
+
+### 5.2 「点一下按钮」的人机验证（2026-10-07，替代图形验证码）
+
+图形验证码**整条链路已删除**（用户决策，见 `docs/superpowers/plans/2026-10-07-human-verification.md`）。
+现在登录 / 批量绑定 / 删除用户三个入口都是"点一下按钮、零输入"，分三层，**判决权只在最里面那层**：
+
+```text
+页面（HumanVerifyField.vue）      点一下 → gestureTracker 采轨迹统计量
+        │ bridge.humanVerify（内建方法）
+        ▼
+桥（HumanVerifyCollector）        本机 P-256 密钥签名 + 计算量证明（PoW）
+        │ 问壳要"只有壳看得见的事实"          ← DesktopEvidenceChannel（stdin/stdout）
+        ▼                                  ← AndroidEvidence（进程内）
+服务端（HumanVerifyApplicationService）  风险规则 R1–R9 + 验签 + 验 PoW + 发**一次性票据**
+        │ humanToken（120s，用途绑定，用后即删）
+        ▼
+桥（HumanTokenHolder）            票据**只留在桥里**，在 auth.login / tag.batchBind /
+                                  user.deleteWithVerify 那一次调用上注入
+```
+
+| 项 | 决定 |
+| --- | --- |
+| 放行判据 | **服务端票据 + 风险规则 + 计算量证明**。页面与壳提供的"本地环境证据"只是**输入**，服务端可以完全不采信（它只用来提难度与留审计） |
+| 票据不进 JS | 与业务令牌同一待遇：页面拿不到 `humanToken`。页面一旦能拿到，一次 XSS 就能把它挪用去删用户 |
+| 一个效果一条路 | 校验写在 **Service 层**（不是 Controller），且**删掉了无守卫的孪生端点**（`DELETE /api/users/{id}`、无票的 `/batch-bind`、`/batch-bind-with-captcha`）—— 那是图形码时代真实存在的绕道 |
+| 升级只提成本 | R5/R6（发布包/调试器/采样不足/轨迹瞬移）升到 22 bit **但照发挑战**；R2/R3（账号锁定、IP 封禁）才真的冷却。算不完 PoW 时服务端给同一 IP 记一次降档（R8），桥自动重试一次 —— **不允许任何人被永久挡在门外**（图形码删了，没有第二条路） |
+| 能力位 | 两个壳都声明 `human.verify`，并且各自真的实现了 `HumanVerifyPort`（桌面走 stdin/stdout "桥问壳答"，手机进程内） |
+| 门禁 | `pnpm check:human-verify`（跨仓静态门禁，覆盖上面每一条；`--selftest` 用 6 种"当年的坏法"证明它会红） |
 
 ## 6. 统一引导：`__bridge.json`
 
@@ -126,7 +211,12 @@ Web 产物第一步固定请求**应用自身 origin** 上的 `__bridge.json`，
 | 手机 | `https://appassets.androidplatform.net/__bridge.json` | `WebViewAssetLoader` 动态生成 |
 
 响应体即 `BridgeBootstrap`（见 `bridge/protocol/.../BridgeBootstrap.kt`）：
-`{port, token, platform, ver, protocol, capabilities[]}`。token 只在这里出现一次，业务令牌永不进入 JS 上下文。
+`{host, port, psk, platform, ver, protocol, capabilities[], limits}`。
+
+`psk` 是 v5 起的**预共享密钥**（v4 里叫 `token`）：只在这里出现一次，业务令牌永不进入 JS 上下文。
+它**不再挂在 WebSocket URL 上** —— URL 只带客户端临时公钥 `?k=<hex>`，密钥经 ECDH 派生（见
+[protocol.md](./protocol.md)）。所以 `__bridge.json` 是这台机器上唯一一句"明文密钥"，它的
+保护边界就是"本机 + 应用自身 origin"。
 
 ## 7. 信息架构（不复用旧导航）
 

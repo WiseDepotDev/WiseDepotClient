@@ -1,133 +1,63 @@
 # WiseDepotClient
 
-慧仓智控**新客户端**：一套 React Web UI + **一份** Kotlin/Netty 桥，桌面由 Electron 承载、手机由 Android 壳承载。
-后端（`WiseDeoptServer`）**零改动**。
+慧仓智控客户端：一套 Vue 3 Web UI 加一份 Kotlin/Netty 桥。桌面端由 Electron 承载，手机端由 Android 壳承载，
+两端复用同一份桥实现与同一份 Web 产物；后端为 `WiseDeoptServer`。
 
-> 上一代客户端（Compose 原生、18 模块、29 屏）已冻结归档，见 [docs/legacy.md](./docs/legacy.md)。
-> 本仓库**不引用**旧仓库的任何产物（无 submodule、无 Gradle include、无拷贝源码）。
-
-```
-React 19 Web UI ── WS(Netty) ──► Kotlin 桥（唯一实现）── HTTPS 信封 ──► WiseDeoptServer
-                  127.0.0.1:随机端口        ├ 桌面：Electron 子进程 jlink JVM
-                                            └ 手机：Android :shell 进程内
-```
-
-- 架构与决策：[docs/architecture.md](./docs/architecture.md)
-- **UI 布局与视觉规范**：[docs/ui-spec.md](./docs/ui-spec.md)
-- **W3 会话与令牌截留**：[docs/w3-session.md](./docs/w3-session.md)
-- **真后端冒烟记录**：[docs/real-smoke.md](./docs/real-smoke.md)
-- **排障清单与平台差异备忘**：[docs/troubleshooting.md](./docs/troubleshooting.md)
-- 桥协议 v3：[docs/protocol.md](./docs/protocol.md)
-- 设计令牌（导出与纪律）：[docs/tokens.md](./docs/tokens.md)
-- **W2 传输 Spike 与验收记录**：[docs/w2-spike.md](./docs/w2-spike.md)
-- 功能对照清单（生成物）：[docs/feature-parity.md](./docs/feature-parity.md)
-
-## 目录
+## 架构
 
 ```
-bridge/            一份桥，两端复用（protocol / backend / capability / server / host-desktop）
-apps/web           React 19 + TS + Vite（唯一 Web 产物）
-apps/desktop       Electron 主进程 + jlink runtime 构建 + electron-builder
-apps/mobile        独立 Android :shell（WebView 宿主 + 进程内桥 + 平台能力适配）
-packages/          tokens / contract(生成) / bridge-client / core / primitives / patterns / shells / features
-tools/gen/         契约生成器与功能对照清单生成器
-docs/              架构、协议、归档、对照清单
+Vue 3 Web UI ── WebSocket ──► Kotlin/Netty 桥（唯一实现）── HTTPS 信封 ──► WiseDeoptServer
+                              ├ 桌面：Electron 子进程（jlink JVM）
+                              └ 手机：Android :shell 进程内
 ```
 
-## 构建与门禁
+- 桥只实现一份，协议模块不依赖 Netty 与 Android，可作为纯 JVM 单测与契约测试的靶子。
+- Web 产物只构建一次，桌面（`app://`）与手机（`WebViewAssetLoader`）共用。
+
+## 技术栈
+
+- Web：Vue 3 + TypeScript + Vite + Element Plus + Pinia + vue-router
+- 桥：Kotlin + Netty + OkHttp + kotlinx.serialization（Gradle 多模块）
+- 宿主：Electron（桌面）、Android WebView 宿主 + 进程内桥（手机）
+- 工程：pnpm workspace（JS 侧）+ Gradle（JVM / Android 侧）
+
+## 目录结构
+
+```
+bridge/            桥：protocol / backend / capability / server / host-desktop
+apps/web           唯一 Web 产物（Vue 3）
+apps/desktop       Electron 壳：主进程、jlink runtime、打包
+apps/mobile        Android 壳：WebView 宿主 + 进程内桥 + 平台能力适配
+packages/          bridge-client / bridge-vue / contract(生成) / layouts / scan / stores / tokens / ui
+tools/             契约与令牌生成器、校验脚本、联调脚本
+```
+
+## 环境要求
+
+Node.js ≥ 20、pnpm 11、JDK 21；构建 Android 壳另需 Android SDK 与 AGP。
+
+## 构建与运行
 
 ```powershell
-# 契约 + 令牌 + 样式门禁（不需要 Android SDK；生成器只需 node）
-pnpm check                      # = check:contract + check:contract:legacy + check:parity + check:tokens + check:css + check:ui + check:render
-
-# 生成物与源码不同步时（改了服务端注解 / bridge-overlay.json / 归档主题之后）
-pnpm gen:contract               # 重新生成 Kotlin 注册表 + TS 类型
-pnpm gen:parity                 # 重新生成功能对照清单
-pnpm gen:tokens                 # 重新导出设计令牌（CSS 变量 + TS 常量）
-
-# Web 产物
 pnpm install
-pnpm typecheck                  # tsc --noEmit（含 packages/* 的源码）
-pnpm build                      # vite build → apps/web/dist（首屏 JS 预算 ≤250KB gzip）
-pnpm dev                        # 开发态：无宿主时自动回退到 mock 桥（界面会显式标注）
+pnpm dev          # Web 开发态：无宿主时回退到 mock 桥
+pnpm build        # Web 产物 → apps/web/dist
+pnpm typecheck    # vue-tsc --noEmit
+pnpm check        # 契约 / 令牌 / 主题 / 协议等离线门禁
 
-# 桥的纯 JVM 侧（不碰 Android 工具链；已实测可跑）
+# 桥（纯 JVM 侧，不依赖 Android 工具链）
 .\gradlew.bat :bridge:protocol:test "-Pwise.skipAndroid"
-.\gradlew.bat :bridge:host-desktop:build "-Pwise.skipAndroid"
 
-# 手机壳（需要 Android SDK，路径写在未入库的 local.properties）—— W2 首次构建
+# 手机壳（需要 Android SDK）
 .\gradlew.bat :apps:mobile:shell:assembleDebug
 ```
 
-> PowerShell 里 `-Pwise.skipAndroid` 必须加引号，否则会被 PowerShell 拆成 `.skipAndroid` 任务名。
->
-> 本机 JDK 只有 21（无 17），因此**不使用 `jvmToolchain`**：改用"当前 JDK 编译 + 产出 Java 17 字节码"
-> （见根 `build.gradle.kts` 的 subprojects 约定），效果对 Android 消费方等价且不引入工具链下载依赖。
+本地配置（Android SDK 路径、签名口令）与密钥库文件不入库，见 `.gitignore`。
 
-版本号只在 `gradle/libs.versions.toml` 一处（STD-VER-01）；模块脚本里出现字面版本号即违规。
+## 许可证
 
-## 当前进度
+本项目采用 **AGPL-3.0** 许可证（见 `LICENSE`）：
 
-| 批 | 状态 |
-| --- | --- |
-| **W0** 归档旧版 + 建仓 + 契约生成器 + 功能对照清单 | ✅ 已完成 |
-| **W1** 令牌导出 + React 工程 + 两套 UI 外壳 + 引导链路 | ✅ 已完成 |
-| **W2-a** 单份 Netty 桥（协议/后端/传输/分发）+ 桌面宿主 + 传输门禁 | ✅ 已完成 |
-| **W2-b** Electron 宿主逻辑 + Android 壳（APK 门禁）+ 移动端 Spike | ✅ 已完成（GUI 与设备项除外） |
-| **W3-a** 桥侧会话：令牌截留 / `bridge.session` / 自动续期重放 / 登出本地先行 | ✅ 已完成 |
-| **W3-b** Web 登录屏 + 会话门 | ✅ 已完成 |
-| **W3-c** 真后端冒烟（真验证码 → 真登录 → 真数据） | ✅ 已完成 |
-| **W3-d** WSA（Android）端到端：页面→桥→真后端全链路 | ✅ 已完成 |
-| W4 primitives + patterns | ⏳ |
-| W5–W7 逐域替换 overview → inventory → field → me | ⏳ |
-| W8 设备能力下沉 | ⏳ |
-| W9 收口与出包 | ⏳ |
-
-### W0 验收证据
-
-| 证据 | 命令 | 结果 |
-| --- | --- | --- |
-| 契约无漂移 | `pnpm check:contract` | 167 条暴露方法 + 2 条不暴露，生成物与控制器一致 |
-| 与旧 APP 契约一致 | `pnpm check:contract:legacy` | 旧仓 169 端点 / 新桥 169 端点，端点集合一致、`packet_type` 逐条一致 |
-| 功能清单同步 | `pnpm check:parity` | 旧 29 屏 / 19 路由 → 四域 + 167 方法，与归档区一致 |
-| 协议层可编译可测 | `gradlew :bridge:protocol:test` | `BridgeFrameCodecTest` **5 tests / 0 failures / 0 errors** |
-| 全部桥模块可构建 | `gradlew :bridge:host-desktop:build :bridge:server:build` | BUILD SUCCESSFUL（Netty / OkHttp / kotlinx.serialization 均解析成功） |
-
-### W1 验收证据
-
-| 证据 | 命令 | 结果 |
-| --- | --- | --- |
-| 令牌无漂移 | `pnpm check:tokens` | 27 颜色槽位（亮/暗）× 8 状态色 × 30 刻度 × 11 语义间距 × 5 圆角 × 12 字号档，与归档主题一致 |
-| 令牌纪律 | `pnpm check:css` | 149 个令牌定义，38 处引用全部命中，**0 处 hex / 0 处字面量尺寸** |
-| 文案与内联样式纪律 | `pnpm check:ui` | 扫描全部 TSX，比对 167 个桥方法 id + 8 条黑话规则；**0 处方法 id / 黑话泄漏、0 处内联 hex 与字面量尺寸** |
-| 两套外壳可渲染 | `pnpm check:render` | MobileShell / DesktopShell 用 React 服务端渲染真跑一遍，结构断言全过；**无 `scan.camera` 能力时不画扫码入口**（证明能力表驱动，而非平台字符串驱动） |
-| 类型安全 | `pnpm typecheck` | `tsc --noEmit` 通过（严格模式 + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`） |
-| 可构建 | `pnpm build` | `vite build` 成功，46 模块 |
-| **体积门禁** | 构建输出 | 首屏 JS **75.65 kB gzip**（17.19 + 223.05 kB raw），预算 250 kB —— 余量 70% |
-| 产物可服务 | `vite preview` + HTTP | `index.html` 200；CSS/JS 三个资源全部 200，资源路径为**相对路径**（`app://` 与 `appassets` 协议必需） |
-
-尚未验证（属 W2，已定阈值）：宿主进程（Electron / Android）与 `__bridge.json` 的真实供给、
-Android 壳编译、Netty 在 Android 上的 dex/启动/内存/APK 增量门禁、真机渲染走查。
-
-### W2-a 验收证据（真 spawn JVM，不 mock）
-
-| 证据 | 命令 | 结果 |
-| --- | --- | --- |
-| 桥功能性 | `pnpm bench` | 10 项全过：stdout 握手 / token 鉴权 / 内建方法 / **未登记方法被白名单拒** / 缺路径参数 / 后端不可达 / 限流 / shutdown 退出 |
-| **真后端端到端** | `pnpm bench:backend` | `captcha.generate` 经桥拿到真验证码数据；无 Bearer → 后端签名过滤器 400；带无效令牌 → 业务码 `AUTH-0002` 原样透传 |
-| 握手门禁 | 同上 | **445–470ms**（门禁 ≤700ms） |
-| 往返 p50 | 同上（1000 样本） | **0.26–0.36ms**（门禁 ≤5ms，余量 14×） |
-| 往返 p95 | 同上 | **0.53–0.64ms**（门禁 ≤20ms，余量 31×） |
-
-细节与"踩坑记录"见 [docs/w2-spike.md](./docs/w2-spike.md)。
-
-### W2-b 验收证据
-
-| 证据 | 命令 | 结果 |
-| --- | --- | --- |
-| Android 壳编译 + Netty dex | `gradlew :apps:mobile:shell:assembleDebug` | APK 5.05MB 含 `classes.dex`；**Netty 最小集 dex 增量 1.23MB**（门禁 ≤1.5MB） |
-| 桌面宿主逻辑（真 JVM） | `pnpm bench:desktop` | 17 项全过：握手、`__bridge.json` 200/503、**6 种路径穿越全部被拒**、**杀进程后自动重启并换新端口**、优雅停止后不自复活 |
-| 移动端 Spike | `pnpm bench:mobile` | dex 与 APK 增量 ✅；**冷启动/内存无设备，明确标记未测量** |
-
-**仍未验证**：Electron 二进制本身（窗口 / `protocol.handle` / 打包）——本批未安装 Electron 运行时，
-因此"GUI 能起来"这条不算通过；真机渲染与冷启动/内存门禁同样待设备。
+- 使用源代码或其修改版本时，须遵守 AGPL-3.0 条款；
+- 以网络部署或提供服务的方式使用本项目，须公开对应源代码；
+- 严禁任何形式的商业用途，如需商业合作须事先取得作者书面授权。

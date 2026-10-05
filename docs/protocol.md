@@ -1,11 +1,18 @@
-# 桥协议 v4
+# 桥协议 v5
 
 > 实现见 `bridge/protocol/src/main/kotlin/com/huicang/wise/bridge/protocol/`。
 > 本文是规范；代码与本文不一致时，先改本文再改代码（或在本文记一次修正）。
 >
+> **v5 与 v4 的关系**：**线上帧内容全部加密**（临时 ECDH P-256 + AES-256-GCM，见 §1.2），
+> 而 v4 的一切语义**逐条不动** —— 167 条方法、帧头布局、五类帧、错误码口径、
+> `?k=` 之外的握手路径都没变。密文里装的就是**逐字节的 v4 消息**（§3.4），
+> 所以 `decode` 与业务代码一行都不用改。
+>
 > v4 与 v3 的关系：**帧格式全换、方法语义全不动**。167 条方法的 id/路径/参数去向/错误码口径
-> 与 v3 逐条相同，换掉的只有"这些语义怎么装进线上字节"。两个端侧实现
-> （`packages/bridge-client/src/wire.ts`、`tools/lib/bridge-wire.mjs`）与本文必须有同一份帧头定义。
+> 与 v3 逐条相同，换掉的只有"这些语义怎么装进线上字节"。三个端侧实现
+> （`packages/bridge-client/src/wire.ts`、`tools/lib/bridge-wire.mjs`、Kotlin `BridgeWire.kt`）
+> 与本文必须有同一份帧头定义；**加密之后又多了三份 crypto 实现**（§1.2 末尾），
+> 它们靠一组冻结向量对齐。
 
 ## 1. 传输与握手
 
@@ -13,16 +20,24 @@
 | --- | --- |
 | 地址 | `ws://127.0.0.1:{port}`，**只绑 loopback**，端口由系统分配（`port=0`）后经引导文件回填 |
 | 路径 | `BridgeProtocol.HANDSHAKE_PATH` = `/bridge` |
-| 鉴权 | 查询串 `?token=<token>`；token 每次启动新生成 256-bit，握手校验一次后绑定会话 |
+| **密钥材料** | 查询串 `?k=<hex 客户端临时公钥>`（未压缩点，65 字节 → 130 个 hex 字符）。**URL 里没有凭据** —— v4 的 `?token=` 已删除（§1.2） |
+| 鉴权 | 双向：① `psk` 参与密钥派生（错 psk ⇒ 双方派生出的密钥不同 ⇒ 第一条密文就 tag 失败）；② `hello` 帧里的公钥必须在曲线上（不在曲线上立即断，不做 ECDH） |
 | Origin | 白名单：`app://wise`（桌面）、`https://appassets.androidplatform.net`（手机）。不匹配立即断连 |
 | **线格式** | **二进制消息**（WebSocket opcode `0x2`）+ 12 字节定长帧头（见 §3）。**文本帧一律拒**，回 `BRIDGE_WIRE_MODE` |
+| **帧内容的封装** | 除 `hello` 外**每一帧都是密文**（flags bit1 = `ENC`）。收到"明文的非 hello 帧"回 `BRIDGE_CRYPTO_FAILED` 并断连 |
+| **预认证截止** | 建连后 **1500ms** 内必须收到合法的首个密文帧，否则断连。最多同时 4 条处于"已升级、未认证"的连接（`PreAuthGate`） |
 | 控制面正文上限 | `MAX_FRAME_BYTES` = 256KB，超限回 `BRIDGE_FRAME_TOO_LARGE` |
 | 数据面正文上限 | `MAX_BIN_BYTES` = 8MiB（`bin` 帧） |
 | 结构上限 | 控制面 1MiB / 数据面 8MiB，由 `WireReader` **按帧头里的 kind** 判定；超限不再累积正文并断开连接（为它分配内存不值得） |
+| 密文上限 | 明文上限 **+295 字节**（12 外头 + 255 id + 28 封装开销），由 `BridgeWire.sealedHardLimitFor(kind)` 给出 |
 
 **握手被拒时没有帧**：HTTP 层回 401/403，响应体是一句普通 JSON
 （`{"code":"BRIDGE_UNAUTHORIZED","messageKey":"bridge.handshakeRejected"}`），
 不是帧 —— 那时还没有任何帧存在（浏览器的 `WebSocket` API 也不会把它交给 JS）。
+
+**为什么 `?k=` 非法必须立刻拒**：它是**未经认证的输入**，而 ECDH 对"不在曲线上的点"
+是出了名的容易写出小群攻击。所以先 `BridgeCrypto.isOnCurve(...)`，不合法就地断开，
+连 `hello` 都不回（回一条错误反而是在告诉对方"这个点我接受了")。
 
 ### 1.1 为什么从"文本帧 JSON"换成"二进制帧 + 定长头"
 
@@ -33,8 +48,51 @@
 - **中等二进制对象不必再走带外**：v3 把所有超过 256KB 的东西都推给一次性 URL（多一条网络路径、
   多一套失效与鉴权语义）。v4 开了数据面（8MiB），照片/截图这类对象可以直接进帧。
 - **不做的三件事**（写在这里省得下次再讨论）：不换 CBOR/protobuf（没有体积问题，且会作废
-  167 条方法的 JSON schema 与生成器）、不启用 `permessage-deflate`（loopback 上 CPU 换不到带宽）、
+  165 条方法的 JSON schema 与生成器）、不启用 `permessage-deflate`（loopback 上 CPU 换不到带宽）、
   不做多路复用与 credit 流控（单客户端单连接，且已有连接数/并发上限与限流）。
+
+### 1.2 端到端加密（v5）
+
+**要解决的问题**：v4 把 `token` 挂在握手 URL 上（`ws://127.0.0.1:PORT/bridge?token=…`），
+而且**整条链路的帧内容都是明文**。同机另一个进程只要能读到那个 URL（进程命令行、代理日志、
+崩溃转储、浏览器 DevTools 的 Network 面板）就能冒充页面接入桥；读不到 URL 也能被动观察流量
+（业务令牌虽然不出桥，但库存、巡检结果、条码内容全在明文里）。
+
+**做法（一句话）**：建连时用临时 ECDH（P-256）协商出一对**一次性**密钥，
+此后**每一帧**都用 AES-256-GCM 密封；`psk` 不再上线，而是作为 KDF 的输入参与派生。
+
+| 步骤 | 细节 |
+| --- | --- |
+| ① 客户端生成临时密钥对 | `BridgeCrypto.generateEphemeral()`，P-256，每次建连**都是新的**（这就是前向保密） |
+| ② URL 只带公钥 | `ws://127.0.0.1:{port}/bridge?k=<hex 未压缩点>`。没有凭据，所以**日志/命令行里泄露它等于没泄露** |
+| ③ 第一条帧是明文 `hello` | 幂等的 key material 帧，正文 `{"k":"<hex 公钥>"}`。**它是唯一允许明文的帧**（此时还没有密钥可读它） |
+| ④ 双方各算一份共享密钥 | `ECDH(client_priv, server_priv)`；服务端的临时密钥对是**每条连接**新生成的 |
+| ⑤ KDF | `HMAC-SHA256`，输入 = `shared ‖ "wd-bridge/v5/kdf" ‖ "c"‖server_pub ‖ "s"‖client_pub`，输出两个方向的密钥：`wd-bridge/v5/c2s`、`wd-bridge/v5/s2c`（32 字节各一） |
+| ⑥ 帧密封 | AES-256-GCM。**nonce = `dir(1) ‖ seq(8, 大端) ‖ 0x00 0x00 0x00`**（`dir`：1=c2s，2=s2c），nonce **随正文上线**（正文前 12 字节），tag 16 字节跟在密文后 |
+| ⑦ AAD | **外层 12 字节帧头 + id** —— 于是"改帧头"必然表现为 tag 失败，不需要额外校验 |
+| ⑧ 防重放 | 每方向一个单调递增 `seq`。收到的 `seq` 必须**严格递增**；缺口 ≤ `MAX_SEQ_GAP`（4096）时允许（WebSocket 有序，缺口服从"丢帧即断连"的既有语义），**回退或重复直接断连** |
+
+**psk 的约束**：`BridgeCrypto.MIN_PSK_BYTES = 16`。三个实现都**在派生之前**校验长度
+（太短的 psk 会把密钥强度拖到 psk 上）。它只在引导文件里出现一次，不写进 URL、不进日志。
+
+**前向保密到什么程度（如实说）**：抓到"某一次的 hello 公钥 + 那次会话的全部密文"的人，
+拿到 psk 也解不开那次会话（临时私钥用完即弃）。但**拿到 psk 的人可以主动中间人**：
+它可以自己扮演客户端去连桥。所以 psk 的保密边界仍然是"本机 + 引导文件的访问控制"，
+加密层解决的是"流量与 URL 被看到"，不是"本机已被完全攻陷"。
+
+**三份 crypto 实现靠冻结向量对齐**：
+
+| 实现 | 位置 |
+| --- | --- |
+| Kotlin（生产） | `bridge/protocol/.../BridgeCrypto.kt` + `BridgeWire.kt` |
+| TypeScript（页面） | `packages/bridge-client/src/seal.ts` |
+| Node（工具/bench） | `tools/lib/bridge-wire.mjs` |
+
+它们**不许各写一套"顺手实现"**：`bridge-crypto-vectors.json` 是一组固定输入 → 固定输出
+（ECDH 共享密钥、派生密钥、nonce、密文、tag），
+`pnpm check:crypto-vectors` 逐条比对三份实现（81 项）；Kotlin 侧另有 `BridgeCryptoTest`。
+**改 crypto 必须同时改向量**，否则门禁红 —— 这正是"三份实现不许漂移"的机制保证。
+
 
 ## 2. 引导
 
@@ -43,11 +101,11 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 ```jsonc
 {
   "port": 51234,
-  "token": "…",
+  "psk": "…",                     // v5：**预共享密钥**（v4 里叫 token）。只在这里出现，不挂 URL
   "platform": "desktop",          // 或 "mobile"
   "ver": "1.0.0",                 // 产品版本
-  "protocol": 4,                  // 协议版本；不匹配直接报错，不静默降级
-  "capabilities": ["scan.camera", "nfc.read", "print.label", "window.control"],
+  "protocol": 5,                  // 协议版本；不匹配直接报错，不静默降级
+  "capabilities": ["scan.camera", "nfc.read", "print.label", "window.control", "notify.system"],
   "limits": {                     // v4 新增：本壳实际执行的上限（客户端在发之前就能判断）
     "textMaxBytes": 262144,
     "binMaxBytes": 8388608
@@ -57,8 +115,10 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 
 `capabilities` 的取值见 `BridgeCapabilities`。**UI 判定平台差异只能看能力表，不许判断 `platform` 字符串。**
 
-**协商只在引导文件做**：不引入 in-band `hello`/`welcome` 帧 —— 那会变成**两个协商 owner**。
-版本不符仍然是**明确失败**（半兼容的半可用状态比明确失败更难查）。
+**协商不在引导文件里做（v5 修正）**：版本仍然是"引导文件里的 `protocol` 不符就明确失败"，
+但 v5 多了一次**线上的密钥协商**（§1.2 的 `hello`）。两者的分工是清楚的：
+引导文件管"我们是不是一版协议"，`hello` 管"这一条连接的密钥是什么"——
+**`hello` 不承担任何版本协商**（它没有 `v` 字段，也不用它做兼容判断）。
 
 ## 3. 帧头与五类帧
 
@@ -67,15 +127,15 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 ```text
 偏移 长度 字段     说明
  0    2  magic    'W','B'（0x57 0x42）—— 认不出直接拒，不做猜测
- 2    1  ver      协议版本（= 4）
- 3    1  kind     1=req 2=res 3=err 4=evt 0x10=bin
- 4    1  flags    bit0 FINAL；其余位**保留**，见到未知位必须报错（不许当没看见）
+ 2    1  ver      协议版本（= 5）
+ 3    1  kind     1=req 2=res 3=err 4=evt 5=hello 0x10=bin
+ 4    1  flags    bit0 FINAL；bit1 ENC（v5）；其余位**保留**，见到未知位必须报错（不许当没看见）
  5    1  hdrExt   扩展头字节数（本版本恒 0；非 0 必须报错，不许跳过）
  6    2  idLen    关联 id 的字节数（≤255）
  8    4  bodyLen  正文字节数
 12  idLen  id      UTF-8；与 req 的 id 同域 ⇒ 同一个 id 就能把响应和请求对上
     hdrExt 扩展头   （预留）
-    bodyLen 正文    控制帧是 UTF-8 JSON；`bin` 是不透明字节
+    bodyLen 正文    控制帧是 UTF-8 JSON；`bin` 是不透明字节；**ENC 帧是"nonce ‖ 密文 ‖ tag"**（§3.4）
 ```
 
 三条纪律：
@@ -113,11 +173,34 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 - **本版本没有任何方法使用数据面**：机制与上限已就位（能力位 `limits.binMaxBytes`），
   等第一个真实消费方落地再逐条开启 —— "能力声称有、实际用不上"比不声明更糟。
 
+### 3.4 密文帧（`ENC`）与 `hello`
+
+**除 `hello` 之外，v5 的每一帧都是密文帧**：`flags.bit1 = 1`，正文 = `nonce(12) ‖ 密文 ‖ tag(16)`。
+
+```text
+外层（明文，接收方在没有密钥时也能读）   magic | ver=5 | kind | FINAL|ENC | 0 | idLen | bodyLen | id
+                                        ↑ 这 12 字节 + id 就是 AAD：改它一定 tag 失败
+外层正文（密文）                        nonce(12) ‖ AES-256-GCM(内层整帧) ‖ tag(16)
+内层（逐字节的 v4 消息）                 magic | ver=5 | kind | FINAL | 0 | idLen | bodyLen | id | 正文
+                                        ↑ kind 与 id 必须与外层一致（外层头是明文，这条得自己补）
+```
+
+三条容易写错的：
+
+1. **`hello` 不许被加密**。它是"还没有密钥"时唯一能读的帧，封装它等于谁也读不了；
+   库里对这条是硬拒（`sealMessage` 遇到 hello 直接抛）。
+2. **内外 `kind` 与 `id` 必须一致**。外层头是明文，所以接收方必须自己补这条一致性检查
+   （`openMessage` 做），否则攻击者可以"外层说这是 `res`、内层其实是 `err`"。
+3. **长度关系**：`外层 bodyLen = 内层整帧长度 + 28`。上限判定用 `sealedHardLimitFor(kind)`
+   （明文上限 +295），**不是**明文上限 —— 否则一条合法的最大密文帧会被误判成超限。
+
+`hello` 帧的正文：`{"k":"<hex 未压缩公钥>"}`，`idLen` 必须为 0（它没有请求可关联）。
+
 ## 4. 方法表（白名单）
 
 - 方法 id 与 `httpMethod`/`path`/`packetType` 的对应关系由 `tools/gen/gen-bridge-contract.js` 生成，
   源头是服务端控制器的 `@ApiPacketType` 注解，策展层是 `tools/gen/bridge-overlay.json`。
-- 共 167 条暴露方法，2 条刻意不暴露（见 [feature-parity.md](./feature-parity.md) §5）。
+- 共 165 条暴露方法，2 条刻意不暴露（见 [feature-parity.md](./feature-parity.md) §5）。
 - **桥不是通用 HTTP 透传**：不在表里的 method 一律回 `BRIDGE_METHOD_UNKNOWN`。
   理由：Web 层一旦 XSS，透传等于拿到任意后端接口（含 `/api/users`、`/api/permissions`、`/api/roles`）。
 - 参数校验：`params` 过 schema；不通过回 `BRIDGE_PARAMS_INVALID`。
@@ -165,12 +248,18 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 | --- | --- |
 | `BRIDGE_METHOD_UNKNOWN` | 方法不在白名单内 |
 | `BRIDGE_PARAMS_INVALID` | 参数未过 schema，或帧结构合法但不是一条合法请求 |
-| `BRIDGE_UNAUTHORIZED` | 握手 token / Origin 校验失败 |
+| `BRIDGE_UNAUTHORIZED` | 握手被拒：Origin 不在白名单，或 `?k=` 缺失/不在曲线上（HTTP 401/403，没有帧） |
+| `BRIDGE_CRYPTO_FAILED` | **v5**：收到明文的非 `hello` 帧、tag 校验失败、序号回退/重放、hello 的公钥不合法。**一律断连** |
 | `BRIDGE_FRAME_TOO_LARGE` | 正文超过**该平面**的策略上限（回带 id 的错误，不断开） |
 | `BRIDGE_WIRE_MODE` | **线格式不认识**：v3 的文本帧、magic/版本不对、未知 kind/flags、非 0 扩展头 |
 | `BRIDGE_RATE_LIMITED` | 单连接限流命中 |
 | `BRIDGE_BACKEND_UNREACHABLE` | 后端不可达（网络层错误，非业务错误） |
 | `BRIDGE_INTERNAL` | 壳内部异常（兜底，唯一入口） |
+
+**为什么 `BRIDGE_CRYPTO_FAILED` 与 `BRIDGE_WIRE_MODE` 分开**：处理人不同。线格式错是
+"客户端与壳不是同一版协议"（重新装一次）；加密失败是"这一条连接不可信，或者两端密钥材料不一致"
+（可能有人在中间，也可能是引导文件过期了 —— 需要重新读 `__bridge.json` 再连）。
+两者都断连，但给用户的话完全不同。
 
 **为什么 `BRIDGE_WIRE_MODE` 不复用 `BRIDGE_PARAMS_INVALID`**：这两件事的**处理人不同**。
 参数错是调用方写错了业务参数；线格式错是**客户端与壳不是同一版协议** ——
@@ -231,6 +320,12 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 - **协议版本不匹配时，Web 侧直接报错**，不做静默降级——半兼容的半可用状态比明确失败更难查。
 - **线格式只有三份实现**（Kotlin `BridgeWire.kt` / TS `wire.ts` / 工具 `bridge-wire.mjs`），
   且三份都以本文 §3 为准。改帧头必须三份同时改，并跑 `pnpm check:bridge` 与 `pnpm bench`。
+- **v5 起还有一组"三份"是加密**（Kotlin `BridgeCrypto.kt` / TS `seal.ts` / 工具 `bridge-wire.mjs`）。
+  它们和线格式一样危险（漂移的表现是"有时连得上、有时连不上"），但**不能被 review 看住** ——
+  nonce 少一位、KDF 里少拼一个标签、AAD 少算一个字节，代码全都"看起来对"。
+  所以 v5 的机制是**冻结向量**：`bridge-crypto-vectors.json` 固定输入 → 固定输出，
+  `pnpm check:crypto-vectors` 逐条比对（81 项），Kotlin 另跑 `BridgeCryptoTest`。
+  **改 crypto 必须同时改向量**；只改一边，门禁红。
 
 ## 9. 变更记录
 
@@ -241,3 +336,6 @@ Web 产物的第一步是读**自身 origin** 上的 `__bridge.json`：
 | v3 | W8 | 方法表新增 `keepPathParamsInBody`（默认 false）；启用 `err.details` 承载服务端业务拒绝原因（白名单前缀 + 截断）。两者都是**新增可选字段**，老产物不受影响 |
 | v4 | 2026-10-04 | **不兼容**：线格式改为"二进制消息 + 12 字节定长帧头"，`v`/`type`/`id` 收进帧头、正文删掉 `ok`；新增数据面 `bin`（≤8MiB）与 `limits` 下发；新增 `BRIDGE_WIRE_MODE`；成帧装配收口为唯一实现 `WireReader`（两条传输只负责读写 WebSocket 消息）。**167 条方法语义与 §4/§5/§6 的口径逐条不变** |
 | v4 | 2026-10-05 | **兼容新增**（帧格式与版本号不变）：本机方法 `nfc.openSettings`（`BridgeLocalMethods`，宿主实现）；NFC 两个错误码 `BRIDGE_NFC_UNSUPPORTED` / `BRIDGE_NFC_DISABLED` 与两个事件 topic `nfc.tag` / `nfc.state`。本机方法不进生成的契约表（生成物重跑后 167 条不变） |
+| **v5** | 2026-10-06 | **不兼容**：**帧内容全加密**（临时 ECDH P-256 + AES-256-GCM，§1.2）。`token` 改名 `psk` 并**从握手 URL 上删除**（URL 只带 `?k=<客户端公钥>`）；新增 `hello` 帧（kind 5，唯一允许明文）与 `flags.bit1 = ENC`；新增错误码 `BRIDGE_CRYPTO_FAILED`；新增预认证截止（1500ms / 池 4）；密文上限 = 明文上限 +295。**167 条方法与 §4/§5/§6 的口径逐条不变**；密文里装的就是逐字节的 v4 消息，所以业务代码零改动 |
+| v5 | 2026-10-07 | **兼容新增**（帧格式与版本号不变）：能力位 `notify.system`（两个壳据此声明"这台机器会弹系统通知"）与事件 topic `notify.message`（正文 `{count, audible, latest{id,title,body,type,priority,at}}`，**不含令牌、不含收件人**）。新消息由桥轮询 `message.unreadCount` 发现，两个壳各自弹系统通知 |
+| v5 | 2026-10-07 | **不兼容（方法表）**：**图形验证码整体删除**，人机验证落地（点一下按钮、零输入）。契约变化：删 `captcha.generate` / `captcha.verify` / `tag.batchBindWithCaptcha` / `user.delete`（**那条无验证的 DELETE 是安全洞**）；`user.deleteWithCaptcha` 改名 `user.deleteWithVerify`（`POST /api/users/{userId}/delete`）；`auth.login` / `tag.batchBind` / `user.deleteWithVerify` 的请求体改带 **`humanToken`**（必填、一次性、由桥注入）。方法表 169 → **165**。三个入口的人机验证校验**下沉到 Service 层**，`DELETE /users/{id}` 与无票的 `batch-bind` 两条孪生路径同批删除 |
