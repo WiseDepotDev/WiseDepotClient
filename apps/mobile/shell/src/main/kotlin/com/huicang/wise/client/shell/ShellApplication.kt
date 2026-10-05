@@ -48,7 +48,7 @@ class ShellApplication : Application() {
         // 绑端口是阻塞调用，放后台线程；WebView 在此期间加载静态资源，
         // 引导接口在桥就绪前回 503，Web 侧拿到的是明确的"尚未就绪"而不是超时。
         thread(name = "shell-bridge-start") {
-            runCatching { ShellBridge.startIfNeeded(version, filesDir, hasCamera, hasNfc) }
+            runCatching { ShellBridge.startIfNeeded(this, version, filesDir, hasCamera, hasNfc) }
                 .onFailure { e -> android.util.Log.e(TAG, "桥启动失败", e) }
         }
     }

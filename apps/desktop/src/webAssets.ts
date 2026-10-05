@@ -85,7 +85,7 @@ export function resolveWebAsset(root: string, urlPath: string): ResolvedAsset | 
  * 而不是 404 或空 200 —— 那会把"还没起来"和"起不来"混成一种表现。
  */
 export function bootstrapResponse(
-  handshake: { host: string; port: number; token: string; ver: string; platform: string; capabilities: string } | null,
+  handshake: { host: string; port: number; psk: string; ver: string; platform: string; capabilities: string } | null,
 ): { status: number; body: string; contentType: string } {
   if (!handshake) {
     return { status: 503, body: '', contentType: 'application/json; charset=utf-8' };
@@ -96,7 +96,7 @@ export function bootstrapResponse(
     body: JSON.stringify({
       host: handshake.host,
       port: handshake.port,
-      token: handshake.token,
+      psk: handshake.psk,
       platform: handshake.platform,
       ver: handshake.ver,
       /*
@@ -106,9 +106,10 @@ export function bootstrapResponse(
        * `packages/bridge-client/src/types.ts` 的 `BRIDGE_PROTOCOL_VERSION`（页面期望值）。
        * 三者不一致时页面会停在"应用与本地服务版本不一致"——**这正是它该有的表现**
        * （明确失败优于半兼容），但排查时要知道：这句话说明**产物没跟上**，
-       * 不是网络/登录问题。2026-10-02 协议升到 4 时漏改了这里，页面立刻停在启动失败屏。
+       * 不是网络/登录问题。协议从 3 升到 4 时漏改过这里，页面立刻停在启动失败屏；
+       * 这条对账现在由 `pnpm check:protocol-version` 兜住。
        */
-      protocol: 4,
+      protocol: 5,
       capabilities: handshake.capabilities ? handshake.capabilities.split(',').filter(Boolean) : [],
     }),
   };

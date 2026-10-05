@@ -23,6 +23,11 @@
 .PARAMETER Smoke
   跑自检而不是开窗口。
 
+.PARAMETER NotifySmoke
+  只跑**系统通知**那一片的自检：起一个假后端，把轮询压到 400ms，
+  真的弹两个气泡到屏幕上（一个有声音、一个静默），然后把结论打印出来并退出。
+  想确认"通知到底会不会弹"时用它 —— 它会真的占用你的屏幕十几秒。
+
 .PARAMETER Rebuild
   强制重建全部产物（改了 Web / 桥 / 主进程之后用）。
 
@@ -30,12 +35,14 @@
   .\scripts\desktop.ps1
   .\scripts\desktop.ps1 -Backend http://10.0.0.7:8080
   .\scripts\desktop.ps1 -Smoke
+  .\scripts\desktop.ps1 -NotifySmoke
   .\scripts\desktop.ps1 -Rebuild
 #>
 [CmdletBinding()]
 param(
     [string]$Backend = 'http://127.0.0.1:18080',
     [switch]$Smoke,
+    [switch]$NotifySmoke,
     [switch]$Rebuild
 )
 
@@ -128,7 +135,7 @@ $env:WISE_BACKEND_URL = $Backend
 
 Write-Section '启动'
 Write-Host "  后端      : $Backend"
-Write-Host "  模式      : $(if ($Smoke) { '自检（跑完即退出）' } else { '正常窗口' })"
+Write-Host "  模式      : $(if ($NotifySmoke) { '通知自检（会真的弹气泡，跑完即退出）' } elseif ($Smoke) { '自检（跑完即退出）' } else { '正常窗口' })"
 Write-Host ''
 Write-Host '  接下来会在本控制台看到两类日志，它们的来源不同：' -ForegroundColor DarkGray
 Write-Host '    [bridge] …    ← 独立的 JVM 桥子进程（stderr 被主进程转发过来）' -ForegroundColor DarkGray
@@ -143,6 +150,7 @@ Write-Host ''
 
 $args = @('.')
 if ($Smoke) { $args += '--smoke' }
+if ($NotifySmoke) { $args += '--notify-smoke' }
 
 Push-Location (Join-Path $root 'apps\desktop')
 try {
@@ -155,7 +163,13 @@ try {
 # ---------------------------------------------------------------- 3. 结论
 
 Write-Section '结束'
-if ($Smoke) {
+if ($NotifySmoke) {
+    if ($code -eq 0) {
+        Write-Host '  通知自检通过（气泡是否真的出现在屏幕上，只能你自己确认）。' -ForegroundColor Green
+    } else {
+        Write-Host "  通知自检失败（退出码 $code）—— 往上翻看 ✗ 那一行。" -ForegroundColor Red
+    }
+} elseif ($Smoke) {
     if ($code -eq 0) {
         Write-Host '  自检通过。' -ForegroundColor Green
     } else {

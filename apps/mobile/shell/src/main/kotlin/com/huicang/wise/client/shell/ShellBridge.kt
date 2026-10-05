@@ -8,7 +8,10 @@ import com.huicang.wise.bridge.protocol.BridgeCodec
 import com.huicang.wise.bridge.server.BridgeServer
 import com.huicang.wise.bridge.server.BridgeServerConfig
 import com.huicang.wise.bridge.server.DEFAULT_ALLOWED_ORIGINS
+import com.huicang.wise.bridge.server.UnreadNotifier
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -39,6 +42,18 @@ val ANDROID_CAPABILITIES: Set<String> =
         // 键盘式扫码枪：它就是一只 USB HID 键盘，字符直接进 WebView 的 keydown 流，
         // 因此这一项**不需要任何原生代码**（识别逻辑在 @wise/scan，两端共用）。
         BridgeCapabilities.SCAN_GUN_KEYBOARD,
+        /*
+         * 系统通知（消息）。**声明即承诺**：Android 13+ 用户拒绝通知权限时，
+         * [ShellBridge] 会在权限结果回来时**撤回**这一项（见 MainActivity 的权限请求），
+         * 于是界面不会留一个"永远不工作的开关"。
+         */
+        BridgeCapabilities.NOTIFY_SYSTEM,
+        /*
+         * 人机验证：壳能回答"是不是发布包、有没有挂调试器"（见 `AndroidEvidence`）。
+         * **声明即承诺**：它与 `humanVerifyPort` 参数是同一批加的，两者不许只加一个 ——
+         * 声明了却拿不出证据，界面会画出一个点了没反应的按钮。
+         */
+        BridgeCapabilities.HUMAN_VERIFY,
     )
 
 /**
@@ -73,6 +88,14 @@ object ShellBridge {
 
     @Volatile private var bootstrapJson: String? = null
 
+    /**
+     * 应用当前是否在前台（由 [MainActivity] 的 `onResume/onPause` 维护）。
+     *
+     * 用途只有一个：**前台不弹系统通知**（界面自己会在 10 秒内刷新出那条消息）。
+     * 用 `@Volatile` 而不是 Lifecycle：这个壳只有一个 Activity，两行更直白。
+     */
+    @Volatile var foreground: Boolean = false
+
     /** 桥就绪后才有值；未就绪时引导接口应回 503。 */
     val ready: Boolean get() = server != null
 
@@ -94,15 +117,19 @@ object ShellBridge {
         server?.emit(topic, data)
     }
 
-    /** 已经定下来的引导内容（端口/令牌/地址/版本），能力表可在此基础上变动。 */
+    /** 已经定下来的引导内容（端口/psk/地址/版本），能力表可在此基础上变动。 */
     private var bootBase: BootBase? = null
 
     /** 当前**如实**声明着的能力。 */
     @Volatile private var declared: Set<String> = emptySet()
 
+    /** 桥事件订阅（`notify.message` → 系统通知）；`stop()` 时要退订。 */
+    private var notifySubscription: AutoCloseable? = null
+
     private data class BootBase(
         val port: Int,
-        val token: String,
+        /** v5：预共享密钥（v4 里叫 token）—— 只经引导文件下发，**永不上线**。 */
+        val psk: String,
         val host: String,
         val platform: String,
         val version: String,
@@ -140,7 +167,7 @@ object ShellBridge {
             BridgeBootstrap.serializer(),
             BridgeBootstrap(
                 port = base.port,
-                token = base.token,
+                psk = base.psk,
                 host = base.host,
                 platform = base.platform,
                 ver = base.version,
@@ -151,6 +178,8 @@ object ShellBridge {
     /** 幂等：重复调用不会起第二个桥（Activity 重建、多入口都靠这个）。 */
     @Synchronized
     fun startIfNeeded(
+        /** 应用上下文：弹系统通知要用它（[MessageNotifier]）。 */
+        appContext: android.content.Context,
         version: String,
         filesDir: java.io.File,
         hasCamera: Boolean = false,
@@ -165,7 +194,7 @@ object ShellBridge {
         // 因此绑定地址必须**探测**（桌面/真机会得到 127.0.0.1，行为完全不变）。
         val host = com.huicang.wise.bridge.server.BridgeHostResolver.resolve()
         android.util.Log.i("WiseShell", "桥将绑定：$host（候选：${com.huicang.wise.bridge.server.BridgeHostResolver.candidates()}）")
-        val token = newToken()
+        val psk = newToken()
         val tokens = tokenStore(filesDir)
         // 能力必须**如实**：拿不到 Keystore 就不能声明 storage.secure。
         // 声明了做不到的能力比不声明更糟 —— UI 会据此画出永远不工作的入口。
@@ -193,7 +222,7 @@ object ShellBridge {
             BridgeServer(
                 BridgeServerConfig(
                     port = 0,
-                    token = token,
+                    psk = psk,
                     backend =
                         OkHttpBackend(
                             BuildConfig.WISE_BACKEND_URL,
@@ -205,6 +234,17 @@ object ShellBridge {
                     // 本机方法表（B3/S3）：NFC 设置页只能由壳跳。它**与后端无关**，
                     // 因此不走契约表 —— 见 `BridgeLocalMethods`。
                     local = NfcLocalMethods(),
+                    // 人机验证的本地证据（只有壳看得见的事实）
+                    humanVerifyPort = AndroidEvidence(appContext),
+                    // 设备密钥：与令牌同一份安全存储口径（Keystore 加密落盘；
+                    // 拿不到 Keystore 就不落盘 —— 代价只是服务端视为新设备，绝不写明文）
+                    deviceKeyFile =
+                        if (AndroidKeystoreCodec.available()) {
+                            java.nio.file.Paths.get(java.io.File(filesDir, "bridge-device-key.enc").absolutePath)
+                        } else {
+                            null
+                        },
+                    deviceKeyCodec = if (AndroidKeystoreCodec.available()) AndroidKeystoreCodec() else null,
                     allowedOrigins = DEFAULT_ALLOWED_ORIGINS,
                     host = host,
                     // 传输保持与桌面一致（Netty）。曾经因为"WSA 上连不上"改用过纯 socket 实现，
@@ -216,13 +256,46 @@ object ShellBridge {
             )
         val boundPort = instance.start()
         server = instance
+
+        /*
+         * 桥的事件 → **系统通知**（消息）。
+         *
+         * 为什么在这里订阅（而不是让页面去调）：通知最该出现的时刻是应用在后台，
+         * 那时 WebView 里的 JS 可能已经被系统冻结；而桥与壳同进程，
+         * 直接订阅 `onEvent` 不依赖页面还活着。
+         */
+        notifySubscription =
+            instance.onEvent { topic, data ->
+                if (topic != UnreadNotifier.TOPIC_MESSAGE) {
+                    return@onEvent
+                }
+                val payload = data as? JsonObject ?: return@onEvent
+                val latest = payload["latest"] as? JsonObject ?: return@onEvent
+                fun text(key: String): String = (latest[key] as? JsonPrimitive)?.content ?: ""
+                val id = text("id")
+                val title = text("title")
+                val audible = (payload["audible"] as? JsonPrimitive)?.content?.toBoolean() ?: false
+                val shown =
+                    MessageNotifier.show(
+                        context = appContext,
+                        id = id,
+                        title = title,
+                        body = text("body"),
+                        audible = audible,
+                        foreground = foreground,
+                    )
+                android.util.Log.i(
+                    "WiseShell",
+                    "[notify] ${if (shown) "已弹系统通知" else "未弹（前台可见 / 无权限 / 缺字段）"} id=$id",
+                )
+            }
         // 这一行是现场排障的锚点：地址/端口不对或没打印 = 桥根本没起来。
         // 地址必须打印**实际绑定的那个**（WSA 上不是 127.0.0.1），否则日志会把人带偏。
         android.util.Log.i("WiseShell", "桥已启动：$host:$boundPort，后端 ${BuildConfig.WISE_BACKEND_URL}")
         val base =
             BootBase(
                 port = boundPort,
-                token = token,
+                psk = psk,
                 host = host,
                 platform = AndroidPlatform(version).platform,
                 version = version,
@@ -250,6 +323,8 @@ object ShellBridge {
     }
 
     fun stop() {
+        notifySubscription?.close()
+        notifySubscription = null
         server?.stop()
         server = null
         bootstrapJson = null

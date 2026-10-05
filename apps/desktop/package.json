@@ -6,7 +6,7 @@
   "description": "桌面宿主：Electron 主进程 —— 承载 Web 产物、spawn jlink JVM 桥、供给 __bridge.json",
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main.cjs",
+    "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main.cjs && esbuild src/smokePing.ts --bundle --platform=browser --format=iife --global-name=__wiseSmokePing --target=es2022 --outfile=dist/smoke-ping.js",
     "start": "electron ."
   },
   "dependencies": {},
