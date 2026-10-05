@@ -5,8 +5,8 @@ import { Search } from '@element-plus/icons-vue';
 import type { BridgeErrorLike } from '@wise/stores';
 import { asList, asTotal, humanize, roleLabel, shortTime, useMutation, useResource, useResourceCacheStore } from '@wise/stores';
 import { ActionDock, ConfirmDialog, PageHeader, SectionBlock, StateHost, StatusChip, type StatusTone } from '@wise/ui';
-import CaptchaField from '../../components/CaptchaField.vue';
-import { useCaptcha } from '../../components/useCaptcha';
+import HumanVerifyField from '../../components/HumanVerifyField.vue';
+import { useHumanVerify } from '../../components/useHumanVerify.js';
 
 /**
  * 用户管理（`user.list` 域）—— 一屏里同时是**列表**与**明细**。
@@ -23,9 +23,9 @@ import { useCaptcha } from '../../components/useCaptcha';
  *    `selected !== undefined` 之下，并且两条取数都带 `enabled` 兜底。
  * 3. **删除与重置密码都放在明细块里，不在行内塞小按钮**（React 也是这么放的）：
  *    行内小按钮在手机上点不中，而且这两个动作都该"先看清是谁，再动手"。
- * 4. **删除必须先有验证码**（`user.deleteWithCaptcha` 要 `captchaId` + `captchaCode`）——
- *    与标签批量绑定是同一套机制（同款 `CaptchaField` + `useCaptcha`）。
- *    验证码是**一次性**的：失败必须换一张，否则用户会对着作废的图反复提交。
+ * 4. **删除必须先过人机验证**（`user.deleteWithVerify`；与标签批量绑定同一套机制：
+ *    点一下按钮、零输入）。票据**不进页面**，由桥按用途注入（`HumanPurposeByMethod`）；
+ *    票据是一次性的：失败必须重新验证，否则等于拿一张已作废的结果反复提交。
  * 5. **建号表单里没有"角色"字段**：建号接口当前不接受角色，摆一个点了不生效的选项比不摆更糟。
  *    角色分配（授予/撤销）不在本次范围内，明细里只做**只读**展示。
  *
@@ -177,7 +177,7 @@ const emptyText = computed(() =>
 const createMutation = useMutation<unknown>('user.create');
 const deleting = ref(false);
 const resetting = ref(false);
-const deleteMutation = useMutation<unknown>('user.deleteWithCaptcha');
+const deleteMutation = useMutation<unknown>('user.deleteWithVerify');
 const resetMutation = useMutation<unknown>('user.resetPassword');
 const busy = computed(
   () => createMutation.pending.value || deleteMutation.pending.value || resetMutation.pending.value,
@@ -186,13 +186,13 @@ const busy = computed(
 const password = ref<PasswordForm>({ oldPassword: '', newPassword: '', confirm: '' });
 
 /**
- * 删除框里的验证码。
+ * 删除框里的人机验证。
  *
- * `captchaId` 从 `captcha.captcha.value` 里取（服务端下发的那一张），
- * 空串表示"图还没拿到"—— 真后端会拿它去校验会话里那次验证码，
- * 所以**没拿到图就不该提交**（按钮旁与提交前后各挡一次）。
+ * **页面拿不到票据**：点一下由桥完成"本地证据 + 服务端票据"，票据留在桥里，
+ * 桥在转发 `user.deleteWithVerify` 时按用途注入（见 `HumanPurposeByMethod`）。
+ * 所以这里没有"图还没拿到就不该提交"那类判据了 —— 页面手上根本没有凭据可判。
  */
-const captcha = useCaptcha();
+const humanVerify = useHumanVerify();
 
 /* ------------------------------------------------------------------ 列表动作 */
 
@@ -388,36 +388,35 @@ function openDelete(): void {
   deleteError.value = undefined;
   resetError.value = undefined;
   resetNotice.value = undefined;
-  // 每次打开都要一张**新**图：上一张可能已经被用过（验证码一次性）
-  void captcha.refresh();
+  // 每次打开都复位：票据是一次性的，上一次的验证结果不能替这一次作证
+  humanVerify.reset();
   deleting.value = true;
 }
 
 /**
- * 删除用户：`userId` 走路径、`captchaId` + `captchaCode` 进请求体。
+ * 删除用户：`userId` 走路径，**人机验证票据由桥注入**（页面不碰它）。
  *
- * 三道闸门依次是：图没拿到 / 码没填 / 服务端拒绝。
- * 服务端拒绝之后**必须换一张图**（`refreshAfterFailure`）—— 见文件头第 4 条。
+ * 两道闸门依次是：人机验证没过 / 服务端拒绝。
+ * 服务端拒绝之后**必须重新验证**（`reset`）—— 票据一次性，见文件头第 4 条。
  */
 async function confirmDelete(): Promise<void> {
   const userId = selected.value;
   if (userId === undefined || busy.value) {
     return;
   }
-  if (captcha.captcha.value?.captchaId === undefined) {
-    deleteError.value = '验证码还没取到，请稍等或点「换一张」重新获取。';
-    return;
-  }
-  if (captcha.code.value.trim() === '') {
-    deleteError.value = '请先填写验证码';
-    return;
+  if (humanVerify.state.value !== 'passed') {
+    const verified = await humanVerify.verify('USER_DELETE');
+    if (!verified.ok) {
+      deleteError.value = humanVerify.supported.value
+        ? '人机验证未通过：删除用户不可撤销，请再试一次。'
+        : '当前客户端不支持人机验证，请更新到最新版本。';
+      return;
+    }
   }
   deleteError.value = undefined;
   try {
     await deleteMutation.run({
       userId,
-      captchaId: captcha.captcha.value.captchaId,
-      captchaCode: captcha.code.value.trim(),
     });
     deleting.value = false;
     // 先收起明细再刷新：那条明细已经属于一个不存在的用户，留着只会让它再取一次
@@ -425,7 +424,7 @@ async function confirmDelete(): Promise<void> {
     refresh();
   } catch (e) {
     deleteError.value = humanize(e as BridgeErrorLike);
-    captcha.refreshAfterFailure();
+    humanVerify.reset();
   }
 }
 
@@ -685,7 +684,7 @@ function anyProps(value: Record<string, unknown>): Record<string, unknown> {
       </p>
       <p class="w-me-user-list__hint">他之后将无法用这个账号登录，历史记录也会一并清理。</p>
 
-      <CaptchaField :state="captcha" />
+      <HumanVerifyField :state="humanVerify" purpose="USER_DELETE" />
 
       <!-- 提交按钮禁用时，原因必须**写在按钮旁边**：只把按钮变灰等于什么都没说 -->
       <p class="w-me-user-list__hint">

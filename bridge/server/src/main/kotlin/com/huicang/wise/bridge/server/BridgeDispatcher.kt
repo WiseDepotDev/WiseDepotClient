@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 方法分发：**唯一**决定"这个方法能不能被调用、由谁处理"的地方。
@@ -45,6 +47,21 @@ class BridgeDispatcher(
     private val onSessionExpired: () -> Unit = {},
     /** 指标：按方法记次数/失败/耗时。默认给一个不共享的实例，测试不必关心它。 */
     private val metrics: BridgeMetrics = BridgeMetrics(),
+    /**
+     * 人机验证票据的持有者：注入用的就是它（**票据不进 JS 上下文**）。
+     *
+     * 票据的"拿"与"用"必须发生在同一处，这一处就是分发器 —— 页面只请求验证，拿不到票据。
+     */
+    private val humanTokens: HumanTokenHolder = HumanTokenHolder(),
+    /**
+     * 人机验证执行器（`bridge.humanVerify` 的实际干活者）。
+     *
+     * 为什么是"取它的函数"而不是它本身：执行器要调 `dispatch(...)` 去访问后端，
+     * 于是两者互相引用。用 lambda **在调用时**取值即可打破这个环
+     * （与 `onSessionExpired` 同一个手法，那时字段已经就位）。
+     * 宿主没接证据来源时它是 null ⇒ `bridge.humanVerify` 明确报不可用，而不是静默失败。
+     */
+    private val humanVerifyProvider: () -> HumanVerifyCollector? = { null },
 ) {
     suspend fun dispatch(
         method: String,
@@ -63,7 +80,7 @@ class BridgeDispatcher(
         requestId: String,
     ): BackendResult {
         if (method in BridgeBuiltins.all) {
-            return dispatchBuiltin(method)
+            return dispatchBuiltin(method, params)
         }
 
         local?.let { port ->
@@ -84,12 +101,27 @@ class BridgeDispatcher(
                     retryable = false,
                 )
 
+        /*
+         * 人机验证票据的注入点（**唯一一处**）。
+         *
+         * 三个"破坏性/入口"方法各自需要一个**对应用途**的票据：用途不符就不注入，
+         * 让服务端去拒绝 —— 桥不替服务端做判定，也不做"凑合用"。
+         * 票据从不出现在 JS 里（与业务令牌同一待遇）。
+         */
+        val purpose = HumanPurposeByMethod[method]
+        val effectiveParams =
+            if (purpose == null) {
+                params
+            } else {
+                humanTokens.injectInto(params, purpose)
+            }
+
         val call =
             BackendCall(
                 httpMethod = entry.httpMethod,
                 pathTemplate = entry.path,
                 packetType = entry.packetType,
-                params = params as? JsonObject,
+                params = effectiveParams as? JsonObject,
                 requestId = requestId,
                 paramStyle = when (entry.paramStyle) {
                     BridgeContract.ParamStyle.QUERY -> ParamStyle.QUERY
@@ -140,7 +172,10 @@ class BridgeDispatcher(
         }
     }
 
-    private fun dispatchBuiltin(method: String): BackendResult =
+    private suspend fun dispatchBuiltin(
+        method: String,
+        params: JsonElement?,
+    ): BackendResult =
         when (method) {
             BridgeBuiltins.PING ->
                 BackendResult.Ok(
@@ -174,7 +209,74 @@ class BridgeDispatcher(
              */
             BridgeBuiltins.METRICS -> BackendResult.Ok(metrics.snapshot())
 
+            /*
+             * 人机验证：Web 只**请求**一次验证，**拿不到票据**（票据由桥存着并在业务调用里注入）。
+             *
+             * 返回 `{ ok, purpose }`；失败时回一个真实错误码，让界面能说清"是环境问题还是被拒了"。
+             */
+            BridgeBuiltins.HUMAN_VERIFY -> {
+                val collector =
+                    humanVerifyProvider()
+                        ?: return BackendResult.Failed(
+                            BridgeErrorCodes.INTERNAL,
+                            "bridge.humanVerifyUnavailable",
+                            retryable = false,
+                        )
+                val purpose =
+                    (params as? JsonObject)?.get("purpose")?.jsonPrimitive?.contentOrNull
+                        ?: return BackendResult.Failed(
+                            BridgeErrorCodes.PARAMS_INVALID,
+                            "bridge.paramsInvalid",
+                            retryable = false,
+                        )
+                val username = (params as? JsonObject)?.get("username")?.jsonPrimitive?.contentOrNull
+                val pageEvidence = (params as? JsonObject)?.get("evidence") as? JsonObject
+                val outcome = collector.obtain(purpose, username, pageEvidence)
+                if (outcome.ok) {
+                    BackendResult.Ok(
+                        JsonObject(
+                            mapOf(
+                                "ok" to JsonPrimitive(true),
+                                "purpose" to JsonPrimitive(purpose),
+                            ),
+                        ),
+                    )
+                } else {
+                    /*
+                     * 失败必须**带原因**：以前这里一律回 `BRIDGE_BACKEND_UNREACHABLE` + "请再试一次"，
+                     * 于是"后端不是最新版（HTTP-400）""设备签名校验失败（AUTH-HUMAN-1006）"
+                     * "账号已锁定（冷却）"三种截然不同的处境在界面上长得一模一样 ——
+                     * 唯一正确的处置动作被藏掉了。所以：
+                     *   · `code` 优先用**服务端自己的错误码**（界面/排障文档都按它们写）；
+                     *   · 只有真到不了后端时才退化成 `BRIDGE_BACKEND_UNREACHABLE`。
+                     */
+                    BackendResult.Failed(
+                        outcome.code ?: BridgeErrorCodes.BACKEND_UNREACHABLE,
+                        outcome.messageKey ?: HumanVerifyCollector.KEY_FAILED,
+                        retryable = outcome.retryable,
+                    )
+                }
+            }
+
             else ->
                 BackendResult.Failed(BridgeErrorCodes.METHOD_UNKNOWN, "bridge.methodUnknown", retryable = false)
         }
+
+    companion object {
+        /**
+         * 需要人机验证票据的方法 → 用途。
+         *
+         * 这张表是**票据注入的唯一依据**：加一个新入口就要在这里加一行，否则它拿不到票据，
+         * 服务端会直接拒绝 —— 失败是响亮的，不会静默放开。
+         *
+         * （`user.deleteWithCaptcha` 那条旧 id 已随图形验证码一起删除：契约里现在只有
+         * `user.deleteWithVerify`，留着旧行只会在"方法不存在"时给人错觉。）
+         */
+        val HumanPurposeByMethod: Map<String, String> =
+            mapOf(
+                "auth.login" to "LOGIN",
+                "tag.batchBind" to "TAG_BATCH_BIND",
+                "user.deleteWithVerify" to "USER_DELETE",
+            )
+    }
 }

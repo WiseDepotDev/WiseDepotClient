@@ -16,8 +16,8 @@ import {
   type ColumnDef,
 } from '@wise/ui';
 import { BarcodeScanField } from '@wise/layouts';
-import CaptchaField from '../../components/CaptchaField.vue';
-import { useCaptcha } from '../../components/useCaptcha';
+import HumanVerifyField from '../../components/HumanVerifyField.vue';
+import { useHumanVerify } from '../../components/useHumanVerify.js';
 import TagDetailPanel from './TagDetailPanel.vue';
 
 /**
@@ -25,10 +25,10 @@ import TagDetailPanel from './TagDetailPanel.vue';
  *
  * ## 三条业务约束
  *
- * 1. **批量绑定必须带验证码**（服务端 `tag.batchBindWithCaptcha` 的入参就有
- *    `captchaId`/`captchaCode`）—— 这是"影响多件物料"的破坏性操作，验证码是确认动作。
- *    绑定失败后**必须换一张**：验证码一次性，不换会让用户对着作废的图反复提交。
- * 2. **批量解绑不需要验证码**，但仍走二次确认（同样是多件物料）。
+ * 1. **批量绑定必须先过人机验证**（`tag.batchBind` 现在要求桥注入的票据）——
+ *    这是"影响多件物料"的破坏性操作，所以点一下按钮完成验证是必要的确认动作。
+ *    票据**不进页面**：桥按用途注入（`HumanPurposeByMethod`），失败后要重新验证。
+ * 2. **批量解绑不需要人机验证**，但仍走二次确认（同样是多件物料）。
  * 3. **选中态由本屏自己持有**（不用表格的内置 selection）：批处理成功后要能干净地清空，
  *    把状态交给表格会出现"操作完了勾还在"。
  *
@@ -66,7 +66,7 @@ const productId = ref('');
 const actionError = ref<string | undefined>(undefined);
 /** 成功回执。"做完没反应"会让操作员重复点，这也是本仓一贯要求把结果说出来的原因。 */
 const notice = ref<string | undefined>(undefined);
-const captcha = useCaptcha();
+const humanVerify = useHumanVerify();
 
 // **`pageSize`，不是 `size`**：`TagController:112` 只认 `pageSize`（发 `size` 被静默忽略 →
 // 永远 10 条/页）。真后端实测见 `tools/bench/inventory-tag-probe.mjs`。
@@ -83,7 +83,7 @@ const productOptions = computed(() =>
     .map((p) => ({ value: String(p.productId), label: `${p.productName ?? '未命名'}（${p.productCode ?? '—'}）` })),
 );
 
-const bindMutation = useMutation('tag.batchBindWithCaptcha');
+const bindMutation = useMutation('tag.batchBind');
 const unbindMutation = useMutation('tag.unbind');
 const createMutation = useMutation('tag.create');
 const busy = computed(() => bindMutation.pending.value || unbindMutation.pending.value || createMutation.pending.value);
@@ -214,7 +214,8 @@ function openBatch(kind: 'bind' | 'unbind'): void {
   productId.value = '';
   batch.value = kind;
   if (kind === 'bind') {
-    void captcha.refresh();
+    // 每次打开都复位：上一次的验证结果不能替这一次作证（票据是一次性的）
+    humanVerify.reset();
   }
 }
 
@@ -233,15 +234,24 @@ async function confirmBatch(): Promise<void> {
         actionError.value = '请先选择要绑定的商品。';
         return;
       }
-      if (captcha.code.value.trim() === '') {
-        actionError.value = '请填写验证码：批量绑定会影响多件物料，必须确认。';
-        return;
+      /*
+       * **点「确认绑定」时就地完成人机验证**（用户不必先点验证、再点确认）。
+       *
+       * 如果用户已经先点过验证按钮，这里直接跳过（`passed` 说明票据在桥里备好了）；
+       * 没点过就现点 —— 无论哪条路，票据都只由桥注入，页面不碰它。
+       */
+      if (humanVerify.state.value !== 'passed') {
+        const verified = await humanVerify.verify('TAG_BATCH_BIND');
+        if (!verified.ok) {
+          actionError.value = humanVerify.supported.value
+            ? '人机验证未通过：批量绑定会影响多件物料，请再试一次。'
+            : '当前客户端不支持人机验证，请更新到最新版本。';
+          return;
+        }
       }
       await bindMutation.run({
         tagIds,
         productId: pid,
-        captchaId: captcha.captcha.value?.captchaId ?? '',
-        captchaCode: captcha.code.value.trim(),
       });
     } else {
       /*
@@ -281,9 +291,9 @@ async function confirmBatch(): Promise<void> {
     reload();
   } catch (e) {
     actionError.value = humanize(e as never);
-    // 危险操作的验证码是一次性的：失败就换一张，不让用户对着作废的图重试
+    // 票据是一次性的：失败后必须重新验证，不能让用户对着一个已作废的结果重试
     if (kind === 'bind') {
-      captcha.refreshAfterFailure();
+      humanVerify.reset();
     }
   }
 }
@@ -407,7 +417,7 @@ function onPanelDeleted(): void {
         <ElSelect v-model="productId" v-bind="selectProps">
           <ElOption v-for="opt in productOptions" :key="opt.value" v-bind="optionProps(opt)" />
         </ElSelect>
-        <CaptchaField :state="captcha" />
+        <HumanVerifyField :state="humanVerify" purpose="TAG_BATCH_BIND" />
       </template>
 
       <p v-if="actionError" class="w-inv-error" role="alert">{{ actionError }}</p>

@@ -11,16 +11,9 @@ export interface SessionPayload {
   readonly expired?: boolean;
 }
 
-export interface CaptchaPayload {
-  readonly captchaId?: string;
-  readonly captchaImage?: string;
-  readonly expireTime?: string;
-}
-
 export interface SignInInput {
   readonly username: string;
   readonly password: string;
-  readonly captchaCode: string;
 }
 
 /**
@@ -35,12 +28,18 @@ export interface SignInInput {
  * 后端会回一个**误导性的**「缺少必要的签名参数」400，和真因（没登录）完全无关。
  * 所以：桥推 `session.expired` → 重新问一次 → 会话门据此切回登录屏。
  *
- * ## 为什么登录与验证码也在这个 store 里
+ * ## 为什么登录也在这个 store 里
  *
  * 由 `check:store` 钉住的一条纪律：**组件不许直接调桥**。
  * 登录屏原先自己 `bridge.call('auth.login')`，于是"验证码一次性、失败必须换一张"
  * 这条规则只存在于那个组件的闭包里，别的入口（改密后重登、会话过期后重登）无法复用。
  * 放进 store 之后，屏只负责表单与展示，流程归一处。
+ *
+ * ## 人机验证为什么不在这里
+ *
+ * 它由页面的 `useHumanVerify` 发起（要采集页面侧证据 + 显示"正在验证"），
+ * 但**票据不进请求体**：票据留在桥里，由桥在 `auth.login` 那一次调用里注入
+ * （见 `BridgeDispatcher.HumanPurposeByMethod`）。所以这里只管用户名与密码。
  */
 export const useSessionStore = defineStore('wise.session', () => {
   const bridge = useBridgeStore();
@@ -52,9 +51,6 @@ export const useSessionStore = defineStore('wise.session', () => {
   let offExpired: (() => void) | null = null;
 
   // ---- 登录页状态 ----
-  const captcha = shallowRef<CaptchaPayload | undefined>(undefined);
-  /** 存**错误结构**而不是文案：文案映射属于展示侧（「谁展示谁拥有」）。 */
-  const captchaError = shallowRef<BridgeError | undefined>(undefined);
   const signingIn = ref(false);
   const signInError = shallowRef<BridgeError | undefined>(undefined);
 
@@ -92,24 +88,15 @@ export const useSessionStore = defineStore('wise.session', () => {
     offExpired = null;
   }
 
-  /** 取一张新验证码。失败时把错误结构留在 store 里，由登录屏翻成人话。 */
-  async function loadCaptcha(): Promise<void> {
-    captchaError.value = undefined;
-    try {
-      const value = await cache.run<CaptchaPayload>('captcha.generate', { type: 'math' });
-      captcha.value = value ?? {};
-    } catch (e) {
-      captcha.value = undefined;
-      captchaError.value = toBridgeError(e);
-    }
-  }
-
   /**
    * 登录。
    *
    * 成功与否**不在这里下结论** —— 登录后重新问一次 `bridge.session`，
    * 由桥回答"现在是不是已登录"。前端自己把布尔翻成 true 就是"脱节"的来源。
-   * 失败时**必须换一张验证码**（一次性凭证，不换会让用户反复提交已作废的码）。
+   *
+   * **人机验证票据不在这里传**：桥在转发 `auth.login` 时按用途注入它自己存的那张
+   * （见 `BridgeDispatcher.HumanPurposeByMethod`）。所以这个方法的入参只有用户名与密码 ——
+   * 页面连"票据长什么样"都不需要知道。
    */
   async function signIn(input: SignInInput): Promise<boolean> {
     signingIn.value = true;
@@ -118,14 +105,11 @@ export const useSessionStore = defineStore('wise.session', () => {
       await cache.mutate('auth.login', {
         username: input.username,
         password: input.password,
-        captchaId: captcha.value?.captchaId ?? '',
-        captchaCode: input.captchaCode,
       });
       await reload();
       return payload.value?.authenticated === true;
     } catch (e) {
       signInError.value = toBridgeError(e);
-      await loadCaptcha();
       return false;
     } finally {
       signingIn.value = false;
@@ -149,14 +133,11 @@ export const useSessionStore = defineStore('wise.session', () => {
     username,
     passwordChangeRequired,
     expired,
-    captcha,
-    captchaError,
     signingIn,
     signInError,
     init,
     reload,
     dispose,
-    loadCaptcha,
     signIn,
     clearSignInError,
   };

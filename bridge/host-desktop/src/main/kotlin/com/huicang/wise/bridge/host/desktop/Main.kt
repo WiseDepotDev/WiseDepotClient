@@ -12,8 +12,16 @@ import com.huicang.wise.bridge.server.BridgeServer
 import com.huicang.wise.bridge.server.BridgeServerConfig
 import com.huicang.wise.bridge.server.BridgeTransportKind
 import com.huicang.wise.bridge.server.DEFAULT_ALLOWED_ORIGINS
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.FileDescriptor
+import java.io.FileOutputStream
+import java.io.PrintStream
 import java.security.SecureRandom
 import java.util.Base64
 import kotlin.system.exitProcess
@@ -39,6 +47,8 @@ private data class Args(
     val maxPerSecond: Int,
     val accessToken: String?,
     val transport: BridgeTransportKind,
+    /** 未读轮询间隔（毫秒）。验收脚本会压小它，默认值仍是桥里的 10 秒。 */
+    val notifyPollMs: Long,
     /** 绑定地址。桌面缺省 127.0.0.1；WSA 之类的环境需要传点对点地址（见 BridgeHostResolver）。 */
     val host: String,
     /**
@@ -46,6 +56,13 @@ private data class Args(
      * 由真正的宿主显式指定，理由见 [main] 里的说明。
      */
     val tokenFile: String?,
+    /**
+     * 设备密钥（人机验证签名用）的加密落盘位置。**不传就不落盘**（仅内存，重启换一把）。
+     *
+     * 与 [tokenFile] 分开：令牌是**凭据**（登出即失效），设备密钥只用于"同一台设备签名"，
+     * 两者的生命周期不同 —— 合成一个文件会让"登出清令牌"顺手把设备身份也清掉。
+     */
+    val deviceKeyFile: String?,
 )
 
 private fun parseArgs(argv: Array<String>): Args {
@@ -78,6 +95,8 @@ private fun parseArgs(argv: Array<String>): Args {
         accessToken = map["access-token"]?.takeIf { it.isNotBlank() },
         // 不传 = 不落盘（默认）。见 Args.tokenFile 的说明。
         tokenFile = map["token-file"]?.takeIf { it.isNotBlank() },
+        // 不传 = 设备密钥不落盘（重启换一把，服务端会视为新设备）。同上：路径由宿主显式指定。
+        deviceKeyFile = map["device-key-file"]?.takeIf { it.isNotBlank() },
         // 桌面默认 Netty；`--transport plain` 用纯 socket 实现，供"两条传输语义一致"的对照验收。
         transport =
             if (map["transport"] == "plain") {
@@ -87,6 +106,14 @@ private fun parseArgs(argv: Array<String>): Args {
             },
         // 不传就自动探测：桌面会得到 127.0.0.1，WSA 会得到 loopback0 的地址
         host = map["host"]?.takeIf { it.isNotBlank() } ?: BridgeHostResolver.resolve(),
+        /*
+         * 未读轮询间隔。默认 10 秒（见 BridgeServerConfig.notifyPollMs）。
+         *
+         * 为什么允许宿主覆盖：**这条链的唯一证据只能端到端拿** —— "后端未读涨了 ⇒
+         * stdout 上出现一行 notify.message"。而按 10 秒轮询去验，一个用例要等十几秒，
+         * 慢门禁的下场是被跳过。验收脚本把它压到几百毫秒（默认值不变）。
+         */
+        notifyPollMs = map["notify-poll-ms"]?.toLongOrNull() ?: 10_000,
     )
 }
 
@@ -98,15 +125,34 @@ private class DesktopPlatform(
     override val platform: String = BridgeCapabilities.PLATFORM_DESKTOP
 }
 
-private fun newToken(): String {
+/**
+ * 生成本次启动的 **psk**（v5；v4 里叫 token）：256-bit，base64url 后 43 个字符。
+ *
+ * 它不再挂在握手 URL 上（那是 v4 的做法），只经 stdout → 宿主 → `__bridge.json` 下发给页面。
+ */
+private fun newPsk(): String {
     val bytes = ByteArray(32)
     SecureRandom().nextBytes(bytes)
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 }
 
 fun main(argv: Array<String>) {
+    /*
+     * **stdout / stderr 强制 UTF-8**（必须在任何一行输出之前）。
+     *
+     * 父进程（Electron）按 UTF-8 逐行读 stdout，而 JVM 的 `System.out` 用的是**平台编码** ——
+     * Windows 中文机器上是 GBK。于是带中文的事件行（消息标题几乎必然是中文）到壳里就是乱码：
+     * 通知条目能弹出来，但文案是"�豸�쳣"这种，而且**任何一层都不会报错**。
+     *
+     * 这个 bug 藏得住是因为握手那一行（`psk`）纯 ASCII：只要不出现非 ASCII 字符，两条流看起来都对。
+     * 逼出它的是 `bench:desktop` 的第 6 节（真中文标题端到端），静态门禁对此无能为力。
+     * 日志走 stderr、同理处理（`BridgeLog` 在调用时才读 `System.err`，所以在这里换掉有效）。
+     */
+    System.setOut(PrintStream(FileOutputStream(FileDescriptor.out), true, "UTF-8"))
+    System.setErr(PrintStream(FileOutputStream(FileDescriptor.err), true, "UTF-8"))
+
     val args = parseArgs(argv)
-    val token = newToken()
+    val psk = newPsk()
 
     /**
      * 令牌存储。
@@ -141,6 +187,19 @@ fun main(argv: Array<String>) {
         }
     args.accessToken?.let { tokens.update(it, null) }
 
+    /*
+     * 设备密钥（人机验证用）。
+     *
+     * 与令牌同一套口径：**默认不落盘**、只有宿主显式传 `--device-key-file` 才加密保存；
+     * 拿不到 DPAPI 就退回内存（重启换一把，代价只是"服务端会认为是新设备"，不影响安全）。
+     * 它**不是凭据**：只用来给一次挑战签名，不授予任何权限。
+     */
+    val deviceKeyFile = args.deviceKeyFile?.let { java.nio.file.Paths.get(it) }
+    val deviceKeyCodec = if (deviceKeyFile != null && DpapiCodec.available()) DpapiCodec() else null
+    if (deviceKeyFile != null && deviceKeyCodec == null) {
+        BridgeLog.info("本机拿不到 DPAPI，设备密钥仅存内存（重启后服务端会视为新设备）")
+    }
+
     // 能力必须**如实**：拿不到加密存储就不能声明 storage.secure ——
     // 声明了做不到的能力比不声明更糟（UI 会据此画出永远不工作的入口）。
     val capabilities =
@@ -150,11 +209,41 @@ fun main(argv: Array<String>) {
             args.capabilities - BridgeCapabilities.SECURE_STORE
         }
 
+    /*
+     * 宿主控制通道（stdout）：**一条 JSON 一行**。
+     *
+     * 为什么用 stdout：日志走的是 stderr（见 [BridgeLog] 的说明），stdout 上本来就只有
+     * 握手那一行 —— 它天然是"父进程与桥之间的控制通道"，不需要再开一条 socket/管道。
+     *
+     * 三种行：
+     *   `{"v":1,"type":"handshake",…}` —— 第一条，父进程据此拿到端口与 psk
+     *   `{"v":1,"type":"event","topic":"…","data":{…}}` —— 事件（新消息通知等）
+     *   `{"v":1,"type":"evidence-request","id":"…"}` —— 桥向壳要本地环境证据，父进程在 stdin 回同 id
+     */
+    val stdoutLock = Any()
+
+    fun writeControlLine(json: JsonObject) {
+        synchronized(stdoutLock) {
+            println(json.toString())
+            System.out.flush()
+        }
+    }
+
+    /*
+     * "桥问、壳答"的证据通道。
+     *
+     * 桌面壳能看见、页面看不见的事实（是不是发布包、有没有挂调试器）只存在于 **Electron 主进程**；
+     * 而需要这些事实的是**桥**。已有控制通道是单向的（事件走 stdout、`shutdown` 走 stdin），
+     * 所以这里补一条带 id 的请求/响应：桥在 stdout 写 `evidence-request`，
+     * 父进程在 stdin 回 `{id, data}`。
+     */
+    val evidence = DesktopEvidenceChannel(write = { json -> writeControlLine(json) })
+
     val server =
         BridgeServer(
             BridgeServerConfig(
                 port = args.port,
-                token = token,
+                psk = psk,
                 backend = OkHttpBackend(args.backend, tokens),
                 platform = DesktopPlatform(args.version, capabilities),
                 tokens = tokens,
@@ -162,37 +251,70 @@ fun main(argv: Array<String>) {
                 transport = args.transport,
                 host = args.host,
                 maxPerSecond = args.maxPerSecond,
+                notifyPollMs = args.notifyPollMs,
+                humanVerifyPort = if (BridgeCapabilities.HUMAN_VERIFY in capabilities) evidence else null,
+                deviceKeyFile = deviceKeyFile,
+                deviceKeyCodec = deviceKeyCodec,
             ),
         )
 
     val boundPort = server.start()
 
+    // 新消息等事件：壳（Electron 主进程）据此弹**系统通知**
+    server.onEvent { topic, data ->
+        writeControlLine(
+            JsonObject(
+                mapOf(
+                    "v" to JsonPrimitive(1),
+                    "type" to JsonPrimitive("event"),
+                    "topic" to JsonPrimitive(topic),
+                    "data" to (data ?: JsonNull),
+                ),
+            ),
+        )
+    }
+
     val handshake =
         JsonObject(
             mapOf(
                 "v" to JsonPrimitive(1),
+                // 显式标类型：stdout 上现在有两种行，父进程不该靠"猜字段"来区分
+                "type" to JsonPrimitive("handshake"),
                 "host" to JsonPrimitive(args.host),
                 "port" to JsonPrimitive(boundPort),
-                "token" to JsonPrimitive(token),
+                "psk" to JsonPrimitive(psk),
                 "pid" to JsonPrimitive(ProcessHandle.current().pid()),
                 "ver" to JsonPrimitive(args.version),
                 "platform" to JsonPrimitive(BridgeCapabilities.PLATFORM_DESKTOP),
                 "capabilities" to JsonPrimitive(args.capabilities.sorted().joinToString(",")),
             ),
-        ).toString()
+        )
 
     // 父进程读这一行完成握手；必须 flush，否则会被块缓冲吞掉
-    println(handshake)
-    System.out.flush()
+    writeControlLine(handshake)
 
     Runtime.getRuntime().addShutdownHook(Thread { server.stop() })
 
-    // stdin 收到 shutdown 即退出；stdin 关闭（父进程死了）也退出
+    // stdin 收到 shutdown 即退出；stdin 关闭（父进程死了）也退出。
+    // 非 shutdown 的行按 JSON 解析：目前只有"证据答复"（`{"v":1,"id":"ev-1","data":{…}}`）。
     val reader = System.`in`.bufferedReader()
     while (true) {
         val line = reader.readLine() ?: break
-        if (line.trim().equals("shutdown", ignoreCase = true)) {
+        val trimmed = line.trim()
+        if (trimmed.equals("shutdown", ignoreCase = true)) {
             break
+        }
+        if (trimmed.startsWith("{")) {
+            runCatching {
+                val json = Json.parseToJsonElement(trimmed).jsonObject
+                val id = json["id"]?.jsonPrimitive?.contentOrNull
+                if (id != null) {
+                    evidence.complete(id, json["data"] as? JsonObject)
+                }
+            }.onFailure {
+                // 认不出的行只记一条：控制通道**不能因为一行坏输入就退出**
+                BridgeLog.info("忽略无法解析的控制行：${trimmed.take(120)}")
+            }
         }
     }
 

@@ -1,36 +1,33 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElButton, ElForm, ElFormItem, ElInput } from 'element-plus';
 import { useSessionStore } from '@wise/stores';
 import { errorTextOf } from '@wise/ui';
+import HumanVerifyField from '../../components/HumanVerifyField.vue';
+import { useHumanVerify } from '../../components/useHumanVerify.js';
 
 /**
  * 登录屏 —— **纯展示 + 表单**。
  *
- * 它自己不碰桥：验证码、登录、会话判定全在 `useSessionStore` 里
- * （由 `check:store` 静态保证）。这样"验证码一次性、失败必换一张"
- * 这类流程规则只有一处实现，别的入口能直接复用。
+ * 它自己不碰桥：登录、会话判定全在 `useSessionStore` 里（由 `check:store` 静态保证）；
+ * 人机验证走 `useHumanVerify`（它调的是桥的**内建方法** `bridge.humanVerify`，
+ * 票据留在桥里，页面拿不到也不需要知道）。
  *
  * 三条不变量：
- *   1. `captchaImage` 是后端给的 `data:image/png;base64,…`，直接塞 `<img>`；
+ *   1. 登录前必须**先过验证**（点按钮完成，零输入；图形验证码已整体删除）；
  *   2. `auth.login` 的响应里**不会再有令牌**（桥已截留，见 docs/w3-session.md）；
  *   3. 登录态只认 `bridge.session`，前端不自己记布尔。
  */
 const session = useSessionStore();
 const router = useRouter();
+const humanVerify = useHumanVerify();
 
 const username = ref('');
 const password = ref('');
-const captchaCode = ref('');
 
-const canSubmit = computed(
-  () => username.value.trim() !== '' && password.value !== '' && captchaCode.value.trim() !== '' && !session.signingIn,
-);
+const canSubmit = computed(() => username.value.trim() !== '' && password.value !== '' && !session.signingIn);
 
-const captchaMessage = computed(() =>
-  session.captchaError ? errorTextOf(session.captchaError, '验证码加载失败') : undefined,
-);
 const signInMessage = computed(() => (session.signInError ? errorTextOf(session.signInError, '登录失败') : undefined));
 
 /**
@@ -43,34 +40,33 @@ const expiredNotice = computed(() =>
   session.expired ? '登录已过期，请重新登录。刚才那一步没有提交，重新登录后可以再来一次。' : undefined,
 );
 
-/**
- * 验证码字段的错误态用整块 `v-bind`。
- *
- * Element Plus 的 `error` 属性不接受 `undefined`，而本项目开着
- * `exactOptionalPropertyTypes`，`:error="maybeUndefined"` 会被类型系统拦下。
- */
-const captchaFieldProps = computed<Record<string, string>>(() =>
-  captchaMessage.value === undefined ? {} : { error: captchaMessage.value },
-);
-
 async function submit(): Promise<void> {
   if (!canSubmit.value) {
+    return;
+  }
+  /*
+   * 顺序不能换：**先人机验证，再登录**。
+   *
+   * 反过来的话，服务端会先拒掉这次登录（没有票据），然后用户还得再点一次验证 ——
+   * 一次操作变成两次，而且第一次的失败信息完全没意义。
+   *
+   * 验证没过就直接返回：不发那个注定被拒的登录请求（省一次往返，也省一条误导性的错误）。
+   */
+  const verified = await humanVerify.verify('LOGIN', username.value.trim());
+  if (!verified.ok) {
     return;
   }
   const ok = await session.signIn({
     username: username.value.trim(),
     password: password.value,
-    captchaCode: captchaCode.value.trim(),
   });
-  captchaCode.value = '';
   if (ok) {
     await router.replace({ name: 'home' });
+    return;
   }
+  // 登录失败（密码错/账号锁定）⇒ 票据已经用掉了，下一次必须重新验证
+  humanVerify.reset();
 }
-
-onMounted(() => {
-  void session.loadCaptcha();
-});
 </script>
 
 <template>
@@ -97,18 +93,12 @@ onMounted(() => {
         <ElFormItem label="密码">
           <ElInput v-model="password" size="large" type="password" show-password placeholder="请输入密码" autocomplete="current-password" />
         </ElFormItem>
-        <ElFormItem label="验证码" v-bind="captchaFieldProps">
-          <div class="w-login__captcha">
-            <img
-              v-if="session.captcha?.captchaImage"
-              class="w-login__captcha-img"
-              :src="session.captcha.captchaImage"
-              alt="验证码"
-            />
-            <div v-else class="w-login__captcha-img w-login__captcha-img--empty" aria-hidden="true" />
-            <ElButton size="large" text :disabled="session.signingIn" @click="session.loadCaptcha">换一张</ElButton>
-            <ElInput v-model="captchaCode" size="large" class="w-login__captcha-input" placeholder="验证码" autocomplete="off" />
-          </div>
+        <ElFormItem label="人机验证">
+          <!--
+            替代图形验证码：**零输入**。点一下由桥去完成"本地环境证据 + 服务端票据"，
+            页面既不渲染图片，也不持有票据（票据在桥里）。
+          -->
+          <HumanVerifyField :state="humanVerify" purpose="LOGIN" :username="username.trim()" />
         </ElFormItem>
       </ElForm>
 
@@ -208,30 +198,6 @@ onMounted(() => {
   font-size: var(--w-type-page-title-size);
   line-height: var(--w-type-page-title-line);
   font-weight: var(--w-type-page-title-weight);
-}
-
-.w-login__captcha {
-  display: flex;
-  align-items: center;
-  gap: var(--w-space-inline-gap);
-  width: 100%;
-}
-
-.w-login__captcha-img {
-  width: var(--w-size-captcha-width);
-  height: var(--w-density-control-height);
-  border-radius: var(--w-radius-control);
-  border: 1px solid var(--w-color-outline);
-  object-fit: cover;
-  background: var(--w-color-surface-alt);
-}
-
-.w-login__captcha-img--empty {
-  display: block;
-}
-
-.w-login__captcha-input {
-  flex: 1;
 }
 
 .w-login__error {

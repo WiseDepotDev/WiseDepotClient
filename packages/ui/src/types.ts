@@ -114,6 +114,27 @@ export function errorTextOf(error: UiError | null | undefined, fallback = '操�
       return '相机权限被拒绝，请在系统设置里允许使用相机';
     case 'scan.cameraBusy':
       return '摄像头正被其它程序占用';
+    /*
+     * 加密层失败（v5）。措辞刻意指向"重连/重开应用"而不是"你的操作有问题"：
+     * 它的成因只有两类 —— 这条连接不可信（重连即可），或两端不是同一份密钥
+     * （引导文件过期，完全退出应用再打开）。
+     */
+    case 'bridge.cryptoFailed':
+      return '与本地服务的安全通道未建立，请重试；仍然失败请完全退出应用后重新打开';
+    /*
+     * 人机验证（点一下按钮那个）。
+     *
+     * 「申请不到挑战」与「服务端拒绝了这次验证」的**出路完全相反**，所以必须分开说：
+     * 前者是环境问题（后端没起来 / 后端不是最新版 → 去重新部署），后者是这次验证本身不过
+     * （设备签名、票据、锁定窗口）。文案里带上 `code` —— 它是排障时唯一的抓手，
+     * 而剥掉它的写法（"验证未通过，请再试一次"）会让人一直在原地重试。
+     */
+    case 'bridge.humanVerifyChallengeFailed':
+      return `本地服务无法开始人机验证（${error.code}）。若刚更新过后端，请确认服务端已重启到最新版本`;
+    case 'bridge.humanVerifyRejected':
+      return `人机验证未通过（${error.code}）`;
+    case 'bridge.humanVerifyUnavailable':
+      return '当前应用版本不支持人机验证，请更新到最新版本';
     default:
       return `${fallback}（${error.code}）`;
   }

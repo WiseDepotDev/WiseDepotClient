@@ -1,9 +1,12 @@
-import { app, BrowserWindow, Menu, protocol, net, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, protocol, net, session, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { join } from 'node:path';
 import { BridgeProcess, type BridgeHandshake } from './bridgeProcess';
 import { bootstrapResponse, resolveWebAsset } from './webAssets';
+import { notifyMessage, MESSAGE_ROUTE_PREFIX, type NotifyMessageEvent } from './notifications';
+import { silentStubMessage, startNotifyStub as startNotifyStubShared, type NotifyStub } from './notifyStub';
+import { desktopEvidence } from './humanVerify';
 
 /**
  * 桌面宿主主进程。
@@ -118,6 +121,14 @@ function resolveBridgeCommand(): { javaCommand: string; classpath: string } {
 
 let bridge: BridgeProcess | null = null;
 let handshake: BridgeHandshake | null = null;
+
+/**
+ * 已经处理过的通知事件（最近 50 条）。
+ *
+ * 生产路径只多了一次 push（可忽略），换来的是**排障与自检看得见的证据**：
+ * 现场只有 `[notify] 已弹系统通知` 一行，问"弹的是哪一条、文案对不对"就没法回答了。
+ */
+const notifyHistory: { data: NotifyMessageEvent; shown: boolean }[] = [];
 let mainWindow: BrowserWindow | null = null;
 
 /**
@@ -202,7 +213,31 @@ async function startBridge(): Promise<void> {
     // **自检模式不落盘**：自检断言"应当渲染出登录屏"，而那要求桥是未登录状态。
     // 一旦沿用用户的会话文件，这个断言就变成"取决于这台机器上有没有登录过" ——
     // 自检必须封闭可重复，不能依赖环境（踩过一次：登录过之后自检就红了）。
-    extraArgs: SMOKE ? [] : ['--token-file', join(app.getPath('userData'), 'bridge-session.enc')],
+    extraArgs: NOTIFY_SMOKE
+      ? [
+          // 通知自检：**预置一个令牌**让桥认为已登录（否则它一个请求都不发），
+          // 并把轮询压到 400ms —— 10 秒一轮的自检要等十几秒，慢门禁的下场是被跳过。
+          '--access-token',
+          'notify-smoke',
+          '--notify-poll-ms',
+          '400',
+        ]
+      : SMOKE
+        ? []
+        : [
+            '--token-file',
+            join(app.getPath('userData'), 'bridge-session.enc'),
+            // 设备密钥与令牌分开存（生命周期不同：登出清令牌，不该顺手清掉设备身份）
+            '--device-key-file',
+            join(app.getPath('userData'), 'bridge-device-key.enc'),
+          ],
+    /*
+     * 桥问壳要"本地环境证据"时由这里回答（人机验证用）。
+     *
+     * 为什么必须在**主进程**：`app.isPackaged` 与启动开关都只在这里可见；
+     * 页面拿不到，也因此没法伪造它们（虽然它们本身也只是证据，见 `humanVerify.ts`）。
+     */
+    evidenceProvider: desktopEvidence,
     // jlink + AppCDS 的启动优化放在这里，而不是写死在宿主里：
     // 宿主是"一份"，它的启动参数属于"桌面这一侧的托管方式"。
     //
@@ -228,6 +263,31 @@ async function startBridge(): Promise<void> {
       console.error(`[bridge] 桥进程异常退出 code=${info.code}`);
     }
     handshake = null;
+  });
+  /*
+   * 桥的事件 → **系统通知**。
+   *
+   * 为什么不走渲染进程：通知最该出现的时刻界面不在前台，那时页面 JS 可能已被节流/冻结；
+   * 而且主进程的 Notification 不需要权限（渲染进程那条路被权限处理器有意挡着，见 `registerPermissionHandlers`）。
+   */
+  bridge.on('event', (event: { topic: string; data: unknown }) => {
+    if (event.topic !== 'notify.message') {
+      return;
+    }
+    const data = (event.data ?? {}) as NotifyMessageEvent;
+    const shown = notifyMessage({ window: mainWindow }, data);
+    // "没弹"必须能解释：前台可见时不弹是**故意**的
+    console.log(`[notify] ${shown ? '已弹系统通知' : '未弹（前台可见 / 缺标题）'}`);
+    /*
+     * 留一份证据。
+     *
+     * `[notify]` 那行只说"弹/没弹"，而 `--notify-smoke` 要断言的是"弹的是哪一条、文案有没有乱码"。
+     * 记下来比事后猜便宜：真机现场只有这一份日志。
+     */
+    notifyHistory.push({ data, shown });
+    if (notifyHistory.length > 50) {
+      notifyHistory.shift();
+    }
   });
 
   handshake = await bridge.start();
@@ -269,6 +329,19 @@ async function createWindow(): Promise<void> {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      /*
+       * **关掉后台节流**（v5 起必需）。
+       *
+       * 桥会把读空闲超过 60 秒的连接关掉，而客户端的"保活"是后台才发的
+       * （`BRIDGE_KEEPALIVE_INTERVAL_MS`，见 transport.ts）：Chromium 对隐藏页面有定时器节流
+       * ——隐藏 5 分钟后会降到约**每分钟一次**，那样保活就赶不上 60 秒的读空闲，
+       * 切回来照样是一次重连。关掉节流之后保活才真的每 30 秒发得出去，
+       * 于是"切到后台再切回来"不再需要重连。
+       *
+       * 代价：窗口被遮挡/最小化时这个渲染进程不再被降频。本应用只有一个窗口、
+       * 且后台时几乎不干活（探测与自动刷新在不可见时本来就停），所以划得来。
+       */
+      backgroundThrottling: false,
     },
   });
 
@@ -312,15 +385,35 @@ async function createWindow(): Promise<void> {
 
 void app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  /*
+   * Windows 的 toast 身份：**未打包的 Electron 必须显式设**，否则通知静默不显示
+   * （不是报错、不是抛异常，是"什么都没发生" —— 这类问题最难查）。
+   * 用 `package.json` 的 `build.appId` 同一个值，打包态与开发态表现一致。
+   */
+  app.setAppUserModelId('com.huicang.wise.depot');
   // 权限处理器必须在**建窗之前**装好：窗口一建出来页面就可能开始请求（冷启动很快）
   registerPermissionHandlers();
   registerAppProtocol();
+  /*
+   * 通知自检要在 `startBridge()` **之前**把假后端起好：桥一 spawn 就会去轮询，
+   * 那时 `WISE_BACKEND_URL` 必须已经指向假后端（否则它去连真后端，也就不会有新消息）。
+   */
+  if (NOTIFY_SMOKE) {
+    const stub = await startNotifyStub();
+    notifyStub = stub;
+    process.env.WISE_BACKEND_URL = stub.url;
+    console.log(`[notify-smoke] 假后端就绪：${stub.url}`);
+  }
   // 并行：不 await 桥，窗口先起来（桥就绪前 Web 会拿到 503 并显示"连接中"）
   const bridgeStartup = startBridge().catch((e: Error) => {
     console.error(`[bridge] 启动失败：${e.message}`);
   });
   await createWindow();
   await bridgeStartup;
+  if (NOTIFY_SMOKE) {
+    await runNotifySmoke();
+    return;
+  }
   if (SMOKE) {
     await runSmoke();
   }
@@ -337,6 +430,18 @@ void app.whenReady().then(async () => {
  * 定义在文件前部：`startBridge()` 需要它来决定要不要落盘令牌。
  */
 const SMOKE = process.argv.includes('--smoke');
+
+/**
+ * `--notify-smoke`：**系统通知这一片的真机自检**（真 Electron + 真桥子进程 + 真 Windows toast）。
+ *
+ * 为什么需要它：`pnpm bench:desktop` 已经能证明"事件到了壳"，但它用的是**改过的入口**，
+ * 证明不了 `main.ts` 接线这一段；而"气泡到底出没出来"只有 Windows 说了算。
+ * 本模式起一个**假后端**（见 `startNotifyStub`），把轮询压到 400ms，真的走一遍
+ * 后端 → 桥 → stdout → `notifyMessage` → `new Notification().show()`，并把结论打成 JSON。
+ *
+ * **它会真的弹两个气泡到你的屏幕上**（一个有声、一个静默），这是重点，不是副作用。
+ */
+const NOTIFY_SMOKE = process.argv.includes('--notify-smoke');
 
 async function runSmoke(): Promise<void> {
   const win = mainWindow;
@@ -358,7 +463,14 @@ async function runSmoke(): Promise<void> {
   // `Failed to resolve module specifier 'assets/index-….js'`）。
   const zxingWasm = findZxingWasm();
   const zxingChunk = findZxingReaderChunk();
+  /*
+   * v5：自检用的加密 ping 探针是**预打包**的（`dist/smoke-ping.js`，见 `src/smokePing.ts`）。
+   * 注入脚本是字符串、拿不到页面模块图，所以把 bundle 文本拼在最前面 ——
+   * 于是自检与页面用的是同一套 seal/wire 实现，不存在"第四份线实现"。
+   */
+  const smokePingBundle = fs.readFileSync(path.join(__dirname, 'smoke-ping.js'), 'utf8');
   const probe = `
+    ${smokePingBundle}
     (async () => {
       const ZXING_WASM = ${JSON.stringify(zxingWasm === null ? null : `${ORIGIN}/${zxingWasm}`)};
       const ZXING_CHUNK = ${JSON.stringify(zxingChunk === null ? null : `${ORIGIN}/${zxingChunk}`)};
@@ -373,49 +485,16 @@ async function runSmoke(): Promise<void> {
       let ping = null;
       if (boot) {
         /*
-         * 诊断探针：**自带一份最小的 v4 帧编解码**。
+         * v5：ping 探针**不再自带线实现**，而是用与页面同一套的共享实现
+         * （src/smokePing.ts → 预打包成 dist/smoke-ping.js，由本脚本拼进注入源码）。
          *
-         * 为什么自带：探针是注入到页面里执行的**字符串**，拿不到页面模块图里的 wire.ts；
-         * 而它必须说真话 —— 不能因为"编不出 v4 帧"就假装通过（那正是协议升版时最容易漏的地方）。
-         * 生产路径上 wire 只有三份实现（Kotlin / TS / 工具），这里是**诊断用**的第四份，
-         * 只覆盖 ping 一个方向；帧头布局变更时随自检一起改（跑 pnpm desktop:smoke 会立刻红）。
+         * 为什么必须这样：加密之后手搓一份就等于再写一遍 ECDH + AES-GCM ——
+         * "加密层只有三份实现"那条纪律会被一份诊断代码作废；而这份诊断恰恰是
+         * 用来证明"真环境里真的能连上桥"的，它自己不能是第四套协议。
+         *
+         * 注意：本段是注入到页面里的**字符串**，不能出现反引号（会截断外层模板串）。
          */
-        const enc = new TextEncoder();
-        const dec = new TextDecoder();
-        const buildReq = (id, method) => {
-          const body = enc.encode(JSON.stringify({ method }));
-          const idb = enc.encode(id);
-          const out = new Uint8Array(12 + idb.length + body.length);
-          out[0] = 0x57; out[1] = 0x42; out[2] = 4; out[3] = 1; out[4] = 1; out[5] = 0;
-          out[6] = idb.length & 0xff; out[7] = 0;
-          new DataView(out.buffer).setUint32(8, body.length, true);
-          out.set(idb, 12); out.set(body, 12 + idb.length);
-          return out;
-        };
-        const parseFrame = (buf) => {
-          const b = new Uint8Array(buf);
-          const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
-          const idLen = v.getUint16(6, true);
-          const bodyLen = v.getUint32(8, true);
-          return {
-            kind: b[3],
-            id: dec.decode(b.subarray(12, 12 + idLen)),
-            json: JSON.parse(dec.decode(b.subarray(12 + idLen, 12 + idLen + bodyLen))),
-          };
-        };
-        ping = await new Promise((resolve) => {
-          const ws = new WebSocket('ws://127.0.0.1:' + boot.port + '/bridge?token=' + encodeURIComponent(boot.token));
-          ws.binaryType = 'arraybuffer';
-          const timer = setTimeout(() => resolve({ error: 'ws timeout' }), 5000);
-          ws.onopen = () => ws.send(buildReq('smoke-1', 'bridge.ping'));
-          ws.onmessage = (e) => {
-            try {
-              const f = parseFrame(e.data);
-              if (f.id === 'smoke-1') { clearTimeout(timer); resolve({ type: f.kind === 2 ? 'res' : 'kind-' + f.kind, data: f.json.data }); ws.close(); }
-            } catch { /* 解不出来的帧不参与断言 */ }
-          };
-          ws.onerror = () => { clearTimeout(timer); resolve({ error: 'ws error' }); };
-        });
+        ping = await globalThis.__wiseSmokePing.smokePing({ port: boot.port, psk: boot.psk });
       }
       /*
        * 相机链路（B1/S2c）：**在真机、真 app:// origin、真权限处理器下开一次流**。
@@ -688,6 +767,218 @@ async function runSmoke(): Promise<void> {
   console.log(`[perm] 流水账：${permissionLog.length === 0 ? '（本次没有权限请求）' : permissionLog.join(' | ')}`);
   const summary = `${checks.length} 项通过${skipped.length === 0 ? '' : `，${skipped.length} 项跳过`}`;
   console.log(ok ? `✓ Windows 端到端自检通过（${summary}）` : `✗ Windows 端到端自检失败（${summary}）`);
+  app.exit(ok ? 0 : 1);
+}
+
+// ---------------------------------------------------------------- 通知自检（--notify-smoke）
+
+/** 假后端的句柄（只在 `--notify-smoke` 下存在）。 */
+let notifyStub: NotifyStub | null = null;
+
+/**
+ * 通知自检用的**假后端**：见 `notifyStub.ts`。
+ *
+ * 它**必须与 `bench:desktop` 共用同一份**：这条链上缺哪个接口，两个自检要同时知道。
+ * （第一次踩坑就是这样：点通知跳到消息详情屏时详情屏要 `message.detail`，
+ * 而当时内联在这里的那段只实现了轮询要的三个接口，界面于是显示 `NOT-FOUND`。）
+ */
+async function startNotifyStub(): Promise<NotifyStub> {
+  return await startNotifyStubShared({ idPrefix: 'SMOKE' });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function waitFor<T>(pick: () => T | undefined, timeoutMs: number): Promise<T | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const v = pick();
+    if (v !== undefined) {
+      return v;
+    }
+    if (Date.now() >= deadline) {
+      return null;
+    }
+    await sleep(50);
+  }
+}
+
+/**
+ * `--notify-smoke` 的正文：**真的弹两个气泡**，并把结论打成 JSON（退出码即结论）。
+ *
+ * 四段都要验，而且顺序就是消息到来时的真实顺序：
+ *   1. 桥在轮询（不是"没跑所以不弹"）；基线播种期间**不许**弹历史消息；
+ *   2. 未读涨 ⇒ 真 Windows toast（有声：`ALERT` + `priority=1`）；
+ *   3. 再来一条 ⇒ 静默 toast（`SYSTEM` + `priority=0`），且中文文案没乱码；
+ *   4. 点击路径：用**注入的假 Notification** 走一遍 `notifyMessage` 的真实代码，
+ *      断言点击会 `restore/show/focus` 并把 `location.hash` 改成 `#/me/messages/<id>`
+ *      —— 真点一下气泡要人手，但"点了以后会发生什么"可以自动化。
+ */
+async function runNotifySmoke(): Promise<void> {
+  const win = mainWindow;
+  const stub = notifyStub;
+  const checks: [string, boolean][] = [];
+
+  // 窗口必须**不可见**，否则 `notifyMessage` 会因为"前台可见"而故意不弹（那是设计行为）
+  win?.hide();
+  await sleep(300);
+
+  if (!stub) {
+    console.error('[notify-smoke] 假后端没起来，无法继续');
+    app.exit(1);
+    return;
+  }
+  if (!win) {
+    console.error('[notify-smoke] 窗口不存在');
+    app.exit(1);
+    return;
+  }
+
+  checks.push(['Electron 报告本机支持系统通知（Notification.isSupported）', Notification.isSupported()]);
+  checks.push(['窗口已隐藏（前台可见时**故意不弹**，所以自检必须让出前台）', !win.isVisible()]);
+
+  // 1. 轮询真的在跑：至少要看到一次 unread-count，否则后面的"没弹"是空的
+  const polled = await waitFor(() => (stub.calls.count >= 1 ? true : undefined), 10_000);
+  checks.push(['桥在轮询未读数（已登录 + 假后端可达）', polled === true]);
+  checks.push(['开窗期间不为历史未读补弹通知（基线播种）', notifyHistory.length === 0]);
+
+  // 2. 有声通知
+  stub.setUnread(1);
+  const first = await waitFor(() => notifyHistory[0], 10_000);
+  checks.push(['未读 0 → 1 ⇒ 真的调了 Notification.show()（有声）', first !== null && first.shown === true]);
+  checks.push([
+    '中文标题/正文原样到达（不是乱码：`设备异常` / `读头 3 已离线`）',
+    first?.data.latest?.title === '设备异常' && first?.data.latest?.body === '读头 3 已离线',
+  ]);
+  checks.push(['事件标了 audible（有声渠道）', first?.data.audible === true]);
+  console.log('[notify-smoke] 第 1 个气泡应该已经出现在屏幕上：设备异常 / 读头 3 已离线（有声）');
+  await sleep(2500);
+
+  /*
+   * **第一个气泡可能已经被人点过了。**
+   *
+   * 点它会走 `notifyMessage` 的点击路径：`restore → show → focus`，也就是窗口被拉回前台 ——
+   * 那是设计（点通知当然要唤起应用）。但"前台可见时不弹"也是设计，于是
+   * **后面那条"再弹一次"会被正确地抑制**，自检就红了。
+   *
+   * 这不是 bug，是断言漏了"人在旁边"这个变量。所以：把这次观察打出来（它是"点击深链真的生效过"
+   * 的证据，比一句"通过"值钱），然后**重新让出前台**，让后面两条断言有确定的初始状态。
+   */
+  if (win.isVisible()) {
+    console.log('[notify-smoke] 观察到：窗口已回到前台 —— 说明第 1 个气泡被点过，点击路径真的生效了');
+  }
+  win.hide();
+  await sleep(200);
+
+  // 3. 静默通知
+  stub.setUnread(2, silentStubMessage('SMOKE'));
+  const second = await waitFor(() => notifyHistory[1], 10_000);
+  checks.push(['再来一条 ⇒ 再弹一次（去重不吃新消息）', second !== null && second.shown === true]);
+  checks.push(['priority=0 ⇒ 静默（audible=false，不带声音）', second?.data.audible === false]);
+  checks.push(['同一条消息不重复弹', notifyHistory.length === 2]);
+  console.log('[notify-smoke] 第 2 个气泡应该也出现了：系统维护通知 / 今晚 23:00 例行维护（静默）');
+
+  // 4. 点击路径：真实函数 + 注入的假 Notification（真点气泡要人手，逻辑不必等）
+  const captured: { title: string; body: string; silent: boolean }[] = [];
+  let clicked: (() => void) | null = null;
+  const executed: string[] = [];
+  const restored: string[] = [];
+  const fakeWindow = {
+    isVisible: () => true,
+    isFocused: () => false,
+    isMinimized: () => true,
+    restore: () => restored.push('restore'),
+    show: () => restored.push('show'),
+    focus: () => restored.push('focus'),
+    webContents: { executeJavaScript: (code: string) => executed.push(code) },
+  };
+  const clickShown = notifyMessage(
+    {
+      window: fakeWindow as unknown as BrowserWindow,
+      createNotification: (options) => {
+        captured.push(options);
+        return {
+          show: () => undefined,
+          on: (event: 'click', handler: () => void) => {
+            if (event === 'click') {
+              clicked = handler;
+            }
+          },
+        };
+      },
+    },
+    { audible: true, latest: { id: 'SMOKE-MSG-1', title: '设备异常', body: '读头 3 已离线' } },
+  );
+  clicked?.();
+  checks.push(['点击路径：`notifyMessage` 在最小化+失焦时也弹（只有聚焦可见才抑制）', clickShown === true]);
+  checks.push(['点击路径：参数原样传给系统通知（标题/正文/有声）', captured.length === 1 && captured[0]?.silent === false && captured[0]?.title === '设备异常']);
+  checks.push([
+    '点击路径：唤起窗口（restore → show → focus，顺序不能反）',
+    restored.join('→') === 'restore→show→focus',
+  ]);
+  checks.push([
+    `点击路径：深链改成 #${MESSAGE_ROUTE_PREFIX}SMOKE-MSG-1（不重载页面）`,
+    executed.length === 1 && executed[0] === `location.hash = '#${MESSAGE_ROUTE_PREFIX}SMOKE-MSG-1'`,
+  ]);
+
+  let ok = true;
+  for (const [name, passed] of checks) {
+    if (!passed) {
+      ok = false;
+    }
+    console.log(`  ${passed ? '✓' : '✗'} ${name}`);
+  }
+  console.log(
+    `[notify-smoke] ${ok ? '通过' : '失败'}（${checks.filter(([, p]) => p).length}/${checks.length}）` +
+      ` 轮询 user.current=${stub.calls.user} unread-count=${stub.calls.count} list=${stub.calls.list}`,
+  );
+
+  /*
+   * 不立刻退出：气泡是**给人看的**，程序秒退的话你可能什么都没看到。
+   * 这段时间也是"点一下气泡看看会不会唤起窗口"的窗口期 ——
+   * 注意**必须在这段时间内点**：自检一退出，假后端就没了，那时点气泡会拿真后端去解析
+   * `SMOKE-MSG-1`（结果当然是"这条消息已经不在了"）。
+   *
+   * `WISE_NOTIFY_SMOKE_HOLD_MS` 可以把这个窗口拉长（人工确认时用 30000 更从容）。
+   */
+  const holdMs = Number(process.env.WISE_NOTIFY_SMOKE_HOLD_MS ?? 12_000);
+  console.log(
+    `[notify-smoke] 保持 ${Math.round(holdMs / 1000)} 秒：请看一眼屏幕上的两个气泡，` +
+      '并在这段时间内**点一下第 1 个**（应唤起应用并停在消息详情，正文就是"读头 3 已离线"）…',
+  );
+  await sleep(holdMs);
+
+  /*
+   * **点击深链的取证**（观察，不是断言）。
+   *
+   * "屏幕上出现了一个气泡""点下去跳到了详情屏"这两件事自动化替代不了；
+   * 但"点下去之后详情屏**真的取到了哪一条**"是可以量的：详情屏挂载时会请求
+   * `message.detail` 并顺手调一次 `message.markRead`。所以这里把假后端收到的调用打出来 ——
+   * 有人点过就会出现 `detail=1`，而"正文是不是那条消息"由假后端返回的内容决定。
+   * 没人点的时候它是 0，那不算失败（这条链不依赖人手），只是没有这一步的取证。
+   */
+  const clickedThrough = stub.calls.detail >= 1;
+  console.log(
+    `[notify-smoke] 点击取证：message.detail=${stub.calls.detail} message.markRead=${stub.calls.markRead}` +
+      ` 已读集合=[${[...stub.readIds].join(', ') || '空'}] 窗口被拉起=${win.isVisible()}`,
+  );
+  console.log(
+    clickedThrough
+      ? '[notify-smoke] ⇒ 有人点过气泡，且详情屏真的向假后端要过那条消息（深链与路由都生效）'
+      : '[notify-smoke] ⇒ 本次没有人点气泡；这一步的取证为空（不是失败，只是没验）',
+  );
+
+  /*
+   * 让 stdout **排空**再退出。
+   *
+   * `app.exit()` 是立刻终止进程：上面两行取证日志写在它前面，但它们还在管道缓冲里，
+   * 父进程（PowerShell / CI）**一行都收不到** —— 现场表现是"日志停在'保持 60 秒'那句"。
+   * 这一停也顺手给了假后端一个干净的关闭窗口。
+   */
+  await sleep(400);
+
+  await stub.close();
   app.exit(ok ? 0 : 1);
 }
 
