@@ -15,8 +15,12 @@ object BridgeProtocol {
      * v4：**全二进制线格式**（12 字节帧头，见 [BridgeWire]）。v3 的文本帧 JSON 信封不再使用，
      * 收到文本帧一律回 [BridgeErrorCodes.WIRE_MODE] 而不是静默兼容 —— 半兼容的"看起来能用"
      * 比明确失败更难查（与 `__bridge.json` 版本不符就报错是同一条纪律）。
+     *
+     * v5：**帧内容全加密**（临时 ECDH P-256 + AES-256-GCM，见 [BridgeCrypto]）。
+     * 12 字节帧头仍是明文（限额与错误关联不依赖解密），正文是"内层整帧"的密文；
+     * 新增唯一允许明文的 `hello` 帧（交换临时公钥）；握手 URL 上不再有 token。
      */
-    const val VERSION: Int = 4
+    const val VERSION: Int = 5
 
     /** WebSocket 握手路径（宿主绑定在 loopback 的临时端口上）。 */
     const val HANDSHAKE_PATH: String = "/bridge"
@@ -106,11 +110,20 @@ object BridgeErrorCodes {
     /** 参数未通过 schema 校验。 */
     const val PARAMS_INVALID: String = "BRIDGE_PARAMS_INVALID"
 
-    /** 握手 token 或 Origin 校验失败。 */
+    /** 预认证失败（v5）：Origin 不符、缺少/非法的客户端公钥，或截止时间内没交出合法密文帧。 */
     const val UNAUTHORIZED: String = "BRIDGE_UNAUTHORIZED"
 
     /** 帧超过 [BridgeProtocol.MAX_FRAME_BYTES]。 */
     const val FRAME_TOO_LARGE: String = "BRIDGE_FRAME_TOO_LARGE"
+
+    /**
+     * 加密层失败（v5）：tag 不符、序号回退/重放、内外帧头不一致、预认证期结束仍未收到合法密文帧。
+     *
+     * 为什么不与 [WIRE_MODE] 合成一个：出路不同。`WIRE_MODE` 是"两端不是同一版协议"
+     * （重新装一次/换回匹配的版本）；这里是"这条连接不可信"（重连即可，仍失败才说明
+     * 两端不是同一份密钥，多半是引导文件过期）。日志里再分 tag / 重放 / 不一致三种原因。
+     */
+    const val CRYPTO_FAILED: String = "BRIDGE_CRYPTO_FAILED"
 
     /** 单连接限流命中。 */
     const val RATE_LIMITED: String = "BRIDGE_RATE_LIMITED"
@@ -151,6 +164,26 @@ object BridgeCapabilities {
     // ---- 输出 ----
     const val PRINT_LABEL: String = "print.label"
     const val PRINT_SYSTEM: String = "print.system"
+
+    /**
+     * **系统通知**（通知栏 / Windows 操作中心）。
+     *
+     * 桥持续轮询未读数并发出 `notify.message` 事件，**弹通知由壳做**（"怎么弹"是平台差异）。
+     * Android 13+ 需要 `POST_NOTIFICATIONS` 运行时权限：用户拒绝时壳会**撤回**这条能力
+     * （见 `ShellBridge.revokeCapability`）——"声明即承诺"，画了开关却弹不出来更糟。
+     */
+    const val NOTIFY_SYSTEM: String = "notify.system"
+
+    /**
+     * **人机验证**（替代图形验证码）：壳能提供"只有壳看得到"的环境证据。
+     *
+     * 声明它意味着两件事：① 界面可以只画一个「点击完成验证」按钮，不用再画图形码；
+     * ② 这个壳真的实现了 `HumanVerifyPort`（"声明即承诺"：声明了却拿不出证据，
+     * 界面会以为一次点击就能过，而桥只能报"缺证据"）。
+     *
+     * 注意它**不是安全能力**：本地证据只是给服务端判断的输入，放行由服务端票据决定。
+     */
+    const val HUMAN_VERIFY: String = "human.verify"
 
     // ---- 窗口 ----
     const val WINDOW_CONTROL: String = "window.control"

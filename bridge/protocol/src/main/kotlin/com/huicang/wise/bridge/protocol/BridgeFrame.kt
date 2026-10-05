@@ -67,7 +67,19 @@ class BinFrame(
     val final: Boolean = true,
 ) : BridgeFrame()
 
-/** 帧头里的关联 id；事件帧没有 id（编码时写 0 长度）。 */
+/**
+ * 握手 hello（v5）：**唯一允许明文的帧**，方向固定"壳 → 客户端"，一条连接最多一条。
+ *
+ * 只承载服务端这次的**临时公钥**（hex 的未压缩点）。它**不是协议协商** ——
+ * 版本与上限仍然只由 `__bridge.json` 与帧头表达（"协商只有一个 owner"这条纪律不破），
+ * 这里交换的只是密钥材料（见 `docs/protocol.md` 的 v5 加密层）。
+ */
+data class HelloFrame(
+    /** 服务端临时公钥：`0x04‖X(32)‖Y(32)` 的 hex（130 字符）。 */
+    val publicKeyHex: String,
+) : BridgeFrame()
+
+/** 帧头里的关联 id；事件帧与 hello 帧没有 id（编码时写 0 长度）。 */
 internal val BridgeFrame.wireId: String
     get() =
         when (this) {
@@ -76,6 +88,7 @@ internal val BridgeFrame.wireId: String
             is ErrFrame -> id
             is BinFrame -> id
             is EvtFrame -> ""
+            is HelloFrame -> ""
         }
 
 /** 请求侧附带上报（只用于日志与埋点，不参与业务判定）。 */

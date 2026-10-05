@@ -230,6 +230,19 @@ export class MockTransport implements BridgeTransport {
         expired: this.sessionExpired,
       } as T;
     }
+    /*
+     * 人机验证（内建方法）。
+     *
+     * 真桥这一条会去采集证据、算计算量证明、用设备密钥签名、再调后端要票据；
+     * 假桥什么都验不了 —— 但它**必须存在且回 `{ok:true}`**，否则开发态与冒烟里
+     * 「点击完成验证」永远失败，界面会被误判成坏的（"假桥不覆盖加密"那条口径同理）。
+     *
+     * 它**不返回票据**：真桥也不返回（票据留在桥里，由桥按用途注入业务调用）。
+     */
+    if (method === 'bridge.humanVerify') {
+      return { ok: true, purpose: ((params ?? {}) as { purpose?: string }).purpose ?? 'LOGIN' } as T;
+    }
+
     if (method === 'auth.login') {
       const p = (params ?? {}) as { username?: string };
       this.authenticated = true;
@@ -247,17 +260,10 @@ export class MockTransport implements BridgeTransport {
       return { opened: this.nfcSettingsOpens } as T;
     }
 
-    if (method === 'captcha.generate') {      return {
-        captchaId: `mock-${Date.now()}`,
-        // 内联 SVG，避免开发态再依赖网络；真后端给的是 `data:image/png;base64,…`
-        captchaImage:
-          'data:image/svg+xml;utf8,' +
-          encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48"><rect width="96" height="48" fill="#EEF1F6"/><text x="12" y="32" font-family="monospace" font-size="22" fill="#173344">8 + 5</text></svg>',
-          ),
-        expireTime: new Date(Date.now() + 120_000).toISOString(),
-      } as T;
-    }
+    /*
+     * 图形验证码的假实现（`captcha.generate`）已随整套机制删除 ——
+     * 人机验证走内建方法 `bridge.humanVerify`（见上面那段），页面不再需要任何"图"。
+     */
 
     const fixture = FIXTURES[method];
 

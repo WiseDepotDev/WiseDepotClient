@@ -1,9 +1,12 @@
 package com.huicang.wise.bridge.server
 
+import com.huicang.wise.bridge.protocol.BridgeCrypto
+import com.huicang.wise.bridge.protocol.BridgeCryptoException
 import com.huicang.wise.bridge.protocol.BridgeErrorCodes
 import com.huicang.wise.bridge.protocol.BridgeFrame
 import com.huicang.wise.bridge.protocol.BridgeProtocol
 import com.huicang.wise.bridge.protocol.BridgeWire
+import com.huicang.wise.bridge.protocol.WireKind
 import com.huicang.wise.bridge.protocol.WireRead
 import com.huicang.wise.bridge.protocol.WireReader
 import kotlinx.coroutines.CoroutineScope
@@ -61,7 +64,8 @@ class PlainWebSocketServer(
     private val port0: Int,
     /** 绑定地址，由宿主用 [BridgeHostResolver] 决定（不要硬编码 127.0.0.1）。 */
     private val host: String,
-    private val token: String,
+    /** 预共享密钥（v5；v4 里叫 token）：参与 KDF，**永不上线**。 */
+    private val psk: String,
     private val allowedOrigins: Set<String>,
     private val maxPerSecond: Int,
     private val burst: Int,
@@ -77,15 +81,23 @@ class PlainWebSocketServer(
     private val pingIntervalMs: Long = 20_000,
     /** 允许同时存在的连接数上限（超出直接关掉新来的，并留一条日志）。 */
     private val maxConnections: Int = 8,
+    /** 预认证池（v5）：**与 Netty 侧共用同一个实例**，由 [BridgeServer] 注入。 */
+    private val gate: PreAuthGate,
+    /**
+     * 预认证截止时间（毫秒，v5）：从升级成功起算，这么久还没交出合法密文帧就关掉。
+     *
+     * 自写传输没有调度器，所以这条**直接用 socket 读超时**实现：认证前 `soTimeout` 就是它，
+     * 认证后换回 [idleTimeoutMs]（两行代码，不引入线程/定时器）。
+     */
+    private val preAuthDeadlineMs: Int = 1_500,
     /**
      * 单个 WebSocket 帧的字节上限（超过就直接断开，连错误帧都不写）。
      *
-     * 取"最大合法消息 + 帧头 + 最大 id"：**消息**的结构上限由共用的
-     * [com.huicang.wise.bridge.protocol.WireReader] 按 kind 判（控制面 1MiB / 数据面 8MiB），
+     * 取"最大合法消息 + 封装开销"：**消息**的结构上限由共用的
+     * [com.huicang.wise.bridge.protocol.WireReader] 按 kind 判（v5 起是外层上限 = 内层 + 295），
      * 这里只管"别为一个声称 8MiB、实际 2GB 的帧先分配内存"。
      */
-    private val hardLimitBytes: Int =
-        BridgeWire.HARD_BIN_BYTES + BridgeWire.HEADER_BYTES + BridgeWire.MAX_ID_BYTES,
+    private val hardLimitBytes: Int = BridgeWire.sealedHardLimitFor(WireKind.BIN),
 ) {
     private val clients: MutableSet<PlainConnection> = Collections.synchronizedSet(mutableSetOf())
     private val scope = CoroutineScope(SupervisorJob())
@@ -164,18 +176,14 @@ class PlainWebSocketServer(
         if (clients.isEmpty()) {
             return
         }
-        val bytes = BridgeWire.encode(frame)
         /*
-         * **先快照、再出锁写。**
+         * v5：**每条连接各自封装**（加密后各连接的密钥不同，字节必然不同）。
          *
-         * 原先是在 `synchronized(clients)` 里逐个 `sendText`（内含 socket write + flush）：
-         * 一个不读数据的客户端就能把整个广播拖住，`stop()`（同样要在锁里关连接）也跟着卡住 ——
-         * 桥"关不掉"就是这么来的。锁内只允许做"取快照"这种 O(n) 且不阻塞的事。
-         *
-         * v4：编码只做**一次**，广播给 N 个连接的是同一份字节（v3 是每个连接各编码一遍）。
+         * 仍然保留"先快照、再出锁写"这条纪律（见下面的历史注释）：一个不读数据的客户端
+         * 不能把广播乃至 stop() 拖住。加密只是把"编码一次"变成"逐连接封装一次"。
          */
         for (connection in snapshotClients()) {
-            connection.sendMessage(bytes)
+            connection.sendFrame(frame)
         }
     }
 
@@ -207,6 +215,15 @@ class PlainWebSocketServer(
         private val writeLock = Any()
         private var out: OutputStream? = null
 
+        /** v5：本连接的加密封装（握手时建立，之后所有帧都从它过）。 */
+        private var sealed: SealedChannel? = null
+
+        /** v5：是否已经通过加密认证（第一条成功解封的帧到达时置位）。 */
+        @Volatile private var authenticated = false
+
+        /** v5：是否占着预认证位（认证成功或连接关闭时还回去，且只还一次）。 */
+        @Volatile private var pendingAuthSlot = false
+
         @Volatile private var closed = false
 
         @Volatile var lastInboundAt: Long = System.currentTimeMillis()
@@ -217,8 +234,13 @@ class PlainWebSocketServer(
         fun run() {
             try {
                 socket.tcpNoDelay = true
-                // 读超时是这一整段的前提：没有它，对端不发 FIN 时这个线程会永久阻塞
-                socket.soTimeout = idleTimeoutMs
+                /*
+                 * 读超时是这一整段的前提：没有它，对端不发 FIN 时这个线程会永久阻塞。
+                 *
+                 * v5：**认证前先用预认证截止时间**（1.5s），交出第一条合法密文帧之后再换成
+                 * 正常的读空闲上限 —— 于是"连上就不说话"最多占 1.5 秒（见 [PreAuthGate]）。
+                 */
+                socket.soTimeout = preAuthDeadlineMs
                 val input = socket.getInputStream().buffered()
                 val output = BufferedOutputStream(socket.getOutputStream())
                 out = output
@@ -227,8 +249,6 @@ class PlainWebSocketServer(
                     close()
                     return
                 }
-                // 广播只在 token/origin 与 WebSocket 升级都通过之后才加入
-                clients.add(this)
 
                 // v4：分片装配只有一份实现（BridgeWire 的 WireReader），两条传输共用它
                 val reader = WireReader()
@@ -237,8 +257,12 @@ class PlainWebSocketServer(
                         try {
                             readFrame(input)
                         } catch (e: SocketTimeoutException) {
-                            // 30 秒什么都没收到：保活线程会去 ping，这里直接判死（双保险）
-                            BridgeLog.info("[bridge] 读超时（${idleTimeoutMs}ms），关闭 $peer")
+                            // 认证前超时 = 预认证截止；认证后超时 = 读空闲。两者都判死（双保险）
+                            BridgeLog.info(
+                                "[bridge] " +
+                                    (if (authenticated) "读超时（${idleTimeoutMs}ms）" else "预认证超时（${preAuthDeadlineMs}ms）") +
+                                    "，关闭 $peer",
+                            )
                             break
                         }
                     if (frame == null) {
@@ -279,20 +303,15 @@ class PlainWebSocketServer(
                     when (val read = reader.accept(frame.payload, frame.fin)) {
                         is WireRead.NeedMore -> Unit
 
-                        is WireRead.Complete ->
-                            callHandler.handleAsync(read.message, limiter, scope) { reply ->
-                                sendMessage(BridgeWire.encode(reply))
-                            }
+                        is WireRead.Complete -> receiveMessage(read.message)
 
                         is WireRead.OverLimit -> {
                             if (!read.needsMore) {
-                                sendMessage(
-                                    BridgeWire.encode(
-                                        callHandler.errorFrame(
-                                            read.id,
-                                            BridgeErrorCodes.FRAME_TOO_LARGE,
-                                            "bridge.frameTooLarge",
-                                        ),
+                                sendFrame(
+                                    callHandler.errorFrame(
+                                        read.id,
+                                        BridgeErrorCodes.FRAME_TOO_LARGE,
+                                        "bridge.frameTooLarge",
                                     ),
                                 )
                             }
@@ -302,12 +321,14 @@ class PlainWebSocketServer(
                     }
                 }
 
-                OPCODE_TEXT ->
-                    // v4 只走二进制帧。收到文本帧说明客户端与壳不是同一版协议 ——
-                    // 明确回一个码好过"看起来连上了但什么都不对"。
-                    sendMessage(BridgeWire.encode(callHandler.wireModeFrame("")))
+                OPCODE_TEXT -> {
+                    // v5 只走二进制帧。收到文本帧说明客户端与壳不是同一版协议 ——
+                    // 明确回一个码**然后断开**（与 Netty 侧逐条一致）。
+                    sendFrame(callHandler.wireModeFrame(""))
+                    close()
+                }
 
-                OPCODE_PING -> sendFrame(OPCODE_PONG, frame.payload)
+                OPCODE_PING -> sendRawFrame(OPCODE_PONG, frame.payload)
                 OPCODE_PONG -> Unit // 保活线程只关心 lastInboundAt，在读到帧时已经刷新
                 OPCODE_CLOSE -> close()
                 else -> Unit
@@ -315,10 +336,66 @@ class PlainWebSocketServer(
         }
 
         /**
+         * 一条完整消息到达（v5：**先解封**再交给共用的处理器）。
+         *
+         * 三条分支与 Netty 侧**逐条一致**（两条传输不能有行为差异，见 [SealedChannel] 的说明）：
+         * 非密文帧 ⇒ 明文 `BRIDGE_WIRE_MODE` + 断开；解封失败 ⇒ 明文 `BRIDGE_CRYPTO_FAILED` + 断开；
+         * 解封成功 ⇒ 交给 [BridgeCallHandler]（它看到的仍是明文内层帧，与 v4 完全一致）。
+         */
+        private fun receiveMessage(message: ByteArray) {
+            val channel = sealed
+            if (channel == null) {
+                sendFrame(callHandler.wireModeFrame(BridgeWire.headerId(message)))
+                close()
+                return
+            }
+            if (!BridgeWire.isEncrypted(message)) {
+                BridgeLog.info("[bridge] 收到未加密的帧（ENC=0），按「两端不是一版协议」处理并断开")
+                sendFrame(callHandler.wireModeFrame(BridgeWire.headerId(message)))
+                close()
+                return
+            }
+            val inner =
+                try {
+                    channel.open(message)
+                } catch (e: BridgeCryptoException) {
+                    // 只记原因与序号水位，**绝不记密钥/nonce/明文**
+                    BridgeLog.info(
+                        "[bridge] 解封失败（${e.message}）：sent=${channel.sentSeq()} received=${channel.receivedSeq()} ⇒ 断开",
+                    )
+                    sendFrame(callHandler.cryptoFailedFrame(BridgeWire.headerId(message)))
+                    close()
+                    return
+                }
+            callHandler.handleAsync(inner, limiter, scope) { reply ->
+                sendFrame(reply)
+            }
+
+            /*
+             * v5：第一条**成功解封**的帧就是认证。
+             *
+             * 三件事一起做，顺序不能换：还预认证位 → 读超时换回正常的空闲上限 → 加入广播组。
+             * 第三件尤其重要：未认证连接**不该**被广播写到（它可能只是个占位的陌生连接）。
+             */
+            if (!authenticated) {
+                authenticated = true
+                if (pendingAuthSlot) {
+                    pendingAuthSlot = false
+                    gate.leave()
+                }
+                socket.soTimeout = idleTimeoutMs
+                clients.add(this)
+                BridgeLog.info("[bridge] 连接已认证：$peer（预认证池剩 ${gate.pendingCount}）")
+            }
+        }
+
+        /**
          * HTTP 升级握手。
          *
-         * 三项校验（方法/路径、一次性 token、Origin）走**两条传输共用的** [HandshakePolicy]，
+         * 三项校验（方法/路径、Origin、Sec-WebSocket-Key）走**两条传输共用的** [HandshakePolicy]，
          * 因此这里不再自己写一遍判定 —— "两条传输口径一致"从人工对照变成结构保证。
+         *
+         * v5：升级成功**不等于连上** —— 身份由"第一条合法密文帧"证明，见 [PreAuthGate]。
          */
         private fun handshake(
             input: InputStream,
@@ -339,12 +416,11 @@ class PlainWebSocketServer(
 
             val parts = requestLine.split(' ')
             val target = parts.getOrNull(1) ?: ""
+            val query = target.substringAfter('?', "")
             val decision =
                 HandshakePolicy.decide(
                     method = parts.getOrNull(0) ?: "",
                     path = target.substringBefore('?'),
-                    providedToken = parseToken(target.substringAfter('?', "")),
-                    expectedToken = token,
                     origin = headers["origin"],
                     allowedOrigins = allowedOrigins,
                     hasWebSocketKey = headers["sec-websocket-key"] != null,
@@ -355,18 +431,33 @@ class PlainWebSocketServer(
                 // 用枚举里的已知取值（未知码一律 400），杜绝把外部输入拼进响应行
                 val status =
                     when (code) {
-                        401 -> "Unauthorized"
                         403 -> "Forbidden"
                         404 -> "Not Found"
                         405 -> "Method Not Allowed"
                         else -> "Bad Request"
                     }
-                // 握手在 HTTP 层被拒：这时**还没有任何帧**，所以回普通 JSON 错误体（与 Netty 侧同形）
-                val bytes =
-                    """{"code":"${BridgeErrorCodes.UNAUTHORIZED}","messageKey":"bridge.handshakeRejected"}"""
-                        .toByteArray(Charsets.UTF_8)
+                rejectUpgrade(output, code, status)
+                return false
+            }
+
+            /*
+             * v5：握手的第二步 —— 建立加密会话。
+             *
+             * 密钥材料是查询串里的 `?k=`（客户端临时公钥，hex 未压缩点）；缺失或不在曲线上
+             * 一律 400 拒绝（与 Netty 侧同一个判定，走的是同一个 [SealedChannel.handshake]）。
+             */
+            val channel =
+                runCatching {
+                    SealedChannel.handshake(
+                        BridgeCrypto.fromHex(parseParam(query, "k") ?: ""),
+                        SealedChannel.pskBytes(psk),
+                    )
+                }.getOrNull()
+            if (channel == null) {
+                BridgeLog.info("[bridge] 握手被拒 400：缺少或非法的客户端公钥（k）")
+                val bytes = """{"code":"${BridgeErrorCodes.UNAUTHORIZED}","messageKey":"bridge.handshakeRejected"}""".toByteArray(Charsets.UTF_8)
                 output.write(
-                    ("HTTP/1.1 $code $status\r\n" +
+                    ("HTTP/1.1 400 Bad Request\r\n" +
                         "Content-Type: application/json; charset=utf-8\r\n" +
                         "Content-Length: ${bytes.size}\r\n" +
                         "Connection: close\r\n\r\n").toByteArray(Charsets.UTF_8),
@@ -375,6 +466,14 @@ class PlainWebSocketServer(
                 output.flush()
                 return false
             }
+            // 预认证池：满了明确拒绝（不排队）—— "连上不说话"不该是免费的占位手段
+            if (!gate.tryEnter()) {
+                BridgeLog.info("[bridge] 预认证连接数已达上限（${gate.pendingCount}），拒绝 $peer")
+                rejectUpgrade(output, 503, "Service Unavailable")
+                return false
+            }
+            pendingAuthSlot = true
+            sealed = channel
 
             val accept = websocketAccept(headers.getValue("sec-websocket-key"))
             output.write(
@@ -386,30 +485,73 @@ class PlainWebSocketServer(
                 ).toByteArray(Charsets.UTF_8),
             )
             output.flush()
-            BridgeLog.info("[bridge] 前端已连接：$peer")
+            BridgeLog.info("[bridge] 前端已连接（待认证）：$peer")
+
+            /*
+             * v5：握手完成后的**第一条帧必须是 hello**（明文，只承载服务端临时公钥）。
+             * 客户端在拿到它之前算不出会话密钥，所以顺序不能反过来。
+             */
+            sendMessage(channel.helloFrame)
             return true
         }
 
-        /** 从 `a=1&token=xxx` 里取出 token（百分号解码，因为 Web 侧发的是 encodeURIComponent）。 */
-        private fun parseToken(query: String): String? =
+        /** 回一个 HTTP 拒绝（**还没有任何帧**，所以是普通 JSON 错误体，与 Netty 侧同形）。 */
+        private fun rejectUpgrade(
+            output: OutputStream,
+            code: Int,
+            status: String,
+        ) {
+            val bytes =
+                """{"code":"${BridgeErrorCodes.UNAUTHORIZED}","messageKey":"bridge.handshakeRejected"}"""
+                    .toByteArray(Charsets.UTF_8)
+            output.write(
+                ("HTTP/1.1 $code $status\r\n" +
+                    "Content-Type: application/json; charset=utf-8\r\n" +
+                    "Content-Length: ${bytes.size}\r\n" +
+                    "Connection: close\r\n\r\n").toByteArray(Charsets.UTF_8),
+            )
+            output.write(bytes)
+            output.flush()
+        }
+
+        /** 从查询串里取一个参数（百分号解码，因为 Web 侧发的是 encodeURIComponent）。 */
+        private fun parseParam(
+            query: String,
+            name: String,
+        ): String? =
             query
                 .split('&')
                 .map { it.split('=', limit = 2) }
-                .firstOrNull { it.size == 2 && it[0] == "token" }
+                .firstOrNull { it.size == 2 && it[0] == name }
                 ?.get(1)
                 ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }
 
-        /** 发一条**已编码好的** v4 二进制消息（编码只做一次，广播时尤其重要）。 */
+        /** 发一条**已编码好的** v4/v5 二进制消息（hello 用它：明文，握手时还没密钥）。 */
         fun sendMessage(bytes: ByteArray) {
-            sendFrame(OPCODE_BINARY, bytes)
+            sendRawFrame(OPCODE_BINARY, bytes)
+        }
+
+        /**
+         * v5：发一条逻辑帧 —— **编码、封装、写出都在这里**（与 Netty 侧同一口径）。
+         *
+         * 走 [SealedChannel.sealAndSend]：取号与写出在同一个临界区。少了这一条，
+         * 并发回复会反过来上线，接收端按"序号回退"丢弃整条连接（实测现场就是"反复重连"）。
+         */
+        fun sendFrame(frame: BridgeFrame) {
+            val channel = sealed
+            if (channel == null) {
+                BridgeLog.info("[bridge] 连接没有加密封装，丢弃一条出站帧")
+                return
+            }
+            channel.sealAndSend(frame) { bytes -> sendMessage(bytes) }
         }
 
         /** 保活用：空 payload 的 ping。浏览器会按规范自动回 pong。 */
         fun sendPing() {
-            sendFrame(OPCODE_PING, EMPTY_PAYLOAD)
+            sendRawFrame(OPCODE_PING, EMPTY_PAYLOAD)
         }
 
-        private fun sendFrame(
+        private fun sendRawFrame(
             opcode: Int,
             payload: ByteArray,
         ) {
@@ -446,10 +588,30 @@ class PlainWebSocketServer(
             }
         }
 
+        /**
+         * 关闭这条连接（幂等）。
+         *
+         * **先按规范发一个 WebSocket Close 帧，再关 TCP** —— 这一步两条传输必须一致：
+         * Netty 侧的 `WebSocketServerProtocolHandler` 会在 `ctx.close()` 时代发 Close 帧，
+         * 而这里如果只 `socket.close()`，对端看到的是**异常断开**（浏览器报 1006），
+         * 于是"服务端主动关闭"这件在两边语义不同的事，在客户端变成了两种现象。
+         * 这是 `pnpm check:bridge` 里那条"两条传输逐条一致"的用例逼出来的。
+         */
         fun close() {
+            if (!closeOnce.compareAndSet(false, true)) {
+                return
+            }
             closed = true
+            // v5：没认证就关掉 —— 把预认证位还回去，否则"连一下就断"会把池耗光
+            if (!authenticated && pendingAuthSlot) {
+                pendingAuthSlot = false
+                gate.leave()
+            }
+            runCatching { sendRawFrame(OPCODE_CLOSE, EMPTY_PAYLOAD) }
             runCatching { socket.close() }
         }
+
+        private val closeOnce = java.util.concurrent.atomic.AtomicBoolean(false)
     }
 
     // ------------------------------------------------------------ 帧编解码

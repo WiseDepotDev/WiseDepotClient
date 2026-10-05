@@ -40,9 +40,12 @@ object FrameBudget {
      *
      * 比任何一个**消息**上限都宽松一点：帧上限只是"别为一个撒谎的长度先分配内存"，
      * 真正的消息级判定在共用的 [com.huicang.wise.bridge.protocol.WireReader]。
+     *
+     * v5：线上那条消息是**外层**（头 + nonce + 密文 + tag），所以这里取
+     * `sealedHardLimitFor`（内层上限 + 295），而不是内层上限本身。
      */
-    const val MAX_FRAME_ON_WIRE: Int =
-        BridgeProtocol.MAX_BIN_BYTES + BridgeWire.HEADER_BYTES + BridgeWire.MAX_ID_BYTES
+    val MAX_FRAME_ON_WIRE: Int =
+        BridgeWire.sealedHardLimitFor(com.huicang.wise.bridge.protocol.WireKind.BIN)
 }
 
 /**
@@ -67,6 +70,13 @@ object FrameBudget {
  */
 class BridgeCallHandler(
     private val dispatcher: BridgeDispatcher,
+    /**
+     * 每次**真的转发了一条业务请求**（前置检查通过、进了分发）时回调。
+     *
+     * 用途只有一个：让未读消息轮询器 [UnreadNotifier] 立刻补算一次（"有人在用"的时刻
+     * 反应该是秒级，而不是等下一个 10 秒周期）。被拒的帧不会走到这里 —— 那本来就不是"有人在用"。
+     */
+    private val onDispatched: (method: String) -> Unit = {},
 ) {
     /** 前置检查的结论。 */
     sealed interface Preflight {
@@ -125,6 +135,8 @@ class BridgeCallHandler(
         request: ReqFrame,
         requestId: String,
     ): BridgeFrame {
+        // "有人在用"的信号：未读轮询器据此立刻补算一次（节流在它自己那里）
+        onDispatched(request.method)
         val outcome =
             try {
                 dispatcher.dispatch(request.method, request.params, requestId)
@@ -217,6 +229,15 @@ class BridgeCallHandler(
      */
     fun wireModeFrame(id: String): BridgeFrame =
         errorFrame(id, BridgeErrorCodes.WIRE_MODE, "bridge.wireMode")
+
+    /**
+     * 加密层失败（v5）：tag 不符、序号回退/重放、内外帧头不一致。
+     *
+     * 与 [wireModeFrame] 分开：那一个是"两端不是同一版协议"（出路是重装/换版本），
+     * 这一个是"这条连接不可信"（出路是重连；仍失败才说明两端不是同一份密钥）。
+     */
+    fun cryptoFailedFrame(id: String): BridgeFrame =
+        errorFrame(id, BridgeErrorCodes.CRYPTO_FAILED, "bridge.cryptoFailed")
 
     /** 供传输层复用的"未就绪"响应（自写传输在桥没起来时会用到）。 */
     fun unauthorizedFrame(): BridgeFrame =

@@ -740,13 +740,16 @@ export class DomainMock {
         }
         return row as T;
       }
-      case 'tag.batchBindWithCaptcha': {
+      case 'tag.batchBind': {
         const tagIds = Array.isArray(p['tagIds']) ? (p['tagIds'] as number[]) : [];
         const productId = id('productId');
-        const captchaCode = String(p['captchaCode'] ?? '').trim();
-        if (captchaCode === '') {
-          throw new BridgeError({ code: 'AUTH-0003', messageKey: 'error.captcha', details: '验证码不能为空' });
-        }
+        /*
+         * 人机验证票据由**桥**注入，页面根本不传它，所以假桥这里验不了。
+         *
+         * 真服务端（`TagApplicationService.batchBindTags` 的第一行）会校验票据、缺失即拒 ——
+         * 也就是说"没验证就绑定会被拒"这条**在开发态验不到**，别把它当成已验证的行为。
+         * 假桥能做的是：方法名与真契约对齐（`tag.batchBind`），并在 `bridge.humanVerify` 上回 ok。
+         */
         const product = this.products.find((x) => x.productId === productId);
         for (const t of this.tags) {
           if (tagIds.includes(t.tagId)) {

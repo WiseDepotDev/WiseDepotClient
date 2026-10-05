@@ -28,8 +28,8 @@ function isBootstrap(value: unknown): value is BridgeBootstrap {
     Number.isInteger(v.port) &&
     v.port > 0 &&
     v.port <= 65535 &&
-    typeof v.token === 'string' &&
-    v.token.length > 0 &&
+    typeof v.psk === 'string' &&
+    v.psk.length >= 16 &&
     typeof v.platform === 'string' &&
     typeof v.ver === 'string' &&
     typeof v.protocol === 'number' &&

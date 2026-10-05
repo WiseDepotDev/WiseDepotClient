@@ -6,8 +6,8 @@
  * `@wise/contract` 从服务端注解生成。若帧结构发生不兼容变化，协议版本必须 +1，这里同步改。
  */
 
-/** 与 `BridgeProtocol.VERSION` 一致。v4 起线格式是全二进制帧（见 `wire.ts`）。 */
-export const BRIDGE_PROTOCOL_VERSION = 4 as const;
+/** 与 `BridgeProtocol.VERSION` 一致。v4 起线格式是全二进制帧；v5 起帧内容全加密（见 `wire.ts` / `seal.ts`）。 */
+export const BRIDGE_PROTOCOL_VERSION = 5 as const;
 
 /** 控制面正文上限，与 `BridgeProtocol.MAX_FRAME_BYTES` 一致。 */
 export const MAX_FRAME_BYTES = 256 * 1024;
@@ -53,8 +53,13 @@ export interface BridgeBootstrap {
   readonly host?: string;
   /** 桥监听的临时端口。 */
   readonly port: number;
-  /** 本次启动新生成的一次性握手 token。 */
-  readonly token: string;
+  /**
+   * **预共享密钥**（v5；v4 里叫 `token`）：每次启动新生成 256-bit（base64url 43 个字符）。
+   *
+   * 它参与会话密钥的 KDF，因此"能产出合法密文帧"就是身份证明 ——
+   * **它自己永不上线**（v4 是挂在 WS 查询串上，会被日志与抓包带走）。
+   */
+  readonly psk: string;
   readonly platform: string;
   readonly ver: string;
   readonly protocol: number;
@@ -138,7 +143,18 @@ export interface BinFrame {
   readonly final: boolean;
 }
 
-export type BridgeFrame = ReqFrame | ResFrame | ErrFrame | EvtFrame | BinFrame;
+/**
+ * 握手 hello（v5）：**唯一允许明文的帧**，壳 → 客户端，一条连接最多一条。
+ *
+ * 只承载服务端这次的临时公钥（hex 未压缩点）。它**不是协商** —— 版本与上限仍只由
+ * `__bridge.json` 与帧头表达；这里交换的只是密钥材料（见 `seal.ts`）。
+ */
+export interface HelloFrame {
+  readonly type: 'hello';
+  readonly publicKeyHex: string;
+}
+
+export type BridgeFrame = ReqFrame | ResFrame | ErrFrame | EvtFrame | BinFrame | HelloFrame;
 
 /** 桥错误码，与 Kotlin `BridgeErrorCodes` 一致。 */
 export const BridgeErrorCode = {
@@ -153,6 +169,13 @@ export const BridgeErrorCode = {
    * 而不是"参数写错了" —— 两者的处理人不同。
    */
   WIRE_MODE: 'BRIDGE_WIRE_MODE',
+  /**
+   * 加密层失败（v5）：tag 不符、序号回退/重放、内外帧头不一致。
+   *
+   * 与 `WIRE_MODE` 分开：那个是"两端不是同一版协议"（重装），
+   * 这个是"这条连接不可信"（重连即可；仍失败才说明两端不是同一份密钥）。
+   */
+  CRYPTO_FAILED: 'BRIDGE_CRYPTO_FAILED',
   /*
    * 相机类错误（B1）。三个分开是因为它们给用户的**出路不同**：
    * 没有设备只能换设备/放弃；权限被拒要去系统设置；被占用要关掉别的程序再重试。
@@ -186,6 +209,21 @@ export const Capability = {
   RFID_READER: 'rfid.reader',
   PRINT_LABEL: 'print.label',
   PRINT_SYSTEM: 'print.system',
+  /**
+   * 系统级消息通知（Windows Toast / Android 通知栏，v7/通知）。
+   *
+   * 它不是 Web 能力 —— 弹通知的是**壳进程**，页面自己弹不了系统通知。
+   * 但它必须出现在能力表里：界面据此才知道"这台机器会弹通知"，否则只能靠猜，
+   * 而猜错的表现是用户永远收不到通知且没有任何报错。
+   */
+  NOTIFY_SYSTEM: 'notify.system',
+  /**
+   * 人机验证（替代图形验证码）：壳能提供"只有壳看得到"的环境证据。
+   *
+   * 界面据此决定是画「点击完成验证」还是画图形码 —— 但**放行判据在服务端**，
+   * 本地证据只是输入。别把它当成安全能力写进文案。
+   */
+  HUMAN_VERIFY: 'human.verify',
   WINDOW_CONTROL: 'window.control',
   WINDOW_MULTI: 'window.multi',
   FILE_DIALOG: 'file.dialog',

@@ -29,5 +29,17 @@ object BridgeBuiltins {
      */
     const val METRICS: String = "bridge.metrics"
 
-    val all: Set<String> = setOf(PING, CAPABILITIES, SESSION, METRICS)
+    /**
+     * 人机验证：让 Web **请求**一次验证（`{purpose, username?, evidence?}` → `{ok}`）。
+     *
+     * 为什么是内建方法而不是后端路由：它跨了"客户端网络"这一层 ——
+     * 桥要先向壳要证据、再算计算量证明、然后用设备私钥签名，最后才调后端的
+     * `human.challenge` / `human.verify`。把它做成一条后端路由等于让 Web 自己去做这三件事，
+     * 而其中两件（设备私钥、壳证据）Web 根本做不到。
+     *
+     * **返回里没有票据**：票据留在桥里，由桥在业务调用时注入（见 `HumanPurposeByMethod`）。
+     */
+    const val HUMAN_VERIFY: String = "bridge.humanVerify"
+
+    val all: Set<String> = setOf(PING, CAPABILITIES, SESSION, METRICS, HUMAN_VERIFY)
 }

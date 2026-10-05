@@ -10,7 +10,8 @@ import { EventEmitter } from 'node:events';
  * main.ts 只负责把它接到窗口上。
  *
  * 三条硬约定：
- * 1. **token 从 stdout 读，不走 argv** —— argv 对本机其它用户可见；
+ * 1. **psk 从 stdout 读，不走 argv** —— argv 对本机其它用户可见（v5 起它也叫 psk：
+ *    不再挂在握手 URL 上，只经 stdout → 引导文件 → 页面）；
  * 2. **stdin 是"父进程还活着"的信号** —— Electron 崩溃时子进程会因 stdin EOF 自行退出，
  *    不依赖父进程有机会执行清理代码（这点很关键：崩溃时没有 before-quit）；
  * 3. **异常退出才重启**，主动 stop 不算崩溃（否则退出时会自我复活）。
@@ -20,7 +21,8 @@ export interface BridgeHandshake {
   readonly v: number;
   readonly host: string;
   readonly port: number;
-  readonly token: string;
+  /** v5：预共享密钥（v4 里叫 token）—— 参与 KDF，**永不上线**。 */
+  readonly psk: string;
   readonly pid: number;
   readonly ver: string;
   readonly platform: string;
@@ -51,6 +53,13 @@ export interface BridgeProcessOptions {
   readonly restart?: Partial<RestartPolicy>;
   /** jlink 运行时的额外 JVM 参数（启动优化写在这里，不写死在宿主里）。 */
   readonly jvmArgs?: readonly string[];
+  /**
+   * 桥向壳索要**本地环境证据**时的回答者（人机验证用）。
+   *
+   * 返回的字段必须是**壳能看见的事实**（`shellPackaged` / `debugAttached` …），
+   * 不许返回"我判定为真人"这类结论 —— 判定在服务端。
+   */
+  readonly evidenceProvider?: () => Record<string, unknown>;
 }
 
 export type BridgeProcessState = 'idle' | 'starting' | 'running' | 'restarting' | 'stopped' | 'failed';
@@ -145,7 +154,13 @@ export class BridgeProcess extends EventEmitter {
       // "有没有得选"这件事由**界面**按枚举结果把关（`cameras.length > 1` 才画选择器），
       // 能力位表达的是"这个宿主具备枚举并选择的能力"。
       '--capabilities',
-      'storage.secure,scan.gun.keyboard,scan.camera,scan.camera.select',
+      // `notify.system`（v7/通知）：**系统通知**由 Electron 主进程弹（不是一个 Web 能力，
+      // 但它必须如实出现在能力表里 —— UI 据此才知道"这台机器会弹通知"）。
+      //
+      // `human.verify`（人机验证）：主进程能回答"是不是发布包/有没有挂调试器"
+      // （见 `humanVerify.ts`）。**声明即承诺**：声明了就必须能答 ——
+      // 所以它与 `evidenceProvider` 是同一批加的，两者不许只加一个。
+      'storage.secure,scan.gun.keyboard,scan.camera,scan.camera.select,notify.system,human.verify',
       ...extraArgs,
     ];
 
@@ -159,33 +174,67 @@ export class BridgeProcess extends EventEmitter {
     });
 
     return new Promise<BridgeHandshake>((resolve, reject) => {
-      let buffer = '';
       const timeoutMs = this.options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
       const timer = setTimeout(() => {
         child.kill();
         reject(new Error(`桥握手超时（${timeoutMs}ms）\n${stderr.slice(-800)}`));
       }, timeoutMs);
 
+      /*
+       * stdout 上现在有**两种行**（见 `host-desktop/Main.kt`）：握手一行，之后是事件。
+       *
+       * 所以这里是"按行一直解析"，而不是"找到第一行 JSON 就停"：
+       * 旧写法在握手之后 `return`，会把事件行整条丢掉（通知永远不弹，而且不报错）。
+       * 另外必须自己拼行缓冲：一次 `data` 可能只到半行。
+       */
+      let stdoutBuffer = '';
       child.stdout.on('data', (d: Buffer) => {
-        if (this.handshake) {
-          return;
-        }
-        buffer += d.toString();
-        const line = buffer.split('\n').find((l) => l.trim().startsWith('{'));
-        if (!line) {
-          return;
-        }
-        try {
-          const hs = JSON.parse(line) as BridgeHandshake;
+        stdoutBuffer += d.toString();
+        const parts = stdoutBuffer.split('\n');
+        stdoutBuffer = parts.pop() ?? '';
+        for (const raw of parts) {
+          const line = raw.trim();
+          if (line === '' || !line.startsWith('{')) {
+            continue;
+          }
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            // 不是 JSON 就忽略（stdout 上不该有别的东西，但为它炸掉握手不值得）
+            continue;
+          }
+          if (parsed.type === 'event') {
+            this.emit('event', { topic: String(parsed.topic ?? ''), data: parsed.data ?? null });
+            continue;
+          }
+          /*
+           * 桥问壳要"本地环境证据"（人机验证用）：`{"v":1,"type":"evidence-request","id":"ev-1"}`。
+           *
+           * 这是一条**请求/响应**，与事件不同：必须**回**一条到 child.stdin，否则桥那边会等到超时
+           * （超时它按"空证据"继续，不会拒绝 —— 但那样服务端就少了一份输入）。
+           * 回包里的 data 只放事实字段，不放结论。
+           */
+          if (parsed.type === 'evidence-request') {
+            const id = String(parsed.id ?? '');
+            const data = this.options.evidenceProvider?.() ?? {};
+            try {
+              this.child?.stdin.write(`${JSON.stringify({ v: 1, id, data })}\n`);
+            } catch (e) {
+              this.emit('log', `[bridge] 回证据失败：${String(e)}\n`);
+            }
+            continue;
+          }
+          // 握手：显式标了 `type`，但**老 jar 没有这个字段** —— 用"有没有 port/psk"兜住
+          if (this.handshake || parsed.port === undefined || parsed.psk === undefined) {
+            continue;
+          }
+          const hs = parsed as unknown as BridgeHandshake;
           this.handshake = hs;
           clearTimeout(timer);
           this.setState('running');
           this.emit('ready', hs);
           resolve(hs);
-        } catch (e) {
-          clearTimeout(timer);
-          child.kill();
-          reject(new Error(`握手不是合法 JSON：${line.slice(0, 200)}`));
         }
       });
 

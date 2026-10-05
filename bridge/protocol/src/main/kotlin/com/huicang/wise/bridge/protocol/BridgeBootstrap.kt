@@ -9,7 +9,9 @@ import kotlinx.serialization.Serializable
  * - 桌面：Electron `protocol.handle("app", …)` 动态生成 `app://wise/__bridge.json`
  * - 手机：`WebViewAssetLoader` 动态生成 `https://appassets.androidplatform.net/__bridge.json`
  *
- * **token 只在这里出现一次**，此后 Web 的每次 WS 握手带上它；业务令牌永不进入 JS 上下文。
+ * **psk 只在这里出现一次，而且永不上线**（v5）：它用于派生会话密钥（见 `BridgeCrypto`），
+ * 不再像 v4 那样挂在 WebSocket 的查询串上 —— 于是"握手被谁看见了"不再等于"密钥泄露"。
+ * 业务令牌永不进入 JS 上下文（那条纪律不变，见 `SessionManager`）。
  */
 @Serializable
 data class BridgeBootstrap(
@@ -24,8 +26,13 @@ data class BridgeBootstrap(
      * 把"环境假设"固化进协议，等于把某个平台的特例变成所有平台的规则。
      */
     val host: String = BridgeProtocol.LOOPBACK_HOST,
-    /** 本次启动新生成的一次性握手 token（256-bit）。 */
-    val token: String,
+    /**
+     * **预共享密钥**（v5；v4 里叫 `token`）：每次启动新生成 256-bit，base64url 后是 43 个字符。
+     *
+     * 两个用途，且只有两个：① 参与 KDF（`K_conn = HMAC(psk, …)`，没有它算不出会话密钥）；
+     * ② 因此"能产出合法 AEAD 帧"就是身份证明 —— 握手 URL 上不需要再放任何凭据。
+     */
+    val psk: String,
     /** [BridgeCapabilities.PLATFORM_DESKTOP] 或 [BridgeCapabilities.PLATFORM_MOBILE]。 */
     val platform: String,
     /** 宿主版本号，与 [BridgeProtocol.VERSION] 区分：前者是产品版本，后者是协议版本。 */

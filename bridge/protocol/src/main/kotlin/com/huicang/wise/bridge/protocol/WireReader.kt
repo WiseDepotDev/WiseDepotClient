@@ -90,7 +90,14 @@ class WireReader {
     /** 超限错误回包要用的 id（尽力而为；抠不到为空串）。 */
     fun idForError(): String = BridgeWire.headerId(head)
 
-    private fun limitFor(kind: Int): Int = BridgeWire.hardLimitFor(kind)
+    /**
+     * 这条消息的结构上限。
+     *
+     * v5：装配的是**外层**消息（12 字节头明文 + 密文正文），所以要用
+     * [BridgeWire.sealedHardLimitFor]（= 内层上限 + 外层头 + 最大 id + nonce + tag）。
+     * 少算这 295 字节的表现是"大图偶尔发不出去"——很难查，所以算术只在 `BridgeWire` 里写一次。
+     */
+    private fun limitFor(kind: Int): Int = BridgeWire.sealedHardLimitFor(kind)
 
     private companion object {
         const val INITIAL_CAPACITY = 4096
@@ -99,7 +106,7 @@ class WireReader {
         const val HEAD_LIMIT = BridgeWire.HEADER_BYTES + BridgeWire.MAX_ID_BYTES
 
         /** kind 未知时的保守上限（控制面）。 */
-        val FALLBACK_LIMIT = BridgeWire.HARD_CONTROL_BYTES
+        val FALLBACK_LIMIT = BridgeWire.sealedHardLimitFor(WireKind.REQ)
     }
 }
 

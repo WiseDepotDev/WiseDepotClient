@@ -567,19 +567,17 @@ export class MeMock {
         row.updatedAt = nowIso();
         return {} as T;
       }
-      case 'user.deleteWithCaptcha': {
+      case 'user.deleteWithVerify': {
         const row = this.findUser(num('userId'));
         if (!row) {
           throw new BridgeError({ code: 'RES-0004', messageKey: 'error.notFound', details: '用户不存在' });
         }
         /*
-         * 真服务端会拿 `captchaId` + `captchaCode` 去校验会话里那次验证码；
-         * 假桥没有会话，只做"非空"这一道（与库存域的 `tag.batchBindWithCaptcha` 同一口径），
-         * 所以"验证码填错会被拒"这条**在开发态验不到**，别把它当成已验证的行为。
+         * 人机验证票据由**桥**注入（页面不传），所以假桥这里没有可校验的东西。
+         *
+         * 真服务端会校验票据、缺失即拒 —— "没验证就删不掉"这条**在开发态验不到**。
+         * 与库存域 `tag.batchBind` 同一口径；别把"假桥放行"读成"真后端也放行"。
          */
-        if (str('captchaCode') === '') {
-          throw new BridgeError({ code: 'VAL-0001', messageKey: 'error.validation', details: '验证码不能为空' });
-        }
         const index = this.users.findIndex((u) => u.userId === row.userId);
         this.users.splice(index, 1);
         this.userRoles.delete(row.userId);

@@ -59,7 +59,7 @@ object BridgeContract {
         val keepPathParamsInBody: Boolean,
     )
 
-    /** 暴露给 Web 的方法共 167 条。 */
+    /** 暴露给 Web 的方法共 165 条。 */
     val methods: List<Method> =
         listOf(
             Method("accessKey.auditLogs", Domain.ME, "GET", "/api/access-keys/{keyId}/audit-logs", "UNKNOWN", true, ParamStyle.QUERY, false),
@@ -84,8 +84,6 @@ object BridgeContract {
             Method("auth.logout", Domain.SYSTEM, "POST", "/api/auth/logout", "AUTH_LOGOUT", true, ParamStyle.BODY, false),
             Method("auth.nfcLogin", Domain.SYSTEM, "POST", "/api/auth/nfc-login", "AUTH_NFC_LOGIN", true, ParamStyle.BODY, false),
             Method("auth.nfcPinLogin", Domain.SYSTEM, "POST", "/api/auth/nfc-pin-login", "AUTH_NFC_PIN_LOGIN", true, ParamStyle.BODY, false),
-            Method("captcha.generate", Domain.SYSTEM, "POST", "/api/captcha/generate", "UNKNOWN", true, ParamStyle.BODY, false),
-            Method("captcha.verify", Domain.SYSTEM, "POST", "/api/captcha/verify", "UNKNOWN", true, ParamStyle.BODY, false),
             Method("dashboard.summary", Domain.OVERVIEW, "GET", "/api/dashboard/summary", "DASHBOARD_SUMMARY", true, ParamStyle.QUERY, false),
             Method("device.byCode", Domain.FIELD, "GET", "/api/device/code/{deviceCode}", "DEVICE_DETAIL", true, ParamStyle.QUERY, false),
             Method("device.config", Domain.FIELD, "GET", "/api/device/config", "DEVICE_CONFIG", true, ParamStyle.QUERY, false),
@@ -103,6 +101,8 @@ object BridgeContract {
             Method("file.list", Domain.SYSTEM, "GET", "/api/files", "UNKNOWN", true, ParamStyle.QUERY, false),
             Method("file.presignedUrl", Domain.SYSTEM, "GET", "/api/files/{fileId}/presigned-url", "UNKNOWN", true, ParamStyle.QUERY, false),
             Method("file.upload", Domain.SYSTEM, "POST", "/api/files/upload", "UNKNOWN", true, ParamStyle.QUERY, false),
+            Method("human.challenge", Domain.SYSTEM, "POST", "/api/human/challenge", "UNKNOWN", true, ParamStyle.BODY, false),
+            Method("human.verify", Domain.SYSTEM, "POST", "/api/human/verify", "UNKNOWN", true, ParamStyle.BODY, false),
             Method("i18n.languages", Domain.SYSTEM, "GET", "/api/i18n/languages", "UNKNOWN", true, ParamStyle.QUERY, false),
             Method("i18n.translate", Domain.SYSTEM, "GET", "/api/i18n/translate", "UNKNOWN", true, ParamStyle.QUERY, false),
             Method("i18n.translations", Domain.SYSTEM, "GET", "/api/i18n/translations", "UNKNOWN", true, ParamStyle.QUERY, false),
@@ -198,7 +198,6 @@ object BridgeContract {
             Method("stockOrder.withdraw", Domain.INVENTORY, "POST", "/api/stock-orders/{orderId}/withdraw", "UNKNOWN", true, ParamStyle.BODY, false),
             Method("sync.data", Domain.SYSTEM, "POST", "/api/sync/data", "UNKNOWN", true, ParamStyle.BODY, false),
             Method("tag.batchBind", Domain.INVENTORY, "POST", "/api/tag/batch-bind", "TAG_BATCH_BIND", true, ParamStyle.BODY, false),
-            Method("tag.batchBindWithCaptcha", Domain.INVENTORY, "POST", "/api/tag/batch-bind-with-captcha", "TAG_BATCH_BIND", true, ParamStyle.BODY, false),
             Method("tag.batchQuery", Domain.INVENTORY, "POST", "/api/tag/batch-query", "TAG_LIST", true, ParamStyle.BODY, false),
             Method("tag.batchUnbind", Domain.INVENTORY, "POST", "/api/tag/batch-unbind", "TAG_BATCH_UNBIND", true, ParamStyle.BODY, false),
             Method("tag.bind", Domain.INVENTORY, "POST", "/api/tag/{tagId}/bind", "TAG_BIND", true, ParamStyle.QUERY, false),
@@ -216,8 +215,7 @@ object BridgeContract {
             Method("user.clearRoles", Domain.ME, "DELETE", "/api/users/{userId}/roles", "UNKNOWN", true, ParamStyle.QUERY, false),
             Method("user.create", Domain.ME, "POST", "/api/users", "USER_CREATE", true, ParamStyle.BODY, false),
             Method("user.current", Domain.ME, "GET", "/api/users/current", "USER_CURRENT", true, ParamStyle.QUERY, false),
-            Method("user.delete", Domain.ME, "DELETE", "/api/users/{userId}", "USER_DELETE", true, ParamStyle.QUERY, false),
-            Method("user.deleteWithCaptcha", Domain.ME, "POST", "/api/users/{userId}/delete-with-captcha", "USER_DELETE", true, ParamStyle.BODY, false),
+            Method("user.deleteWithVerify", Domain.ME, "POST", "/api/users/{userId}/delete", "USER_DELETE", true, ParamStyle.BODY, false),
             Method("user.detail", Domain.ME, "GET", "/api/users/{userId}", "USER_DETAIL", true, ParamStyle.QUERY, false),
             Method("user.list", Domain.ME, "GET", "/api/users", "USER_LIST", true, ParamStyle.QUERY, false),
             Method("user.removeRole", Domain.ME, "DELETE", "/api/users/{userId}/roles/{roleId}", "UNKNOWN", true, ParamStyle.QUERY, false),

@@ -155,10 +155,12 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
 
   const bootstrap: BridgeBootstrap = {
     port: 0,
-    token: 'mock',
+    // v5：psk 是"预共享密钥"（真宿主每次启动新生成）；这里给一个形状真实（43 字符）的假值 ——
+    // 假桥不跑加密，但形状要对，免得"假桥的形状"和真宿主越差越远
+    psk: 'mock-psk-0123456789abcdefghijklmnopqrstuvwxyz01',
     platform: 'browser',
     ver: '0.0.0-mock',
-    protocol: 4,
+    protocol: 5,
     limits: { textMaxBytes: 256 * 1024, binMaxBytes: 8 * 1024 * 1024 },
     capabilities: [
       'storage.secure',
@@ -177,6 +179,15 @@ export async function createBridge(options: CreateBridgeOptions = {}): Promise<C
       // （`getUserMedia` + ZXing-wasm），宿主只提供权限与能力位。所以 pnpm dev 里
       // 可以完整走一遍"点条码框里的相机图标 → 扫到码填进框"。
       'scan.gun.keyboard',
+      /*
+       * 人机验证（`human.verify`）：**假桥真的能"完成"一次验证** ——
+       * `MockTransport` 里 `bridge.humanVerify` 回 `{ok:true}`，所以开发态与冒烟里
+       * 「点击完成验证」这条路是真的通的（不声明的话按钮会被正确禁用，整个登录走不下去）。
+       *
+       * 注意假桥**验不了任何东西**：票据由桥注入、证据由壳与页面采集，这里只是走通界面。
+       * 真实验证由服务端 `HumanVerifyApplicationService` 负责。
+       */
+      'human.verify',
       // 上面这些是**浏览器里真的做得到**的；做不到的那些（NFC、打印、系统窗口控制）
       // 一律不在这里 —— 声明了做不到的能力就是"假通过"的来源。
       // 需要在开发态验它们的**界面**时，用下面的 `?simulate=` 显式模拟（见 simulatedCapabilities）。
